@@ -4,6 +4,15 @@ import * as React from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
+import {
+  LayoutDashboard,
+  Users,
+  UserCheck,
+  Package,
+  ClipboardList,
+  Wallet,
+  FireExtinguisher,
+} from "lucide-react";
 import { usePathname } from "next/navigation";
 
 export interface NavItem {
@@ -14,14 +23,56 @@ export interface NavItem {
   badge?: string;
 }
 
+const NAV_ITEMS: NavItem[] = [
+  {
+    title: "Dashboard",
+    href: "/dashboard",
+    icon: LayoutDashboard,
+  },
+  {
+    title: "Usuários",
+    href: "/dashboard/usuarios",
+    icon: Users,
+    roles: ["admin"],
+  },
+  {
+    title: "Clientes",
+    href: "/dashboard/clientes",
+    icon: UserCheck,
+    roles: ["admin", "comercial", "financeiro"],
+  },
+  {
+    title: "Produtos & Serviços",
+    href: "/dashboard/produtos",
+    icon: Package,
+    roles: ["admin", "comercial"],
+  },
+  {
+    title: "Ordens de Serviço",
+    href: "/dashboard/os",
+    icon: ClipboardList,
+  },
+  {
+    title: "Financeiro",
+    href: "/dashboard/financeiro",
+    icon: Wallet,
+    roles: ["admin", "financeiro"],
+  },
+  {
+    title: "Extintores",
+    href: "/dashboard/extintores",
+    icon: FireExtinguisher,
+    roles: ["admin", "tecnico", "cliente"],
+  },
+];
+
 interface NavMainProps {
-  items: NavItem[];
   role: string;
 }
 
-export function NavMain({ items, role }: NavMainProps) {
+export function NavMain({ role }: NavMainProps) {
   const pathname = usePathname();
-  const filtered = items.filter(
+  const filtered = NAV_ITEMS.filter(
     (i) => !i.roles || i.roles.length === 0 || i.roles.includes(role)
   );
 

@@ -1,54 +1,10 @@
 import Link from "next/link";
-import { Flame, LayoutDashboard, Users, UserCheck, Package, ClipboardList, Wallet, FireExtinguisher, Settings } from "lucide-react";
-import type { NavItem } from "./nav-main";
+import { Flame, Settings } from "lucide-react";
 import { NavMain, NavSectionTitle } from "./nav-main";
 import { UserNav } from "./user-nav";
 import type { Profile } from "@/lib/types";
 import { ROLE_LABELS, ROLE_COLORS } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
-
-export const NAV_ITEMS: NavItem[] = [
-  {
-    title: "Dashboard",
-    href: "/dashboard",
-    icon: LayoutDashboard,
-  },
-  {
-    title: "Usuários",
-    href: "/dashboard/usuarios",
-    icon: Users,
-    roles: ["admin"],
-  },
-  {
-    title: "Clientes",
-    href: "/dashboard/clientes",
-    icon: UserCheck,
-    roles: ["admin", "comercial", "financeiro"],
-  },
-  {
-    title: "Produtos & Serviços",
-    href: "/dashboard/produtos",
-    icon: Package,
-    roles: ["admin", "comercial"],
-  },
-  {
-    title: "Ordens de Serviço",
-    href: "/dashboard/os",
-    icon: ClipboardList,
-  },
-  {
-    title: "Financeiro",
-    href: "/dashboard/financeiro",
-    icon: Wallet,
-    roles: ["admin", "financeiro"],
-  },
-  {
-    title: "Extintores",
-    href: "/dashboard/extintores",
-    icon: FireExtinguisher,
-    roles: ["admin", "tecnico", "cliente"],
-  },
-];
 
 interface DashboardShellProps {
   children: React.ReactNode;
@@ -76,7 +32,7 @@ export async function DashboardShell({ children, profile }: DashboardShellProps)
 
           <div className="flex-1 overflow-y-auto py-3">
             <NavSectionTitle>Início</NavSectionTitle>
-            <NavMain items={NAV_ITEMS} role={profile.role} />
+            <NavMain role={profile.role} />
           </div>
 
           <div className="border-t border-border/60 p-3">
