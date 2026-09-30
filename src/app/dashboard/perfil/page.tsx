@@ -1,19 +1,30 @@
-import { PagePlaceholder } from "@/components/layout/page-placeholder";
-import { Settings } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { ProfilePageClient } from "./profile-page-client";
+import type { Profile } from "@/lib/types";
+
+export const dynamic = "force-dynamic";
+
+async function getProfile(userId: string): Promise<Profile | null> {
+  const supabase = createClient();
+  try {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", userId)
+      .single();
+    if (error) return null;
+    return data as Profile;
+  } catch {
+    return null;
+  }
+}
 
 export default async function PerfilPage() {
   const supabase = createClient();
   const { data } = await supabase.auth.getUser();
-  const email = data?.user?.email || "seu@email.com";
+  const user = data?.user;
+  const email = user?.email || "seu@email.com";
+  const profile = user ? await getProfile(user.id) : null;
 
-  return (
-    <PagePlaceholder
-      icon={Settings}
-      eyebrow="Minha Conta"
-      title="Perfil & Configurações"
-      description={`Edite seus dados pessoais, foto, senha e preferências de notificação. E-mail atual: ${email}`}
-      status="Em construção"
-    />
-  );
+  return <ProfilePageClient profile={profile} userEmail={email} />;
 }
