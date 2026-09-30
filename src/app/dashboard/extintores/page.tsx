@@ -1,15 +1,55 @@
-import { PagePlaceholder } from "@/components/layout/page-placeholder";
-import { FireExtinguisher } from "lucide-react";
+import { createClient } from "@/lib/supabase/server";
+import { ExtinguishersList } from "./extinguishers-list";
+import type { Customer, Extinguisher } from "@/lib/types";
 
-export default function ExtintoresPage() {
+export const dynamic = "force-dynamic";
+
+async function getExtinguishers(): Promise<Extinguisher[]> {
+  const supabase = createClient();
+  try {
+    const { data, error } = await supabase
+      .from("extinguishers")
+      .select("*, customer:customer_id(id,name)")
+      .order("expiration_date", { ascending: true });
+    if (error) throw error;
+    return (data as any) || [];
+  } catch {
+    return [];
+  }
+}
+
+async function getCustomers(): Promise<Pick<Customer, "id" | "name">[]> {
+  const supabase = createClient();
+  try {
+    const { data, error } = await supabase
+      .from("customers")
+      .select("id,name")
+      .eq("is_active", true)
+      .order("name", { ascending: true });
+    if (error) throw error;
+    return (data as any) || [];
+  } catch {
+    return [];
+  }
+}
+
+export default async function ExtintoresPage() {
+  const [extinguishers, customers] = await Promise.all([
+    getExtinguishers(),
+    getCustomers(),
+  ]);
+
   return (
-    <PagePlaceholder
-      icon={FireExtinguisher}
-      eyebrow="Módulo"
-      title="Extintores & Equipamentos"
-      description="Controle o parque de extintores dos seus clientes: validades, recargas, inspeções, número de série e localização."
-      status="Em construção"
-      actionLabel="Cadastrar primeiro extintor"
-    />
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl md:text-3xl font-bold font-display tracking-tight">
+          Extintores
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Gerencie os equipamentos dos clientes e controle as validades.
+        </p>
+      </div>
+      <ExtinguishersList initialExtinguishers={extinguishers} customers={customers} />
+    </div>
   );
 }

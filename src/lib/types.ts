@@ -24,6 +24,7 @@ export interface Profile {
   } | null;
   avatar_url?: string | null;
   is_active: boolean;
+  email?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -99,6 +100,7 @@ export interface ServiceOrder {
   discount: number;
   total: number;
   cancellation_reason?: string | null;
+  notes?: string | null;
   created_by: string;
   created_at?: string;
   updated_at?: string;
@@ -121,4 +123,149 @@ export const OS_STATUS_COLORS: Record<OSStatus, string> = {
   atrasada: "bg-red-100 text-red-700 border-red-200",
   concluida: "bg-green-100 text-green-700 border-green-200",
   cancelada: "bg-gray-100 text-gray-600 border-gray-200",
+};
+
+export type OSPriority = "baixa" | "media" | "alta" | "urgente";
+
+export const OS_PRIORITY_LABELS: Record<OSPriority, string> = {
+  baixa: "Baixa",
+  media: "Média",
+  alta: "Alta",
+  urgente: "Urgente",
+};
+
+export const OS_PRIORITY_COLORS: Record<OSPriority, string> = {
+  baixa: "bg-gray-100 text-gray-700 border-gray-200",
+  media: "bg-blue-100 text-blue-700 border-blue-200",
+  alta: "bg-orange-100 text-orange-700 border-orange-200",
+  urgente: "bg-red-100 text-red-700 border-red-200",
+};
+
+export const OS_PERIOD_LABELS: Record<string, string> = {
+  manha: "Manhã",
+  tarde: "Tarde",
+  integral: "Dia inteiro",
+};
+
+export interface ServiceOrderItem {
+  id: string;
+  service_order_id: string;
+  product_id?: string | null;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+  type: "produto" | "servico" | "mao_obra";
+  created_at?: string;
+}
+
+export interface Product {
+  id: string;
+  type: "produto" | "servico";
+  category: string;
+  sku?: string | null;
+  name: string;
+  description?: string | null;
+  unit: string;
+  cost_price: number;
+  sale_price: number;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export const PRODUCT_TYPE_LABELS: Record<string, string> = {
+  produto: "Produto",
+  servico: "Serviço",
+};
+
+export const PRODUCT_CATEGORIES = [
+  "Recarga de Extintor",
+  "Manutenção",
+  "Inspeção",
+  "PPCI",
+  "Mangueiras",
+  "Hidrantes",
+  "Alarmes",
+  "Sinalização",
+  "Iluminação de Emergência",
+  "Peças",
+  "Outros",
+];
+
+export interface Extinguisher {
+  id: string;
+  customer_id: string;
+  type: string;
+  capacity: string;
+  serial_number: string;
+  manufacturer?: string | null;
+  manufacturing_date?: string | null;
+  last_recharge_date?: string | null;
+  expiration_date: string;
+  next_inspection_date?: string | null;
+  location?: string | null;
+  notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  customer?: { id: string; name: string } | null;
+}
+
+export const EXTINGUISHER_TYPES = [
+  "Pó Químico ABC",
+  "Pó Químico BC",
+  "CO2 (Dióxido de Carbono)",
+  "Água Pressurizada",
+  "Espuma Mecânica",
+  "Halon",
+  "Outro",
+];
+
+export type InvoiceStatus = "aberta" | "parcial" | "paga" | "atrasada" | "cancelada";
+export type InvoiceType = "receber" | "pagar";
+
+export interface Invoice {
+  id: string;
+  number: number;
+  customer_id: string;
+  service_order_id?: string | null;
+  type: InvoiceType;
+  status: InvoiceStatus;
+  description: string;
+  amount: number;
+  amount_paid: number;
+  due_date: string;
+  issue_date: string;
+  payment_date?: string | null;
+  payment_method?: string | null;
+  bank_slip_url?: string | null;
+  notes?: string | null;
+  created_by: string;
+  created_at?: string;
+  updated_at?: string;
+  customer?: { id: string; name: string } | null;
+}
+
+export const INVOICE_STATUS_LABELS: Record<InvoiceStatus, string> = {
+  aberta: "Aberta",
+  parcial: "Parcial",
+  paga: "Paga",
+  atrasada: "Atrasada",
+  cancelada: "Cancelada",
+};
+
+export const INVOICE_STATUS_COLORS: Record<InvoiceStatus, string> = {
+  aberta: "bg-yellow-100 text-yellow-700 border-yellow-200",
+  parcial: "bg-blue-100 text-blue-700 border-blue-200",
+  paga: "bg-green-100 text-green-700 border-green-200",
+  atrasada: "bg-red-100 text-red-700 border-red-200",
+  cancelada: "bg-gray-100 text-gray-600 border-gray-200",
+};
+
+export const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  boleto: "Boleto",
+  pix: "PIX",
+  cartao: "Cartão",
+  dinheiro: "Dinheiro",
+  transferencia: "Transferência",
 };
