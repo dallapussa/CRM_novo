@@ -1,3 +1,4 @@
+import { supabase } from './supabase'
 import type { Client, Extinguisher, Lead, User } from '../types'
 
 export async function fetchClients(): Promise<Client[]> {

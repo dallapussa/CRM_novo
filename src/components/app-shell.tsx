@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router'
+import type { ReactNode } from 'react'
 
 const navigation = [
   { label: 'Dashboard', to: '/' },
@@ -12,7 +13,7 @@ const navigation = [
 type AppShellProps = {
   title: string
   subtitle?: string
-  children: React.ReactNode
+  children: ReactNode
 }
 
 export function AppShell({ title, subtitle, children }: AppShellProps) {
