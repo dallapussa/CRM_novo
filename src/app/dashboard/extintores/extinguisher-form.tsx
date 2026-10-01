@@ -24,10 +24,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import type { Customer, Extinguisher } from "@/lib/types";
-import { EXTINGUISHER_TYPES } from "@/lib/types";
+import type { Customer, Extinguisher } from "@/types";
+import { EXTINGUISHER_TYPES } from "@/types";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useSaveExtinguisher } from "@/hooks/useExtinguishers";
+import { useClients } from "@/hooks/useClients";
 
 const extinguisherSchema = z.object({
   customer_id: z.string().min(1, { message: "Selecione o cliente" }),
@@ -47,16 +49,18 @@ type FormValues = z.infer<typeof extinguisherSchema>;
 
 interface ExtinguisherFormProps {
   initialData?: Extinguisher;
-  customers: Pick<Customer, "id" | "name">[];
+  customers?: Pick<Customer, "id" | "name">[];
   mode: "create" | "edit";
 }
 
 const CAPACITIES = ["1 kg", "2 kg", "4 kg", "6 kg", "8 kg", "10 kg", "20 kg", "25 kg", "50 kg", "10 L", "50 L"];
 
-export function ExtinguisherForm({ initialData, customers, mode }: ExtinguisherFormProps) {
+export function ExtinguisherForm({ initialData, customers: providedCustomers, mode }: ExtinguisherFormProps) {
   const router = useRouter();
-  const supabase = createClient();
   const { toast } = useToast();
+  const saveMutation = useSaveExtinguisher();
+  const { data: clientRows = [] } = useClients();
+  const customers = providedCustomers ?? clientRows.filter((client) => client.is_active).map(({ id, name }) => ({ id, name }));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -123,19 +127,14 @@ export function ExtinguisherForm({ initialData, customers, mode }: ExtinguisherF
 
     try {
       if (mode === "create") {
-        const { error } = await supabase.from("extinguishers").insert(payload);
-        if (error) throw error;
+        await saveMutation.mutateAsync({ input: payload });
         toast({
           variant: "success",
           title: "Extintor cadastrado!",
           description: "Equipamento adicionado com sucesso.",
         });
       } else if (initialData) {
-        const { error } = await supabase
-          .from("extinguishers")
-          .update(payload)
-          .eq("id", initialData.id);
-        if (error) throw error;
+        await saveMutation.mutateAsync({ input: payload, id: initialData.id });
         toast({
           variant: "success",
           title: "Extintor atualizado!",

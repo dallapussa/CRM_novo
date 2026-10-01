@@ -39,21 +39,25 @@ import type {
   Profile,
   ServiceOrder,
   ServiceOrderItem,
-} from "@/lib/types";
+} from "@/types";
 import {
   OS_PRIORITY_LABELS,
   OS_STATUS_LABELS,
   OS_PERIOD_LABELS,
-} from "@/lib/types";
+} from "@/types";
 import { formatCurrency } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useSaveServiceOrder } from "@/hooks/useServiceOrders";
+import { useClients } from "@/hooks/useClients";
+import { useUsers } from "@/hooks/useUsers";
+import { useProducts } from "@/hooks/useProducts";
 
 const osSchema = z.object({
   customer_id: z.string().min(1, { message: "Selecione o cliente" }),
   technician_id: z.string().optional(),
   scheduled_date: z.string().min(1, { message: "Informe a data agendada" }),
-  scheduled_period: z.string().optional(),
+  scheduled_period: z.union([z.enum(["manha", "tarde", "integral"]), z.literal("")]).optional(),
   priority: z.enum(["baixa", "media", "alta", "urgente"]),
   status: z.enum(["pendente", "andamento", "atrasada", "concluida", "cancelada"]),
   type: z.string().min(1, { message: "Selecione o tipo de serviço" }),
@@ -74,9 +78,9 @@ interface ItemRow {
 interface OSFormProps {
   initialData?: ServiceOrder;
   initialItems?: ServiceOrderItem[];
-  customers: Pick<Customer, "id" | "name">[];
-  technicians: Pick<Profile, "id" | "full_name">[];
-  products: Pick<Product, "id" | "name" | "sale_price" | "type" | "unit">[];
+  customers?: Pick<Customer, "id" | "name">[];
+  technicians?: Pick<Profile, "id" | "full_name">[];
+  products?: Pick<Product, "id" | "name" | "sale_price" | "type" | "unit">[];
   mode: "create" | "edit";
 }
 
@@ -116,14 +120,21 @@ const emptyItem = (): ItemRow => ({
 export function OSForm({
   initialData,
   initialItems,
-  customers,
-  technicians,
-  products,
+  customers: providedCustomers,
+  technicians: providedTechnicians,
+  products: providedProducts,
   mode,
 }: OSFormProps) {
   const router = useRouter();
   const supabase = createClient();
   const { toast } = useToast();
+  const saveMutation = useSaveServiceOrder();
+  const { data: clientRows = [] } = useClients();
+  const { data: userRows = [] } = useUsers();
+  const { data: productRows = [] } = useProducts();
+  const customers = providedCustomers ?? clientRows.filter((client) => client.is_active).map(({ id, name }) => ({ id, name }));
+  const technicians = providedTechnicians ?? userRows.filter((profile) => profile.is_active && ["admin", "tecnico"].includes(profile.role));
+  const products = providedProducts ?? productRows.filter((product) => product.is_active).map(({ id, name, sale_price, type, unit }) => ({ id, name, sale_price, type, unit }));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -243,42 +254,19 @@ export function OSForm({
         completed_at: values.status === "concluida" ? new Date().toISOString() : null,
       };
 
-      let osId: string;
-
-      if (mode === "create") {
-        const { data, error } = await supabase
-          .from("service_orders")
-          .insert({ ...payload, created_by: user.id })
-          .select("id")
-          .single();
-        if (error) throw error;
-        osId = data.id;
-      } else if (initialData) {
-        osId = initialData.id;
-        const { error } = await supabase
-          .from("service_orders")
-          .update(payload)
-          .eq("id", osId);
-        if (error) throw error;
-        await supabase.from("service_order_items").delete().eq("service_order_id", osId);
-      } else {
-        throw new Error("Modo inválido");
-      }
-
-      if (validItems.length > 0) {
-        const { error: itemsError } = await supabase.from("service_order_items").insert(
-          validItems.map((it) => ({
-            service_order_id: osId,
-            product_id: it.product_id,
-            description: it.description.trim(),
-            quantity: parseQty(it.quantity),
-            unit_price: parseMoney(it.unit_price),
-            total_price: parseQty(it.quantity) * parseMoney(it.unit_price),
-            type: it.type,
-          }))
-        );
-        if (itemsError) throw itemsError;
-      }
+      if (mode === "edit" && !initialData) throw new Error("Modo inválido");
+      const osId = await saveMutation.mutateAsync({
+        id: initialData?.id,
+        input: { ...payload, ...(mode === "create" ? { created_by: user.id } : {}) },
+        items: validItems.map((it) => ({
+          product_id: it.product_id,
+          description: it.description.trim(),
+          quantity: parseQty(it.quantity),
+          unit_price: parseMoney(it.unit_price),
+          total_price: parseQty(it.quantity) * parseMoney(it.unit_price),
+          type: it.type,
+        })),
+      });
 
       toast({
         variant: "success",
@@ -398,7 +386,7 @@ export function OSForm({
                 <Label>Período</Label>
                 <Select
                   value={values.scheduled_period || ""}
-                  onValueChange={(v) => setField("scheduled_period", v || undefined)}
+                  onValueChange={(v) => setField("scheduled_period", v as FormValues["scheduled_period"])}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione" />

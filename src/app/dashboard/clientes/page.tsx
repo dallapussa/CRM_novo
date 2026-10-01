@@ -1,26 +1,6 @@
-import { createClient } from "@/lib/supabase/server";
-import { CustomersList } from "./customers-list";
-import type { Customer } from "@/lib/types";
+import { CustomersList } from "@/components/clients/customers-list";
 
-export const dynamic = "force-dynamic";
-
-async function getCustomers(): Promise<Customer[]> {
-  const supabase = createClient();
-  try {
-    const { data, error } = await supabase
-      .from("customers")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (error) throw error;
-    return (data as Customer[]) || [];
-  } catch {
-    return [];
-  }
-}
-
-export default async function ClientesPage() {
-  const customers = await getCustomers();
-
+export default function ClientesPage() {
   return (
     <div className="space-y-6">
       <div>
@@ -31,7 +11,7 @@ export default async function ClientesPage() {
           Cadastre e gerencie todos os seus clientes: pessoa física e jurídica.
         </p>
       </div>
-      <CustomersList initialCustomers={customers} />
+      <CustomersList />
     </div>
   );
 }

@@ -3,6 +3,8 @@ import { Plus_Jakarta_Sans, Inter } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/sonner";
+import { Providers } from "@/components/providers";
+import { AuthProvider } from "@/hooks/useAuth";
 
 const fontSans = Inter({
   subsets: ["latin"],
@@ -39,8 +41,12 @@ export default function RootLayout({
           fontDisplay.variable
         )}
       >
-        {children}
-        <Toaster />
+        <Providers>
+          <AuthProvider>
+            {children}
+            <Toaster />
+          </AuthProvider>
+        </Providers>
       </body>
     </html>
   );

@@ -41,15 +41,15 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Customer, Extinguisher } from "@/lib/types";
-import { EXTINGUISHER_TYPES } from "@/lib/types";
+import type { Customer, Extinguisher } from "@/types";
+import { EXTINGUISHER_TYPES } from "@/types";
 import { formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { createClient } from "@/lib/supabase/client";
+import { useDeleteExtinguisher, useExtinguishers } from "@/hooks/useExtinguishers";
+import { useClients } from "@/hooks/useClients";
 
 interface ExtinguishersListProps {
-  initialExtinguishers: Extinguisher[];
-  customers: Pick<Customer, "id" | "name">[];
+  initialExtinguishers?: Extinguisher[];
 }
 
 type ExpiryStatus = "vencido" | "vence_em_breve" | "ok";
@@ -85,16 +85,18 @@ const EXPIRY_CONFIG: Record<
   },
 };
 
-export function ExtinguishersList({ initialExtinguishers, customers }: ExtinguishersListProps) {
+export function ExtinguishersList({ initialExtinguishers }: ExtinguishersListProps = {}) {
   const [search, setSearch] = useState("");
   const [customerFilter, setCustomerFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [expiryFilter, setExpiryFilter] = useState<string>("all");
-  const [extinguishers, setExtinguishers] = useState<Extinguisher[]>(initialExtinguishers);
+  const { data: extinguishers = [], isLoading } = useExtinguishers(initialExtinguishers);
+  const { data: clientData = [] } = useClients();
+  const customers = clientData.filter((customer) => customer.is_active).map(({ id, name }) => ({ id, name }));
   const [deleteItem, setDeleteItem] = useState<Extinguisher | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
-  const supabase = createClient();
+  const deleteMutation = useDeleteExtinguisher();
+  const isDeleting = deleteMutation.isPending;
 
   const filtered = useMemo(() => {
     return extinguishers.filter((e) => {
@@ -122,14 +124,8 @@ export function ExtinguishersList({ initialExtinguishers, customers }: Extinguis
 
   async function handleDelete() {
     if (!deleteItem) return;
-    setIsDeleting(true);
     try {
-      const { error } = await supabase
-        .from("extinguishers")
-        .delete()
-        .eq("id", deleteItem.id);
-      if (error) throw error;
-      setExtinguishers((prev) => prev.filter((e) => e.id !== deleteItem.id));
+      await deleteMutation.mutateAsync(deleteItem.id);
       toast({
         variant: "success",
         title: "Extintor excluído",
@@ -142,8 +138,6 @@ export function ExtinguishersList({ initialExtinguishers, customers }: Extinguis
         title: "Erro ao excluir",
         description: err?.message || "Não foi possível excluir o equipamento.",
       });
-    } finally {
-      setIsDeleting(false);
     }
   }
 
@@ -282,7 +276,9 @@ export function ExtinguishersList({ initialExtinguishers, customers }: Extinguis
 
       <Card>
         <CardContent className="p-0">
-          {filtered.length === 0 ? (
+          {isLoading ? (
+            <div className="py-16 text-center text-sm text-muted-foreground">Carregando extintores...</div>
+          ) : filtered.length === 0 ? (
             <div className="py-20 text-center space-y-4">
               <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-primary/5 text-primary">
                 <FireExtinguisher className="h-10 w-10" />

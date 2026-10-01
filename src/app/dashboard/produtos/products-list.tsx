@@ -40,26 +40,26 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Product } from "@/lib/types";
-import { PRODUCT_TYPE_LABELS, PRODUCT_CATEGORIES } from "@/lib/types";
+import type { Product } from "@/types";
+import { PRODUCT_TYPE_LABELS, PRODUCT_CATEGORIES } from "@/types";
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { createClient } from "@/lib/supabase/client";
+import { useDeleteProduct, useProducts } from "@/hooks/useProducts";
 
 interface ProductsListProps {
-  initialProducts: Product[];
+  initialProducts?: Product[];
 }
 
-export function ProductsList({ initialProducts }: ProductsListProps) {
+export function ProductsList({ initialProducts }: ProductsListProps = {}) {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [products, setProducts] = useState<Product[]>(initialProducts);
+  const { data: products = [], isLoading } = useProducts(initialProducts);
   const [deleteProduct, setDeleteProduct] = useState<Product | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
-  const supabase = createClient();
+  const deleteMutation = useDeleteProduct();
+  const isDeleting = deleteMutation.isPending;
 
   const filtered = useMemo(() => {
     return products.filter((p) => {
@@ -83,14 +83,8 @@ export function ProductsList({ initialProducts }: ProductsListProps) {
 
   async function handleDelete() {
     if (!deleteProduct) return;
-    setIsDeleting(true);
     try {
-      const { error } = await supabase
-        .from("products")
-        .delete()
-        .eq("id", deleteProduct.id);
-      if (error) throw error;
-      setProducts((prev) => prev.filter((p) => p.id !== deleteProduct.id));
+      await deleteMutation.mutateAsync(deleteProduct.id);
       toast({
         variant: "success",
         title: "Item excluído",
@@ -103,8 +97,6 @@ export function ProductsList({ initialProducts }: ProductsListProps) {
         title: "Erro ao excluir",
         description: err?.message || "Não foi possível excluir o item.",
       });
-    } finally {
-      setIsDeleting(false);
     }
   }
 
@@ -229,7 +221,9 @@ export function ProductsList({ initialProducts }: ProductsListProps) {
 
       <Card>
         <CardContent className="p-0">
-          {filtered.length === 0 ? (
+          {isLoading ? (
+            <div className="py-16 text-center text-sm text-muted-foreground">Carregando itens...</div>
+          ) : filtered.length === 0 ? (
             <div className="py-20 text-center space-y-4">
               <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-primary/5 text-primary">
                 <Package className="h-10 w-10" />

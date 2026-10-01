@@ -1,4 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
+"use client";
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ClipboardList,
@@ -13,59 +14,19 @@ import {
   Plus,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import type { UserRole } from "@/lib/types";
-import { OS_STATUS_COLORS, OS_STATUS_LABELS } from "@/lib/types";
+import type { UserRole } from "@/types";
+import { OS_STATUS_COLORS, OS_STATUS_LABELS } from "@/types";
 import { formatCurrency } from "@/lib/utils";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/useAuth";
+import { useDashboardStats } from "@/hooks/useDashboardStats";
 
-async function getStats(role: UserRole) {
-  const supabase = createClient();
-  try {
-    const [osQuery, customersQuery, usersQuery] = await Promise.all([
-      supabase
-        .from("service_orders")
-        .select("id,status,total,created_at", { count: "exact" })
-        .limit(5)
-        .order("created_at", { ascending: false }),
-      role !== "cliente" && role !== "terceiro"
-        ? supabase.from("customers").select("id", { count: "exact" }).limit(1)
-        : Promise.resolve({ data: [], count: 0 }),
-      role === "admin"
-        ? supabase.from("profiles").select("id", { count: "exact" }).limit(1)
-        : Promise.resolve({ data: [], count: 0 }),
-    ]);
-
-    const osCount = (osQuery.count ?? 0) || 0;
-    const customerCount = (customersQuery.count ?? 0) || 0;
-    const userCount = (usersQuery.count ?? 0) || 0;
-    const recentOs = osQuery.data || [];
-
-    const totalRevenue = (osQuery.data || []).reduce(
-      (acc, o) => acc + ((o.total as number) || 0),
-      0
-    );
-
-    return { osCount, customerCount, userCount, recentOs, totalRevenue };
-  } catch {
-    return {
-      osCount: 0,
-      customerCount: 0,
-      userCount: 0,
-      recentOs: [],
-      totalRevenue: 0,
-    };
-  }
-}
-
-export default async function DashboardPage() {
-  const supabase = createClient();
-  const { data: userData } = await supabase.auth.getUser();
-  const role: UserRole =
-    (userData?.user?.user_metadata?.role as UserRole) ||
-    ("admin" as UserRole);
-
-  const stats = await getStats(role);
+export default function DashboardPage() {
+  const { user, role: authRole } = useAuth();
+  const role: UserRole = authRole ?? "admin";
+  const statsQuery = useDashboardStats(role);
+  const stats = statsQuery.data ?? { osCount: 0, customerCount: 0, userCount: 0, recentOs: [], totalRevenue: 0 };
 
   const statCards = [
     {
@@ -156,7 +117,7 @@ export default async function DashboardPage() {
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold font-display tracking-tight">
-            Olá, {userData?.user?.email?.split("@")[0] || "usuário"}! 👋
+            Olá, {user?.email?.split("@")[0] || "usuário"}! 👋
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             {new Date().toLocaleDateString("pt-BR", {

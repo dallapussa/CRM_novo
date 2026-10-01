@@ -9,10 +9,8 @@ import {
   UserCog,
   Shield,
   Phone,
-  Mail,
-  MapPin,
   UserPlus,
-  Building2,
+  Copy,
 } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -34,26 +32,16 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import type { Profile, UserRole } from "@/lib/types";
-import { ROLE_LABELS } from "@/lib/types";
-import { createClient } from "@/lib/supabase/client";
+import type { Profile, UserRole } from "@/types";
+import { ROLE_LABELS } from "@/types";
 import { useToast } from "@/hooks/use-toast";
+import { useCreateUser, useUpdateUser } from "@/hooks/useUsers";
 
 const userSchema = z.object({
-  id: z.string().min(10, { message: "Informe o ID do usuário (Auth UUID)" }),
   full_name: z.string().min(3, { message: "Nome deve ter pelo menos 3 caracteres" }),
   role: z.enum(["admin", "comercial", "tecnico", "financeiro", "cliente", "terceiro"]),
   phone: z.string().optional(),
-  document: z.string().optional(),
-  company_name: z.string().optional(),
   is_active: z.boolean().default(true),
-  cep: z.string().optional(),
-  street: z.string().optional(),
-  number: z.string().optional(),
-  complement: z.string().optional(),
-  neighborhood: z.string().optional(),
-  city: z.string().optional(),
-  state: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof userSchema>;
@@ -63,33 +51,21 @@ interface UserFormProps {
   mode: "create" | "edit";
 }
 
-const UF_LIST = [
-  "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB",
-  "PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO",
-];
-
 export function UserForm({ initialData, mode }: UserFormProps) {
   const router = useRouter();
-  const supabase = createClient();
   const { toast } = useToast();
+  const createUserMutation = useCreateUser();
+  const updateUserMutation = useUpdateUser();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [email, setEmail] = useState("");
+  const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
 
   const [values, setValues] = useState<FormValues>({
-    id: initialData?.id || "",
     full_name: initialData?.full_name || "",
     role: initialData?.role || "comercial",
     phone: initialData?.phone || "",
-    document: initialData?.document || "",
-    company_name: initialData?.company_name || "",
     is_active: initialData?.is_active ?? true,
-    cep: initialData?.address?.cep || "",
-    street: initialData?.address?.street || "",
-    number: initialData?.address?.number || "",
-    complement: initialData?.address?.complement || "",
-    neighborhood: initialData?.address?.neighborhood || "",
-    city: initialData?.address?.city || "",
-    state: initialData?.address?.state || "",
   });
 
   function setField<K extends keyof FormValues>(key: K, value: FormValues[K]) {
@@ -109,11 +85,18 @@ export function UserForm({ initialData, mode }: UserFormProps) {
     setErrors({});
 
     const parsed = userSchema.safeParse(values);
-    if (!parsed.success) {
+    const credentials = mode === "create"
+      ? z.object({ email: z.string().email("Informe um e-mail válido") }).safeParse({ email })
+      : null;
+    if (!parsed.success || credentials?.success === false) {
       const errs: Record<string, string> = {};
-      parsed.error.issues.forEach((i) => {
+      parsed.error?.issues.forEach((i) => {
         const k = i.path[0] as string;
         if (!errs[k]) errs[k] = i.message;
+      });
+      if (credentials && !credentials.success) credentials.error.issues.forEach((issue) => {
+        const key = issue.path[0] as string;
+        errs[key] = issue.message;
       });
       setErrors(errs);
       setIsSubmitting(false);
@@ -125,47 +108,27 @@ export function UserForm({ initialData, mode }: UserFormProps) {
       return;
     }
 
-    const address =
-      values.cep || values.street || values.city || values.state
-        ? {
-            cep: values.cep || undefined,
-            street: values.street || undefined,
-            number: values.number || undefined,
-            complement: values.complement || undefined,
-            neighborhood: values.neighborhood || undefined,
-            city: values.city || undefined,
-            state: values.state || undefined,
-          }
-        : null;
-
     try {
       const payload = {
-        id: values.id.trim(),
         full_name: values.full_name.trim(),
         role: values.role,
         phone: values.phone ? values.phone.replace(/\D/g, "") : null,
-        document: values.document ? values.document.replace(/\D/g, "") : null,
-        company_name: values.company_name?.trim() || null,
         is_active: values.is_active,
-        address,
       };
 
       if (mode === "create") {
-        const { error } = await supabase.from("profiles").insert(payload);
-        if (error) throw error;
+        const result = await createUserMutation.mutateAsync({
+          email: credentials!.data.email,
+          ...payload,
+        });
+        setGeneratedPassword(result.temporaryPassword);
         toast({
           variant: "success",
           title: "Usuário cadastrado!",
-          description: `${values.full_name} foi adicionado com sucesso.`,
+          description: `A conta de ${values.full_name} foi criada. Copie a senha temporária agora.`,
         });
-        router.push("/dashboard/usuarios");
       } else if (initialData) {
-        const { id: _id, ...updatePayload } = payload;
-        const { error } = await supabase
-          .from("profiles")
-          .update(updatePayload)
-          .eq("id", initialData.id);
-        if (error) throw error;
+        await updateUserMutation.mutateAsync({ id: initialData.id, patch: payload });
         toast({
           variant: "success",
           title: "Usuário atualizado!",
@@ -205,6 +168,28 @@ export function UserForm({ initialData, mode }: UserFormProps) {
         </div>
       </div>
 
+      {generatedPassword && (
+        <Card className="border-green-300 bg-green-50/50">
+          <CardHeader>
+            <CardTitle className="text-base text-green-900">Senha temporária gerada</CardTitle>
+            <CardDescription>Copie e entregue ao usuário por um canal seguro. Ela não será exibida novamente.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 sm:flex-row">
+            <Input readOnly value={generatedPassword} className="font-mono" aria-label="Senha temporária" />
+            <Button type="button" variant="outline" onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(generatedPassword);
+                toast({ variant: "success", title: "Senha copiada" });
+              } catch {
+                toast({ variant: "destructive", title: "Não foi possível copiar", description: "Selecione e copie a senha manualmente." });
+              }
+            }}>
+              <Copy className="mr-2 h-4 w-4" /> Copiar senha
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-6">
         <Card className="border-l-4 border-l-amber-500 bg-amber-50/20">
           <CardContent className="p-5">
@@ -214,17 +199,15 @@ export function UserForm({ initialData, mode }: UserFormProps) {
               </div>
               <div className="flex-1">
                 <p className="font-semibold text-amber-900">
-                  ID do Usuário (Auth UUID)
+                  Acesso à conta
                 </p>
                 <p className="text-sm text-amber-800/80 mt-1">
                   {mode === "create" ? (
                     <>
-                      Este usuário deve existir previamente no Supabase Auth
-                      (Authentication → Users → Add user). Copie o UUID do usuário
-                      criado e cole abaixo.
+                      A conta será criada no Supabase Auth. Uma senha temporária será gerada e exibida após o cadastro.
                     </>
                   ) : (
-                    <>O ID de usuário Auth não pode ser alterado.</>
+                    <>O identificador de autenticação não pode ser alterado.</>
                   )}
                 </p>
               </div>
@@ -241,19 +224,22 @@ export function UserForm({ initialData, mode }: UserFormProps) {
             <CardDescription>Informações pessoais e perfil de acesso</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-1.5 md:col-span-1">
-                <Label>ID do Usuário *</Label>
-                <Input
-                  value={values.id}
-                  onChange={(e) => setField("id", e.target.value)}
-                  placeholder="UUID do Supabase Auth"
-                  disabled={mode === "edit"}
-                  className="font-mono text-xs"
-                />
-                {errors.id && <p className="text-xs text-red-600">{errors.id}</p>}
-              </div>
-              <div className="space-y-1.5 md:col-span-2">
+            <div className="grid gap-4 md:grid-cols-2">
+              {mode === "create" ? (
+                <>
+                  <div className="space-y-1.5">
+                    <Label>E-mail de acesso *</Label>
+                    <Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
+                    {errors.email && <p className="text-xs text-red-600">{errors.email}</p>}
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-1.5">
+                  <Label>ID do usuário</Label>
+                  <Input value={initialData?.id || ""} disabled className="font-mono text-xs" />
+                </div>
+              )}
+              <div className="space-y-1.5">
                 <Label>Nome Completo *</Label>
                 <Input
                   value={values.full_name}
@@ -298,28 +284,9 @@ export function UserForm({ initialData, mode }: UserFormProps) {
                   placeholder="(00) 00000-0000"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label>CPF / Documento</Label>
-                <Input
-                  value={values.document || ""}
-                  onChange={(e) => setField("document", e.target.value)}
-                  placeholder="000.000.000-00"
-                />
-              </div>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>
-                  <Building2 className="inline h-3.5 w-3.5 mr-1" />
-                  Empresa (opcional)
-                </Label>
-                <Input
-                  value={values.company_name || ""}
-                  onChange={(e) => setField("company_name", e.target.value)}
-                  placeholder="Nome da empresa ou setor"
-                />
-              </div>
               <div className="space-y-1.5">
                 <Label>Status</Label>
                 <Select
@@ -353,86 +320,6 @@ export function UserForm({ initialData, mode }: UserFormProps) {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <MapPin className="h-5 w-5 text-orange-600" />
-              <CardTitle className="text-base">Endereço</CardTitle>
-            </div>
-            <CardDescription>Opcional</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-4">
-              <div className="space-y-1.5">
-                <Label>CEP</Label>
-                <Input
-                  value={values.cep || ""}
-                  onChange={(e) => setField("cep", e.target.value)}
-                  placeholder="00000-000"
-                />
-              </div>
-              <div className="space-y-1.5 md:col-span-2">
-                <Label>Logradouro</Label>
-                <Input
-                  value={values.street || ""}
-                  onChange={(e) => setField("street", e.target.value)}
-                  placeholder="Rua, Avenida..."
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Número</Label>
-                <Input
-                  value={values.number || ""}
-                  onChange={(e) => setField("number", e.target.value)}
-                  placeholder="123"
-                />
-              </div>
-            </div>
-            <div className="grid gap-4 md:grid-cols-4">
-              <div className="space-y-1.5 md:col-span-2">
-                <Label>Bairro</Label>
-                <Input
-                  value={values.neighborhood || ""}
-                  onChange={(e) => setField("neighborhood", e.target.value)}
-                  placeholder="Centro"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Cidade</Label>
-                <Input
-                  value={values.city || ""}
-                  onChange={(e) => setField("city", e.target.value)}
-                  placeholder="São Paulo"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>UF</Label>
-                <Select
-                  value={values.state || ""}
-                  onValueChange={(v) => setField("state", v || undefined)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {UF_LIST.map((uf) => (
-                      <SelectItem key={uf} value={uf}>{uf}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Complemento</Label>
-              <Input
-                value={values.complement || ""}
-                onChange={(e) => setField("complement", e.target.value)}
-                placeholder="Sala, andar, referência..."
-              />
-            </div>
-          </CardContent>
-        </Card>
-
         <Separator />
 
         <div className="flex flex-col sm:flex-row sm:justify-end gap-3">
@@ -444,7 +331,7 @@ export function UserForm({ initialData, mode }: UserFormProps) {
           >
             Cancelar
           </Button>
-          <Button type="submit" disabled={isSubmitting}>
+          <Button type="submit" disabled={isSubmitting || Boolean(generatedPassword)}>
             <Save className="mr-2 h-4 w-4" />
             {isSubmitting
               ? "Salvando..."

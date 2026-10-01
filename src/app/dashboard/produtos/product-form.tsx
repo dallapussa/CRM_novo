@@ -25,10 +25,11 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import type { Product } from "@/lib/types";
-import { PRODUCT_CATEGORIES } from "@/lib/types";
-import { createClient } from "@/lib/supabase/client";
+import type { Product } from "@/types";
+import { hasPermission, PRODUCT_CATEGORIES } from "@/types";
 import { useToast } from "@/hooks/use-toast";
+import { useSaveProduct } from "@/hooks/useProducts";
+import { useAuth } from "@/hooks/useAuth";
 
 const productSchema = z.object({
   type: z.enum(["produto", "servico"], { message: "Selecione o tipo" }),
@@ -60,8 +61,10 @@ const UNITS = ["un", "kg", "L", "m", "m²", "h", "visita", "serviço"];
 
 export function ProductForm({ initialData, mode }: ProductFormProps) {
   const router = useRouter();
-  const supabase = createClient();
   const { toast } = useToast();
+  const saveMutation = useSaveProduct();
+  const { role } = useAuth();
+  const canViewCosts = hasPermission(role, "financial_costs");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -130,26 +133,21 @@ export function ProductForm({ initialData, mode }: ProductFormProps) {
       name: values.name.trim(),
       description: values.description?.trim() || null,
       unit: values.unit,
-      cost_price: parseMoney(values.cost_price),
       sale_price: salePrice,
       is_active: values.is_active,
+      ...(canViewCosts ? { cost_price: parseMoney(values.cost_price) } : {}),
     };
 
     try {
       if (mode === "create") {
-        const { error } = await supabase.from("products").insert(payload);
-        if (error) throw error;
+        await saveMutation.mutateAsync({ input: payload });
         toast({
           variant: "success",
           title: "Item cadastrado!",
           description: `${values.name} foi adicionado com sucesso.`,
         });
       } else if (initialData) {
-        const { error } = await supabase
-          .from("products")
-          .update(payload)
-          .eq("id", initialData.id);
-        if (error) throw error;
+        await saveMutation.mutateAsync({ input: payload, id: initialData.id });
         toast({
           variant: "success",
           title: "Item atualizado!",
@@ -268,7 +266,7 @@ export function ProductForm({ initialData, mode }: ProductFormProps) {
               />
             </div>
 
-            <div className="grid gap-4 md:grid-cols-4">
+            <div className={`grid gap-4 ${canViewCosts ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
               <div className="space-y-1.5">
                 <Label>Unidade *</Label>
                 <Select
@@ -287,7 +285,7 @@ export function ProductForm({ initialData, mode }: ProductFormProps) {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1.5">
+              {canViewCosts && <div className="space-y-1.5">
                 <Label>Preço de Custo (R$)</Label>
                 <Input
                   value={values.cost_price || ""}
@@ -295,7 +293,7 @@ export function ProductForm({ initialData, mode }: ProductFormProps) {
                   placeholder="0,00"
                   inputMode="decimal"
                 />
-              </div>
+              </div>}
               <div className="space-y-1.5">
                 <Label>Preço de Venda (R$) *</Label>
                 <Input

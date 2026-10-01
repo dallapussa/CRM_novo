@@ -23,8 +23,8 @@ import {
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import type { Profile } from "@/lib/types";
-import { ROLE_LABELS, ROLE_COLORS } from "@/lib/types";
+import type { Profile } from "@/types";
+import { ROLE_LABELS, ROLE_COLORS } from "@/types";
 
 function initials(fullName: string) {
   return fullName

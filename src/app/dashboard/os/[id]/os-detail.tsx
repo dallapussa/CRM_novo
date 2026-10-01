@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -22,6 +23,8 @@ import {
   Phone,
   Mail,
   Save,
+  Camera,
+  Upload,
 } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -58,17 +61,17 @@ import type {
   Customer,
   Profile,
   OSStatus,
-} from "@/lib/types";
+} from "@/types";
 import {
   OS_STATUS_LABELS,
   OS_STATUS_COLORS,
   OS_PRIORITY_LABELS,
   OS_PRIORITY_COLORS,
   OS_PERIOD_LABELS,
-} from "@/lib/types";
+} from "@/types";
 import { formatCurrency, formatDate, formatDateTime, formatPhone, formatDocument } from "@/lib/utils";
-import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useServiceOrderPhotos, useUpdateServiceOrder, useUploadServiceOrderPhoto } from "@/hooks/useServiceOrders";
 
 type OSStatusKey = keyof typeof OS_STATUS_LABELS;
 type OSPriorityKey = keyof typeof OS_PRIORITY_LABELS;
@@ -98,9 +101,15 @@ const statusUpdateSchema = z.object({
 
 export function OSDetail({ order, items, customer, technician }: OSDetailProps) {
   const router = useRouter();
-  const supabase = createClient();
   const { toast } = useToast();
-  const [isUpdating, setIsUpdating] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const photosQuery = useServiceOrderPhotos(order.id);
+  const updateMutation = useUpdateServiceOrder();
+  const uploadPhotoMutation = useUploadServiceOrderPhoto();
+  const photos = photosQuery.data ?? [];
+  const isLoadingPhotos = photosQuery.isLoading;
+  const isUpdating = updateMutation.isPending;
+  const isUploadingPhoto = uploadPhotoMutation.isPending;
   const [status, setStatus] = useState<OSStatus>(order.status);
   const [arrivalTime, setArrivalTime] = useState(order.arrival_time || "");
   const [departureTime, setDepartureTime] = useState(order.departure_time || "");
@@ -113,8 +122,46 @@ export function OSDetail({ order, items, customer, technician }: OSDetailProps) 
   const priorityKey = order.priority as OSPriorityKey;
   const StatusIcon = STATUS_ICONS[statusKey] || Clock;
 
+  async function handlePhotoUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+
+    const extensions: Record<string, string> = {
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+    };
+    if (!extensions[file.type]) {
+      toast({
+        variant: "destructive",
+        title: "Formato não suportado",
+        description: "Envie uma imagem JPG, PNG ou WebP.",
+      });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        variant: "destructive",
+        title: "Imagem muito grande",
+        description: "O limite por foto é de 10 MB.",
+      });
+      return;
+    }
+
+    try {
+      await uploadPhotoMutation.mutateAsync({ id: order.id, file });
+      toast({ variant: "success", title: "Foto adicionada à OS" });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao enviar foto",
+        description: error instanceof Error ? error.message : "Não foi possível salvar a imagem.",
+      });
+    }
+  }
+
   async function handleUpdateStatus() {
-    setIsUpdating(true);
     try {
       const payload: any = {
         status,
@@ -141,11 +188,7 @@ export function OSDetail({ order, items, customer, technician }: OSDetailProps) 
         throw new Error(errs);
       }
 
-      const { error } = await supabase
-        .from("service_orders")
-        .update(payload)
-        .eq("id", order.id);
-      if (error) throw error;
+      await updateMutation.mutateAsync({ id: order.id, patch: payload });
 
       toast({
         variant: "success",
@@ -159,8 +202,6 @@ export function OSDetail({ order, items, customer, technician }: OSDetailProps) 
         title: "Erro ao atualizar",
         description: err?.message || "Não foi possível atualizar a OS.",
       });
-    } finally {
-      setIsUpdating(false);
     }
   }
 
@@ -310,6 +351,84 @@ export function OSDetail({ order, items, customer, technician }: OSDetailProps) 
         </CardHeader>
         <CardContent>
           <p className="text-sm whitespace-pre-wrap leading-relaxed">{order.description}</p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <Camera className="h-5 w-5 text-orange-600" />
+              <CardTitle className="text-base">Fotos da execução</CardTitle>
+            </div>
+            <CardDescription className="mt-1">
+              Registros visuais vinculados a esta ordem de serviço.
+            </CardDescription>
+          </div>
+          <>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="sr-only"
+              onChange={handlePhotoUpload}
+            />
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => photoInputRef.current?.click()}
+              disabled={isUploadingPhoto}
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              {isUploadingPhoto ? "Enviando..." : "Adicionar foto"}
+            </Button>
+          </>
+        </CardHeader>
+        <CardContent>
+          {isLoadingPhotos ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              Carregando fotos...
+            </p>
+          ) : photos.length === 0 ? (
+            <div className="rounded-md border border-dashed py-8 text-center text-sm text-muted-foreground">
+              Nenhuma foto foi adicionada a esta OS.
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {photos.map((photo) => (
+                <a
+                  key={photo.id}
+                  href={photo.signedUrl || undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="group overflow-hidden rounded-md border border-border/60 bg-muted/30"
+                >
+                  {photo.signedUrl ? (
+                    <Image
+                      src={photo.signedUrl}
+                      alt={photo.caption || "Foto da execução"}
+                      width={640}
+                      height={480}
+                      unoptimized
+                      className="aspect-[4/3] w-full object-cover transition-transform group-hover:scale-[1.02]"
+                    />
+                  ) : (
+                    <div className="flex aspect-[4/3] items-center justify-center text-muted-foreground">
+                      <Camera className="h-6 w-6" />
+                    </div>
+                  )}
+                  <div className="p-2">
+                    <p className="truncate text-xs font-medium">
+                      {photo.caption || "Foto da execução"}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {formatDateTime(photo.created_at)}
+                    </p>
+                  </div>
+                </a>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 

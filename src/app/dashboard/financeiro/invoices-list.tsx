@@ -46,20 +46,19 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Invoice, Customer } from "@/lib/types";
+import type { Invoice, Customer } from "@/types";
 import {
   INVOICE_STATUS_LABELS,
   INVOICE_STATUS_COLORS,
   PAYMENT_METHOD_LABELS,
-} from "@/lib/types";
+} from "@/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { createClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
+import { useDeleteInvoice, useInvoices, useMarkInvoicePaid } from "@/hooks/useInvoices";
+import { useClients } from "@/hooks/useClients";
 
 interface InvoicesListProps {
-  initialInvoices: Invoice[];
-  customers: Pick<Customer, "id" | "name">[];
+  initialInvoices?: Invoice[];
 }
 
 type InvoiceStatusKey = keyof typeof INVOICE_STATUS_LABELS;
@@ -72,17 +71,19 @@ const STATUS_ICONS: Record<InvoiceStatusKey, typeof Clock> = {
   cancelada: Ban,
 };
 
-export function InvoicesList({ initialInvoices, customers }: InvoicesListProps) {
+export function InvoicesList({ initialInvoices }: InvoicesListProps = {}) {
   const [search, setSearch] = useState("");
   const [customerFilter, setCustomerFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
-  const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
+  const { data: invoices = [], isLoading } = useInvoices(initialInvoices);
+  const { data: clients = [] } = useClients();
+  const customers = clients.map(({ id, name }) => ({ id, name }));
   const [deleteItem, setDeleteItem] = useState<Invoice | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
-  const router = useRouter();
-  const supabase = createClient();
+  const deleteMutation = useDeleteInvoice();
+  const markPaidMutation = useMarkInvoicePaid();
+  const isDeleting = deleteMutation.isPending;
 
   const filtered = useMemo(() => {
     return invoices.filter((i) => {
@@ -91,7 +92,7 @@ export function InvoicesList({ initialInvoices, customers }: InvoicesListProps) 
       if (typeFilter !== "all" && i.type !== typeFilter) return false;
       if (search.trim()) {
         const s = search.toLowerCase().trim();
-        const customerName = customers.find((c) => c.id === i.customer_id)?.name || "";
+        const customerName = i.customer?.name || customers.find((c) => c.id === i.customer_id)?.name || "";
         const haystack = [
           String(i.number),
           i.description,
@@ -109,14 +110,8 @@ export function InvoicesList({ initialInvoices, customers }: InvoicesListProps) 
 
   async function handleDelete() {
     if (!deleteItem) return;
-    setIsDeleting(true);
     try {
-      const { error } = await supabase
-        .from("invoices")
-        .delete()
-        .eq("id", deleteItem.id);
-      if (error) throw error;
-      setInvoices((prev) => prev.filter((i) => i.id !== deleteItem.id));
+      await deleteMutation.mutateAsync(deleteItem.id);
       toast({
         variant: "success",
         title: "Fatura excluída",
@@ -129,30 +124,12 @@ export function InvoicesList({ initialInvoices, customers }: InvoicesListProps) 
         title: "Erro ao excluir",
         description: err?.message || "Não foi possível excluir a fatura.",
       });
-    } finally {
-      setIsDeleting(false);
     }
   }
 
   async function handleMarkPaid(invoice: Invoice) {
     try {
-      const today = new Date().toISOString().slice(0, 10);
-      const { error } = await supabase
-        .from("invoices")
-        .update({
-          status: "paga",
-          amount_paid: invoice.amount,
-          payment_date: today,
-        })
-        .eq("id", invoice.id);
-      if (error) throw error;
-      setInvoices((prev) =>
-        prev.map((i) =>
-          i.id === invoice.id
-            ? { ...i, status: "paga", amount_paid: i.amount, payment_date: today }
-            : i
-        )
-      );
+      await markPaidMutation.mutateAsync(invoice);
       toast({
         variant: "success",
         title: "Fatura marcada como paga",
@@ -317,7 +294,9 @@ export function InvoicesList({ initialInvoices, customers }: InvoicesListProps) 
 
       <Card>
         <CardContent className="p-0">
-          {filtered.length === 0 ? (
+          {isLoading ? (
+            <div className="py-16 text-center text-sm text-muted-foreground">Carregando faturas...</div>
+          ) : filtered.length === 0 ? (
             <div className="py-20 text-center space-y-4">
               <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-primary/5 text-primary">
                 <Wallet className="h-10 w-10" />

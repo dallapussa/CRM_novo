@@ -1,26 +1,6 @@
-import { createClient } from "@/lib/supabase/server";
 import { ProductsList } from "./products-list";
-import type { Product } from "@/lib/types";
 
-export const dynamic = "force-dynamic";
-
-async function getProducts(): Promise<Product[]> {
-  const supabase = createClient();
-  try {
-    const { data, error } = await supabase
-      .from("products")
-      .select("*")
-      .order("name", { ascending: true });
-    if (error) throw error;
-    return (data as Product[]) || [];
-  } catch {
-    return [];
-  }
-}
-
-export default async function ProdutosPage() {
-  const products = await getProducts();
-
+export default function ProdutosPage() {
   return (
     <div className="space-y-6">
       <div>
@@ -31,7 +11,7 @@ export default async function ProdutosPage() {
           Cadastre os itens que serão utilizados nas Ordens de Serviço.
         </p>
       </div>
-      <ProductsList initialProducts={products} />
+      <ProductsList />
     </div>
   );
 }

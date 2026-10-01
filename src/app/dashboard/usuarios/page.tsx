@@ -1,26 +1,6 @@
-import { createClient } from "@/lib/supabase/server";
-import { UsersList } from "./users-list";
-import type { Profile } from "@/lib/types";
+import { UsersList } from "@/components/users/users-list";
 
-export const dynamic = "force-dynamic";
-
-async function getUsers(): Promise<Profile[]> {
-  const supabase = createClient();
-  try {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (error) throw error;
-    return (data as Profile[]) || [];
-  } catch {
-    return [];
-  }
-}
-
-export default async function UsuariosPage() {
-  const users = await getUsers();
-
+export default function UsuariosPage() {
   return (
     <div className="space-y-6">
       <div>
@@ -31,7 +11,7 @@ export default async function UsuariosPage() {
           Gerencie os acessos de toda a equipe com perfis e permissões adequados.
         </p>
       </div>
-      <UsersList initialUsers={users} />
+      <UsersList />
     </div>
   );
 }

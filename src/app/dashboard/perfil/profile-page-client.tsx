@@ -6,11 +6,9 @@ import {
   Save,
   User,
   Phone,
-  MapPin,
   Mail,
   Shield,
   Lock,
-  Building2,
   KeyRound,
   CheckCircle2,
 } from "lucide-react";
@@ -27,23 +25,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import type { Profile, UserRole } from "@/lib/types";
-import { ROLE_LABELS, ROLE_COLORS } from "@/lib/types";
+import type { Profile, UserRole } from "@/types";
+import { ROLE_LABELS, ROLE_COLORS } from "@/types";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { useSaveOwnProfile } from "@/hooks/useUsers";
 
 const profileSchema = z.object({
   full_name: z.string().min(3, { message: "Nome deve ter pelo menos 3 caracteres" }),
   phone: z.string().optional(),
-  document: z.string().optional(),
-  company_name: z.string().optional(),
-  cep: z.string().optional(),
-  street: z.string().optional(),
-  number: z.string().optional(),
-  complement: z.string().optional(),
-  neighborhood: z.string().optional(),
-  city: z.string().optional(),
-  state: z.string().optional(),
 });
 
 const passwordSchema = z
@@ -64,11 +55,6 @@ const passwordSchema = z
 type ProfileValues = z.infer<typeof profileSchema>;
 type PasswordValues = z.infer<typeof passwordSchema>;
 
-const UF_LIST = [
-  "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB",
-  "PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO",
-];
-
 interface ProfilePageClientProps {
   profile: Profile | null;
   userEmail: string;
@@ -78,6 +64,8 @@ export function ProfilePageClient({ profile, userEmail }: ProfilePageClientProps
   const router = useRouter();
   const supabase = createClient();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const saveProfileMutation = useSaveOwnProfile();
 
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
@@ -87,15 +75,6 @@ export function ProfilePageClient({ profile, userEmail }: ProfilePageClientProps
   const [profileValues, setProfileValues] = useState<ProfileValues>({
     full_name: profile?.full_name || "",
     phone: profile?.phone || "",
-    document: profile?.document || "",
-    company_name: profile?.company_name || "",
-    cep: profile?.address?.cep || "",
-    street: profile?.address?.street || "",
-    number: profile?.address?.number || "",
-    complement: profile?.address?.complement || "",
-    neighborhood: profile?.address?.neighborhood || "",
-    city: profile?.address?.city || "",
-    state: profile?.address?.state || "",
   });
 
   const [passwordValues, setPasswordValues] = useState<PasswordValues>({
@@ -154,26 +133,7 @@ export function ProfilePageClient({ profile, userEmail }: ProfilePageClientProps
       return;
     }
 
-    const address =
-      profileValues.cep ||
-      profileValues.street ||
-      profileValues.city ||
-      profileValues.state
-        ? {
-            cep: profileValues.cep || undefined,
-            street: profileValues.street || undefined,
-            number: profileValues.number || undefined,
-            complement: profileValues.complement || undefined,
-            neighborhood: profileValues.neighborhood || undefined,
-            city: profileValues.city || undefined,
-            state: profileValues.state || undefined,
-          }
-        : null;
-
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
       if (!user) throw new Error("Usuário não autenticado");
 
       const payload = {
@@ -182,28 +142,13 @@ export function ProfilePageClient({ profile, userEmail }: ProfilePageClientProps
         phone: profileValues.phone
           ? profileValues.phone.replace(/\D/g, "")
           : null,
-        document: profileValues.document
-          ? profileValues.document.replace(/\D/g, "")
-          : null,
-        company_name: profileValues.company_name?.trim() || null,
-        address,
       };
 
-      if (profile) {
-        const { id: _id, ...updatePayload } = payload;
-        const { error } = await supabase
-          .from("profiles")
-          .update(updatePayload)
-          .eq("id", profile.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from("profiles").insert({
-          ...payload,
-          role: "cliente" as UserRole,
-          is_active: true,
-        });
-        if (error) throw error;
-      }
+      await saveProfileMutation.mutateAsync({
+        ...payload,
+        role: profile?.role ?? "cliente",
+        is_active: profile?.is_active ?? true,
+      });
 
       toast({
         variant: "success",
@@ -358,104 +303,6 @@ export function ProfilePageClient({ profile, userEmail }: ProfilePageClientProps
                     placeholder="(00) 00000-0000"
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <Label>CPF / Documento</Label>
-                  <Input
-                    value={profileValues.document || ""}
-                    onChange={(e) => setProfileField("document", e.target.value)}
-                    placeholder="000.000.000-00"
-                  />
-                </div>
-                <div className="space-y-1.5 md:col-span-2">
-                  <Label>
-                    <Building2 className="inline h-3.5 w-3.5 mr-1" />
-                    Empresa / Setor
-                  </Label>
-                  <Input
-                    value={profileValues.company_name || ""}
-                    onChange={(e) =>
-                      setProfileField("company_name", e.target.value)
-                    }
-                    placeholder="Nome da empresa onde trabalha"
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <MapPin className="h-5 w-5 text-orange-600" />
-                <CardTitle className="text-base">Endereço</CardTitle>
-              </div>
-              <CardDescription>Opcional</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-4">
-                <div className="space-y-1.5">
-                  <Label>CEP</Label>
-                  <Input
-                    value={profileValues.cep || ""}
-                    onChange={(e) => setProfileField("cep", e.target.value)}
-                    placeholder="00000-000"
-                  />
-                </div>
-                <div className="space-y-1.5 md:col-span-2">
-                  <Label>Logradouro</Label>
-                  <Input
-                    value={profileValues.street || ""}
-                    onChange={(e) => setProfileField("street", e.target.value)}
-                    placeholder="Rua, Avenida..."
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Número</Label>
-                  <Input
-                    value={profileValues.number || ""}
-                    onChange={(e) => setProfileField("number", e.target.value)}
-                    placeholder="123"
-                  />
-                </div>
-              </div>
-              <div className="grid gap-4 md:grid-cols-4">
-                <div className="space-y-1.5 md:col-span-2">
-                  <Label>Bairro</Label>
-                  <Input
-                    value={profileValues.neighborhood || ""}
-                    onChange={(e) =>
-                      setProfileField("neighborhood", e.target.value)
-                    }
-                    placeholder="Centro"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Cidade</Label>
-                  <Input
-                    value={profileValues.city || ""}
-                    onChange={(e) => setProfileField("city", e.target.value)}
-                    placeholder="São Paulo"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>UF</Label>
-                  <Input
-                    value={profileValues.state || ""}
-                    onChange={(e) => setProfileField("state", e.target.value.toUpperCase())}
-                    placeholder="SP"
-                    maxLength={2}
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Complemento</Label>
-                <Input
-                  value={profileValues.complement || ""}
-                  onChange={(e) =>
-                    setProfileField("complement", e.target.value)
-                  }
-                  placeholder="Sala, andar, referência..."
-                />
               </div>
             </CardContent>
           </Card>
@@ -559,4 +406,10 @@ export function ProfilePageClient({ profile, userEmail }: ProfilePageClientProps
       </div>
     </div>
   );
+}
+
+export function ProfilePageLoader() {
+  const { profile, user, isLoading } = useAuth();
+  if (isLoading) return <p className="py-12 text-center text-sm text-muted-foreground">Carregando perfil...</p>;
+  return <ProfilePageClient profile={profile} userEmail={user?.email || "seu@email.com"} />;
 }

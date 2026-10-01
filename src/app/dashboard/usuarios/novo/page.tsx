@@ -1,4 +1,4 @@
-import { UserForm } from "../user-form";
+import { UserForm } from "@/components/users/user-form";
 
 export default function NovoUsuarioPage() {
   return <UserForm mode="create" />;

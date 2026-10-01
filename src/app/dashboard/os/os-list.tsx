@@ -46,22 +46,21 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { ServiceOrder, Customer, Profile } from "@/lib/types";
+import type { ServiceOrder } from "@/types";
 import {
   OS_STATUS_LABELS,
   OS_STATUS_COLORS,
   OS_PRIORITY_LABELS,
   OS_PRIORITY_COLORS,
-} from "@/lib/types";
+} from "@/types";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { createClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
+import { useDeleteServiceOrder, useServiceOrders } from "@/hooks/useServiceOrders";
+import { useClients } from "@/hooks/useClients";
+import { useUsers } from "@/hooks/useUsers";
 
 interface OSListProps {
-  initialOrders: ServiceOrder[];
-  customers: Pick<Customer, "id" | "name">[];
-  technicians: Pick<Profile, "id" | "full_name">[];
+  initialOrders?: ServiceOrder[];
 }
 
 type OSStatusKey = keyof typeof OS_STATUS_LABELS;
@@ -75,18 +74,21 @@ const STATUS_ICONS: Record<OSStatusKey, typeof Clock> = {
   cancelada: Ban,
 };
 
-export function OSList({ initialOrders, customers, technicians }: OSListProps) {
+export function OSList({ initialOrders }: OSListProps = {}) {
   const [search, setSearch] = useState("");
   const [customerFilter, setCustomerFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const [technicianFilter, setTechnicianFilter] = useState<string>("all");
-  const [orders, setOrders] = useState<ServiceOrder[]>(initialOrders);
+  const { data: orders = [], isLoading } = useServiceOrders(initialOrders);
+  const { data: clients = [] } = useClients();
+  const { data: profiles = [] } = useUsers();
+  const customers = clients.map(({ id, name }) => ({ id, name }));
+  const technicians = profiles.filter((profile) => ["admin", "tecnico"].includes(profile.role) && profile.is_active);
   const [deleteItem, setDeleteItem] = useState<ServiceOrder | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
-  const router = useRouter();
-  const supabase = createClient();
+  const deleteMutation = useDeleteServiceOrder();
+  const isDeleting = deleteMutation.isPending;
 
   const filtered = useMemo(() => {
     return orders.filter((o) => {
@@ -116,21 +118,8 @@ export function OSList({ initialOrders, customers, technicians }: OSListProps) {
 
   async function handleDelete() {
     if (!deleteItem) return;
-    setIsDeleting(true);
     try {
-      const { error: itemsError } = await supabase
-        .from("service_order_items")
-        .delete()
-        .eq("service_order_id", deleteItem.id);
-      if (itemsError) throw itemsError;
-
-      const { error } = await supabase
-        .from("service_orders")
-        .delete()
-        .eq("id", deleteItem.id);
-      if (error) throw error;
-
-      setOrders((prev) => prev.filter((o) => o.id !== deleteItem.id));
+      await deleteMutation.mutateAsync(deleteItem.id);
       toast({
         variant: "success",
         title: "OS excluída",
@@ -143,8 +132,6 @@ export function OSList({ initialOrders, customers, technicians }: OSListProps) {
         title: "Erro ao excluir",
         description: err?.message || "Não foi possível excluir a OS.",
       });
-    } finally {
-      setIsDeleting(false);
     }
   }
 
@@ -299,7 +286,9 @@ export function OSList({ initialOrders, customers, technicians }: OSListProps) {
 
       <Card>
         <CardContent className="p-0">
-          {filtered.length === 0 ? (
+          {isLoading ? (
+            <div className="py-16 text-center text-sm text-muted-foreground">Carregando ordens de serviço...</div>
+          ) : filtered.length === 0 ? (
             <div className="py-20 text-center space-y-4">
               <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-primary/5 text-primary">
                 <ClipboardList className="h-10 w-10" />

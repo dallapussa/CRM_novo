@@ -43,27 +43,25 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Profile, UserRole } from "@/lib/types";
-import { ROLE_LABELS, ROLE_COLORS } from "@/lib/types";
+import type { Profile, UserRole } from "@/types";
+import { ROLE_LABELS, ROLE_COLORS } from "@/types";
 import { formatDate, formatPhone } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { createClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
+import { useSetUserActive, useUsers } from "@/hooks/useUsers";
 
 interface UsersListProps {
-  initialUsers: Profile[];
+  initialUsers?: Profile[];
 }
 
-export function UsersList({ initialUsers }: UsersListProps) {
+export function UsersList({ initialUsers }: UsersListProps = {}) {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [users, setUsers] = useState<Profile[]>(initialUsers);
+  const { data: users = [], isLoading } = useUsers(initialUsers);
   const [deleteUser, setDeleteUser] = useState<Profile | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
-  const router = useRouter();
-  const supabase = createClient();
+  const setActiveMutation = useSetUserActive();
+  const isDeleting = setActiveMutation.isPending;
 
   const filtered = useMemo(() => {
     return users.filter((u) => {
@@ -86,16 +84,8 @@ export function UsersList({ initialUsers }: UsersListProps) {
 
   async function handleDelete() {
     if (!deleteUser) return;
-    setIsDeleting(true);
     try {
-      const { error } = await supabase
-        .from("profiles")
-        .update({ is_active: false })
-        .eq("id", deleteUser.id);
-      if (error) throw error;
-      setUsers((prev) =>
-        prev.map((u) => (u.id === deleteUser.id ? { ...u, is_active: false } : u))
-      );
+      await setActiveMutation.mutateAsync({ id: deleteUser.id, is_active: false });
       toast({
         variant: "success",
         title: "Usuário inativado",
@@ -108,22 +98,13 @@ export function UsersList({ initialUsers }: UsersListProps) {
         title: "Erro ao inativar",
         description: err?.message || "Não foi possível inativar o usuário.",
       });
-    } finally {
-      setIsDeleting(false);
     }
   }
 
   async function handleToggleActive(user: Profile) {
     const newState = !user.is_active;
     try {
-      const { error } = await supabase
-        .from("profiles")
-        .update({ is_active: newState })
-        .eq("id", user.id);
-      if (error) throw error;
-      setUsers((prev) =>
-        prev.map((u) => (u.id === user.id ? { ...u, is_active: newState } : u))
-      );
+      await setActiveMutation.mutateAsync({ id: user.id, is_active: newState });
       toast({
         variant: "success",
         title: newState ? "Usuário ativado" : "Usuário inativado",
@@ -281,7 +262,9 @@ export function UsersList({ initialUsers }: UsersListProps) {
 
       <Card>
         <CardContent className="p-0">
-          {filtered.length === 0 ? (
+          {isLoading ? (
+            <div className="py-16 text-center text-sm text-muted-foreground">Carregando usuários...</div>
+          ) : filtered.length === 0 ? (
             <div className="py-20 text-center space-y-4">
               <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-primary/5 text-primary">
                 <Users className="h-10 w-10" />
@@ -338,10 +321,10 @@ export function UsersList({ initialUsers }: UsersListProps) {
                         </TableCell>
                         <TableCell>
                           <div className="text-sm space-y-0.5">
-                            {u.id && (
+                            {u.email && (
                               <div className="flex items-center gap-1 text-muted-foreground">
                                 <Mail className="h-3.5 w-3.5" />
-                                <span className="truncate max-w-[200px]">ID: {u.id.slice(0, 10)}...</span>
+                                <span className="truncate max-w-[200px]">{u.email}</span>
                               </div>
                             )}
                             {u.phone && (

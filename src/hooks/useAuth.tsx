@@ -6,10 +6,11 @@ import {
   useEffect,
   useState,
   ReactNode,
-  useMemo,
 } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
-import type { Profile, UserRole } from "@/lib/types";
+import type { Profile, UserRole } from "@/types";
+import { getUserProfile } from "@/services/users.service";
 
 type AuthState = {
   isLoading: boolean;
@@ -31,39 +32,25 @@ const defaultProfile = (user: { id: string; email?: string | null }): Profile =>
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const supabase = createClient();
+  const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<{ id: string; email?: string | null } | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [role, setRole] = useState<UserRole | null>(null);
-
-  async function loadProfile(userId: string) {
-    try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", userId)
-        .maybeSingle();
-      if (error || !data) {
-        return defaultProfile({ id: userId });
-      }
-      return data as Profile;
-    } catch {
-      return defaultProfile({ id: userId });
-    }
-  }
+  const profileQuery = useQuery({
+    queryKey: ["current-profile", user?.id],
+    queryFn: () => getUserProfile(user!.id),
+    enabled: Boolean(user?.id),
+  });
+  const profile = profileQuery.data ?? (user ? defaultProfile(user) : null);
+  const role: UserRole | null = profile?.role ?? null;
 
   async function refreshProfile() {
     if (!user?.id) return;
-    const p = await loadProfile(user.id);
-    setProfile(p);
-    setRole(p.role);
+    await queryClient.invalidateQueries({ queryKey: ["current-profile", user.id] });
   }
 
   async function signOut() {
     await supabase.auth.signOut();
     setUser(null);
-    setProfile(null);
-    setRole(null);
   }
 
   useEffect(() => {
@@ -73,34 +60,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } = await supabase.auth.getUser();
       if (u) {
         setUser({ id: u.id, email: u.email });
-        const p = await loadProfile(u.id);
-        setProfile(p);
-        setRole(p.role);
       }
       setIsLoading(false);
     })();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_evt, sess) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((_evt, sess) => {
       const u = sess?.user;
       if (u) {
         setUser({ id: u.id, email: u.email });
-        const p = await loadProfile(u.id);
-        setProfile(p);
-        setRole(p.role);
       } else {
         setUser(null);
-        setProfile(null);
-        setRole(null);
       }
     });
     return () => listener.subscription.unsubscribe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const value = useMemo<AuthState>(
-    () => ({ isLoading, user, profile, role, refreshProfile, signOut }),
-    [isLoading, user, profile, role]
-  );
+  const value: AuthState = {
+    isLoading: isLoading || profileQuery.isLoading,
+    user,
+    profile,
+    role,
+    refreshProfile,
+    signOut,
+  };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

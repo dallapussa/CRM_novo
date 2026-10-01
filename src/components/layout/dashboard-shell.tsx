@@ -2,16 +2,17 @@ import Link from "next/link";
 import { Flame, Settings } from "lucide-react";
 import { NavMain, NavSectionTitle } from "./nav-main";
 import { UserNav } from "./user-nav";
-import type { Profile } from "@/lib/types";
-import { ROLE_LABELS, ROLE_COLORS } from "@/lib/types";
+import type { Profile } from "@/types";
+import { ROLE_LABELS, ROLE_COLORS } from "@/types";
 import { Badge } from "@/components/ui/badge";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 interface DashboardShellProps {
   children: React.ReactNode;
   profile: Profile;
 }
 
-export async function DashboardShell({ children, profile }: DashboardShellProps) {
+export function DashboardShell({ children, profile }: DashboardShellProps) {
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
       <div className="flex min-h-screen">
@@ -31,7 +32,6 @@ export async function DashboardShell({ children, profile }: DashboardShellProps)
           </div>
 
           <div className="flex-1 overflow-y-auto py-3">
-            <NavSectionTitle>Início</NavSectionTitle>
             <NavMain role={profile.role} />
           </div>
 
@@ -56,7 +56,8 @@ export async function DashboardShell({ children, profile }: DashboardShellProps)
                 <span className="font-display font-bold tracking-tight">ExtinControl</span>
               </div>
               <div className="hidden md:block flex-1" />
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
+                <ThemeToggle />
                 <Badge className={ROLE_COLORS[profile.role]} variant="outline">
                   {ROLE_LABELS[profile.role]}
                 </Badge>

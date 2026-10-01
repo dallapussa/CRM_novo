@@ -42,15 +42,15 @@ import type {
   Customer,
   ServiceOrder,
   InvoiceStatus,
-} from "@/lib/types";
+} from "@/types";
 import {
   INVOICE_STATUS_LABELS,
   INVOICE_STATUS_COLORS,
   PAYMENT_METHOD_LABELS,
-} from "@/lib/types";
+} from "@/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useUpdateInvoice } from "@/hooks/useInvoices";
 
 type InvoiceStatusKey = keyof typeof INVOICE_STATUS_LABELS;
 
@@ -69,9 +69,9 @@ function parseMoney(v?: string): number {
 
 export function InvoiceDetail({ invoice, customer, serviceOrder }: InvoiceDetailProps) {
   const router = useRouter();
-  const supabase = createClient();
   const { toast } = useToast();
-  const [isUpdating, setIsUpdating] = useState(false);
+  const updateMutation = useUpdateInvoice();
+  const isUpdating = updateMutation.isPending;
   const [status, setStatus] = useState<InvoiceStatus>(invoice.status);
   const [amountPaid, setAmountPaid] = useState(
     invoice.amount_paid != null ? String(invoice.amount_paid).replace(".", ",") : "0"
@@ -84,7 +84,6 @@ export function InvoiceDetail({ invoice, customer, serviceOrder }: InvoiceDetail
   const isPagar = invoice.type === "pagar";
 
   async function handleUpdate() {
-    setIsUpdating(true);
     try {
       const paid = parseMoney(amountPaid);
       let computedStatus: InvoiceStatus = status;
@@ -94,16 +93,12 @@ export function InvoiceDetail({ invoice, customer, serviceOrder }: InvoiceDetail
         computedStatus = "parcial";
       }
 
-      const { error } = await supabase
-        .from("invoices")
-        .update({
+      await updateMutation.mutateAsync({ id: invoice.id, patch: {
           status: computedStatus,
           amount_paid: paid,
           payment_date: paymentDate || null,
           payment_method: paymentMethod || null,
-        })
-        .eq("id", invoice.id);
-      if (error) throw error;
+        } });
 
       toast({
         variant: "success",
@@ -117,8 +112,6 @@ export function InvoiceDetail({ invoice, customer, serviceOrder }: InvoiceDetail
         title: "Erro ao atualizar",
         description: err?.message || "Não foi possível atualizar a fatura.",
       });
-    } finally {
-      setIsUpdating(false);
     }
   }
 

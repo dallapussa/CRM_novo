@@ -34,15 +34,18 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import type { Invoice, Customer, ServiceOrder, InvoiceStatus, InvoiceType } from "@/lib/types";
+import type { Invoice, Customer, ServiceOrder, InvoiceStatus, InvoiceType } from "@/types";
 import {
   INVOICE_STATUS_LABELS,
   INVOICE_STATUS_COLORS,
   PAYMENT_METHOD_LABELS,
-} from "@/lib/types";
+} from "@/types";
 import { formatCurrency } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useSaveInvoice } from "@/hooks/useInvoices";
+import { useClients } from "@/hooks/useClients";
+import { useServiceOrders } from "@/hooks/useServiceOrders";
 
 const invoiceSchema = z.object({
   customer_id: z.string().min(1, { message: "Selecione o cliente/fornecedor" }),
@@ -63,8 +66,8 @@ type FormValues = z.infer<typeof invoiceSchema>;
 
 interface InvoiceFormProps {
   initialData?: Invoice;
-  customers: Pick<Customer, "id" | "name">[];
-  serviceOrders: Pick<ServiceOrder, "id" | "number" | "customer_id">[];
+  customers?: Pick<Customer, "id" | "name">[];
+  serviceOrders?: Pick<ServiceOrder, "id" | "number" | "customer_id">[];
   mode: "create" | "edit";
 }
 
@@ -77,13 +80,18 @@ function parseMoney(v?: string): number {
 
 export function InvoiceForm({
   initialData,
-  customers,
-  serviceOrders,
+  customers: providedCustomers,
+  serviceOrders: providedServiceOrders,
   mode,
 }: InvoiceFormProps) {
   const router = useRouter();
   const supabase = createClient();
   const { toast } = useToast();
+  const saveMutation = useSaveInvoice();
+  const { data: clientRows = [] } = useClients();
+  const { data: orderRows = [] } = useServiceOrders();
+  const customers = providedCustomers ?? clientRows.filter((client) => client.is_active).map(({ id, name }) => ({ id, name }));
+  const serviceOrders = providedServiceOrders ?? orderRows.map(({ id, number, customer_id }) => ({ id, number, customer_id }));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -175,11 +183,10 @@ export function InvoiceForm({
       };
 
       if (mode === "create") {
-        const { error } = await supabase.from("invoices").insert({
+        await saveMutation.mutateAsync({ input: {
           ...payload,
           created_by: user.id,
-        });
-        if (error) throw error;
+        } });
         toast({
           variant: "success",
           title: "Fatura criada!",
@@ -187,11 +194,7 @@ export function InvoiceForm({
         });
         router.push("/dashboard/financeiro");
       } else if (initialData) {
-        const { error } = await supabase
-          .from("invoices")
-          .update(payload)
-          .eq("id", initialData.id);
-        if (error) throw error;
+        await saveMutation.mutateAsync({ input: payload, id: initialData.id });
         toast({
           variant: "success",
           title: "Fatura atualizada!",

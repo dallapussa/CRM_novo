@@ -41,26 +41,24 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Customer } from "@/lib/types";
+import type { Customer } from "@/types";
 import { formatDocument, formatPhone, formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { createClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
+import { useClients, useDeleteClient } from "@/hooks/useClients";
 
 interface CustomersListProps {
-  initialCustomers: Customer[];
+  initialCustomers?: Customer[];
 }
 
-export function CustomersList({ initialCustomers }: CustomersListProps) {
+export function CustomersList({ initialCustomers }: CustomersListProps = {}) {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
   const [deleteCustomer, setDeleteCustomer] = useState<Customer | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
-  const router = useRouter();
-  const supabase = createClient();
+  const { data: customers = [], isLoading } = useClients(initialCustomers);
+  const deleteMutation = useDeleteClient();
+  const isDeleting = deleteMutation.isPending;
 
   const filteredCustomers = useMemo(() => {
     return customers.filter((c) => {
@@ -88,32 +86,24 @@ export function CustomersList({ initialCustomers }: CustomersListProps) {
     });
   }, [customers, search, typeFilter, statusFilter]);
 
-  async function handleDelete() {
+  async function handleArchive() {
     if (!deleteCustomer) return;
-    setIsDeleting(true);
     try {
-      const { error } = await supabase
-        .from("customers")
-        .delete()
-        .eq("id", deleteCustomer.id);
-      if (error) throw error;
-      setCustomers((prev) => prev.filter((c) => c.id !== deleteCustomer.id));
+      await deleteMutation.mutateAsync(deleteCustomer.id);
       toast({
         variant: "success",
-        title: "Cliente excluído",
-        description: `${deleteCustomer.name} foi removido com sucesso.`,
+        title: "Cliente arquivado",
+        description: `${deleteCustomer.name} foi movido para a lixeira.`,
       });
       setDeleteCustomer(null);
     } catch (err: any) {
       toast({
         variant: "destructive",
-        title: "Erro ao excluir",
+        title: "Erro ao arquivar",
         description:
           err?.message ||
-          "Não foi possível excluir. Verifique se há OS vinculadas.",
+          "Não foi possível arquivar. Verifique se há OS vinculadas.",
       });
-    } finally {
-      setIsDeleting(false);
     }
   }
 
@@ -239,7 +229,9 @@ export function CustomersList({ initialCustomers }: CustomersListProps) {
 
       <Card>
         <CardContent className="p-0">
-          {filteredCustomers.length === 0 ? (
+          {isLoading ? (
+            <div className="py-16 text-center text-sm text-muted-foreground">Carregando clientes...</div>
+          ) : filteredCustomers.length === 0 ? (
             <div className="py-20 text-center space-y-4">
               <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-primary/5 text-primary">
                 <UserCheck className="h-10 w-10" />
@@ -369,7 +361,7 @@ export function CustomersList({ initialCustomers }: CustomersListProps) {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
-                            title="Excluir"
+                            title="Arquivar"
                             onClick={() => setDeleteCustomer(c)}
                           >
                             <Trash2 className="h-4 w-4" />
@@ -388,11 +380,12 @@ export function CustomersList({ initialCustomers }: CustomersListProps) {
       <Dialog open={!!deleteCustomer} onOpenChange={(o) => !o && setDeleteCustomer(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Excluir cliente?</DialogTitle>
+            <DialogTitle>Arquivar cliente?</DialogTitle>
             <DialogDescription>
-              Tem certeza que deseja excluir{" "}
+              Tem certeza que deseja arquivar{" "}
               <span className="font-semibold">{deleteCustomer?.name}</span>?
-              Esta ação não pode ser desfeita.
+              Ele deixará de aparecer nas listas, mas seus dados serão mantidos no banco
+              e podem ser restaurados pelo administrador a qualquer momento.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -405,10 +398,10 @@ export function CustomersList({ initialCustomers }: CustomersListProps) {
             </Button>
             <Button
               variant="destructive"
-              onClick={handleDelete}
+              onClick={handleArchive}
               disabled={isDeleting}
             >
-              {isDeleting ? "Excluindo..." : "Sim, excluir"}
+              {isDeleting ? "Arquivando..." : "Sim, arquivar"}
             </Button>
           </DialogFooter>
         </DialogContent>

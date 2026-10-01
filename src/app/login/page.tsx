@@ -8,12 +8,14 @@ import {
   Wallet,
   FireExtinguisher,
 } from "lucide-react";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: { redirect?: string };
+  searchParams: Promise<{ redirect?: string }>;
 }) {
+  const { redirect: redirectTo } = await searchParams;
   const supabase = createClient();
   const { data } = await supabase.auth.getUser();
 
@@ -45,7 +47,10 @@ export default async function LoginPage({
   ];
 
   return (
-    <div className="flex min-h-screen bg-white">
+    <div className="flex min-h-screen bg-white dark:bg-zinc-950">
+      <div className="fixed top-4 right-4 z-50">
+        <ThemeToggle />
+      </div>
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-red-600 via-red-500 to-orange-500">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.15),transparent_40%),radial-gradient(circle_at_80%_80%,rgba(0,0,0,0.15),transparent_40%)]" />
         <div className="absolute -top-40 -right-40 h-96 w-96 rounded-full bg-white/10 blur-3xl" />
@@ -124,7 +129,7 @@ export default async function LoginPage({
             </p>
           </div>
 
-          <LoginForm redirectTo={searchParams.redirect} />
+          <LoginForm redirectTo={redirectTo} />
 
           <div className="flex flex-col gap-4 text-sm text-muted-foreground">
             <a
