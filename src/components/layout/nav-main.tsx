@@ -157,7 +157,13 @@ export const NAV_SECTIONS: { title: string; startHref: string }[] = [
 
 /** Retorna os itens de navegação já filtrados por permissão e organizados por seção */
 export function getNavItemsByRole(role: UserRole) {
-  return NAV_ITEMS.filter((item) => hasPermission(role, item.permission));
+  return NAV_ITEMS.filter((item) => {
+    if (!hasPermission(role, item.permission)) return false;
+    // "Portal do Cliente" e "Dashboard" usam a mesma rota (/dashboard):
+    // o portal é a home exclusiva de Cliente/Terceiro; os demais perfis veem "Dashboard".
+    if (item.permission === "customer_portal" && hasPermission(role, "dashboard")) return false;
+    return true;
+  });
 }
 
 interface NavMainProps {
@@ -172,7 +178,6 @@ function NavItemLink({ item, pathname, role }: { item: NavItem; pathname: string
 
   return (
     <Link
-      key={item.href}
       href={item.href}
       className={cn(
         "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all",
@@ -207,32 +212,7 @@ export function NavMain({ role }: NavMainProps) {
   const normalizedRole = role as UserRole;
   const filtered = getNavItemsByRole(normalizedRole);
 
-  // Agrupa itens por seção usando NAV_SECTIONS
-  const sections: { title: string; items: NavItem[] }[] = [];
-  let currentSection: { title: string; items: NavItem[] } | null = null;
-
-  for (const section of NAV_SECTIONS) {
-    const itemsInSection = filtered.filter((item) => {
-      // Um item pertence a esta seção se seu href for >= startHref na lista NAV_ITEMS
-      // e não pertencer a nenhuma seção seguinte (deve ser a primeira correspondente)
-      // Mais simples: find section by startHref === item.href, ou agrupa contíguo
-      return item.href.startsWith(section.startHref.split("/").slice(0, 3).join("/") === section.startHref
-        ? section.startHref.split("/").slice(0, 3).join("/")
-        : section.startHref
-      );
-    });
-    // Para simplicidade e correção visual, usamos o mapeamento direto
-    const orderedBySection: Record<string, string[]> = {
-      "Início": ["/dashboard"],
-      "Equipe": ["/dashboard/usuarios"],
-      "Comercial": ["/dashboard/leads", "/dashboard/clientes", "/dashboard/orcamentos", "/dashboard/agenda", "/dashboard/whatsapp"],
-      "Catálogo": ["/dashboard/produtos"],
-      "Operações": ["/dashboard/extintores", "/dashboard/os", "/dashboard/bancada"],
-      "Financeiro": ["/dashboard/pedidos", "/dashboard/financeiro", "/dashboard/relatorios", "/dashboard/custos"],
-    };
-  }
-
-  // Abordagem mais confiável: mapeamento fixo por href
+  // Mapeamento fixo por href
   const hrefToSection: Record<string, string> = {
     "/dashboard": "Início",
     "/dashboard/usuarios": "Equipe",
@@ -270,7 +250,7 @@ export function NavMain({ role }: NavMainProps) {
             <NavSectionTitle>{secTitle}</NavSectionTitle>
             <div className="flex flex-col gap-1">
               {items.map((it) => (
-                <NavItemLink key={it.href} item={it} pathname={pathname} role={normalizedRole} />
+                <NavItemLink key={it.permission} item={it} pathname={pathname} role={normalizedRole} />
               ))}
             </div>
           </div>
