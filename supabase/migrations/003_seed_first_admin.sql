@@ -1,3 +1,9 @@
+-- ╔══════════════════════════════════════════════════════════════════════╗
+-- ║  ⚠️  ESTE PASSO-A-PASSO FOI COPIADO PARA O FINAL DE:                ║
+-- ║     001_initial_schema.sql (consulte lá para novas instalações)      ║
+-- ║  🟢 Este arquivo é mantido apenas para referência.                   ║
+-- ╚══════════════════════════════════════════════════════════════════════╝
+
 -- ==========================================================================
 -- SCRIPT DE CRIAÇÃO DO PRIMEIRO ADMINISTRADOR (Seed / First Admin Setup)
 -- ==========================================================================
@@ -44,9 +50,9 @@ values (
 update public.user_profiles
 set
   role       = 'Admin',
-  company_id = 'COLE_UUID_DA_EMPRESA_AQUI',
+  company_id = 'fbb66b5c-880a-42b0-bcfd-45301d939309',
   ativo      = true
-where id = 'COLE_UUID_DO_USUARIO_ADMIN_AQUI';
+where id = '4fec4a85-d041-45cf-97da-4960fae142c4';
 
 -- Verificação (rode após o update para confirmar):
 -- select id, nome, email, role, ativo, company_id from public.user_profiles;

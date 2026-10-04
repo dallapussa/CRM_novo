@@ -559,3 +559,64 @@ create policy os_photos_authenticated_update on storage.objects for update to au
 create policy os_photos_authenticated_delete on storage.objects for delete to authenticated using (bucket_id = 'os-photos' and auth.uid() is not null);
 
 grant usage on schema public to authenticated;
+
+-- =============================================================================
+-- 👤 PASSO-A-PASSO VISUAL: CRIAR O PRIMEIRO ADMINISTRADOR DO SISTEMA
+-- =============================================================================
+--  (SÓ É PRECISO FAZER ISSO UMA VEZ, logo após criar o projeto Supabase!)
+--
+-- ▶️ PASSO 1 — Criar o usuário no painel do Supabase:
+--    1. Abra: https://app.supabase.com  →  entre no seu projeto
+--    2. Menu ESQUERDO: clique no ícone 🔐 (Authentication)
+--    3. Sub-menu: clique em "Users"
+--    4. Botão VERDE no topo direito: "Add user"
+--    5. Preencha:
+--       • Email do admin:  admin@suaempresa.com.br   (troque pelo seu)
+--       • Senha:           Crie uma SENHA FORTE e anote num lugar seguro!
+--       • Auto Confirm User?:  ✅ MARQUE ESTA OPÇÃO (muito importante!)
+--    6. Clique no botão: "Create user"
+--
+-- ▶️ PASSO 2 — Criar a PRIMEIRA EMPRESA e copiar 2 UUIDs:
+--    1. Menu ESQUERDO: clique no ícone 📝 (SQL Editor)
+--    2. Clique no botão azul: "New query"
+--    3. Cole o SQL abaixo (edite os campos da empresa com seus dados):
+--       ---------------------------------------------------------------
+--         INSERT INTO public.companies (nome, cnpj, email, telefone, ativo)
+--         VALUES (
+--           'Nome da Sua Empresa LTDA',  -- ← TROQUE PELO NOME REAL
+--           '00000000000100',             -- ← CNPJ SÓ NÚMEROS
+--           'contato@suaempresa.com.br', -- ← EMAIL REAL
+--           '1130001234',                 -- ← TELEFONE SÓ NÚMEROS (com DDD)
+--           true
+--         );
+--       ---------------------------------------------------------------
+--    4. Clique em "Run" (botão ► verde)
+--    5. Agora, para VER o UUID da empresa, rode esta consulta:
+--       SELECT id FROM public.companies LIMIT 1;
+--    6. Copie o UUID que aparece (ex: fbb66b5c-880a-42b0-bcfd-45301d939309)
+--       e guarde.
+--    7. Agora veja o UUID do USUÁRIO ADMIN que você criou no Passo 1:
+--       • Volte em 🔐 Authentication → Users
+--       • Clique no email do admin para expandir
+--       • Copie o campo UID (ex: 4fec4a85-d041-45cf-97da-4960fae142c4)
+--         e guarde.
+--
+-- ▶️ PASSO 3 — Promover o usuário a ADMINISTRADOR:
+--    1. Volte no SQL Editor → New query
+--    2. Cole o SQL ABAIXO, TROCANDO os 2 UUIDs pelos que você copiou:
+--       ---------------------------------------------------------------
+--         UPDATE public.user_profiles
+--         SET
+--           role       = 'Admin',
+--           company_id = 'COLE-AQUI-UUID-DA-EMPRESA',
+--           ativo      = true
+--         WHERE id = 'COLE-AQUI-UUID-DO-USUARIO-ADMIN';
+--       ---------------------------------------------------------------
+--    3. Clique em "Run" (► verde)
+--    4. ✅ PRONTO! Agora você já pode logar no CRM com email+sua senha.
+--
+-- ▶️ PASSO 4 — Verificação opcional (confirmar que deu certo):
+--    No SQL Editor, rode:
+--       SELECT email, role, ativo, company_id FROM public.user_profiles;
+--    Deve aparecer o seu email com role = 'Admin'.
+-- =============================================================================

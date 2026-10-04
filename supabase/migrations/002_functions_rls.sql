@@ -1,5 +1,11 @@
+-- ╔══════════════════════════════════════════════════════════════════════╗
+-- ║  ⚠️  ARQUIVO LEGACY — NÃO UTILIZAR EM INSTALAÇÕES NOVAS!             ║
+-- ║  🟢 PARA SETUP DE UM PROJETO NOVO, USE APENAS: 001_initial_schema.sql ║
+-- ╚══════════════════════════════════════════════════════════════════════╝
+-- Este arquivo foi mantido SOMENTE para referência histórica.
+
 -- ==========================================================================
--- MIGRATION 002 — FUNCTIONS, TRIGGERS GLOBAIS e RLS BÁSICO
+-- MIGRATION 002 — FUNCTIONS, TRIGGERS GLOBAIS e RLS BÁSICO (LEGACY)
 -- ==========================================================================
 -- Cria:
 --   • handle_updated_at   → atualiza updated_at em qualquer UPDATE

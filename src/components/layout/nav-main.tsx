@@ -26,35 +26,49 @@ import {
 import { usePathname } from "next/navigation";
 import { hasPermission, type RolePermission, type UserRole } from "@/types";
 
+// ============================================================
+// 🔀 CONTROLE DE FASES DO PROJETO (workflow do manual)
+// ============================================================
+// 1 = Fase 1 (MVP)  → só aparece Login, Dashboard, Clientes, Usuários
+// 2 = Fase 2 (Operações) → libera Extintores, OS, Bancada, Pedidos, Financeiro
+// 3 = Fase 3 (Comercial) → libera tudo: Leads, Orçamentos, Agenda, WhatsApp, Relatórios, Custos
+// Quando passar no checklist de aceite da Fase, basta trocar o número abaixo!
+const CURRENT_PHASE: 1 | 2 | 3 = 1;
+
 export interface NavItem {
   title: string;
   href: string;
   icon: LucideIcon;
   permission: RolePermission;
+  /** Fase em que este item de menu é liberado (workflow do manual) */
+  phase: 1 | 2 | 3;
   badge?: string;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  // ============ INÍCIO ============
+  // ============ INÍCIO (FASE 1 — MVP) ============
   {
     title: "Dashboard",
     href: "/dashboard",
     icon: LayoutDashboard,
     permission: "dashboard",
+    phase: 1,
   },
   {
     title: "Portal do Cliente",
     href: "/dashboard",
     icon: ShieldCheck,
     permission: "customer_portal",
+    phase: 1,
   },
 
-  // ============ EQUIPE ============
+  // ============ EQUIPE (FASE 1 — MVP) ============
   {
     title: "Usuários",
     href: "/dashboard/usuarios",
     icon: Users,
     permission: "users",
+    phase: 1,
   },
 
   // ============ COMERCIAL ============
@@ -63,30 +77,35 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/leads",
     icon: ContactRound,
     permission: "leads",
+    phase: 3, // Fase 3 — Comercial
   },
   {
     title: "Clientes",
     href: "/dashboard/clientes",
     icon: UserCheck,
     permission: "clients",
+    phase: 1, // Fase 1 — MVP
   },
   {
     title: "Orçamentos",
     href: "/dashboard/orcamentos",
     icon: FileSpreadsheet,
     permission: "quotes",
+    phase: 3, // Fase 3 — Comercial
   },
   {
     title: "Agenda",
     href: "/dashboard/agenda",
     icon: CalendarDays,
     permission: "agenda",
+    phase: 3, // Fase 3 — Comercial
   },
   {
     title: "WhatsApp",
     href: "/dashboard/whatsapp",
     icon: MessageCircle,
     permission: "whatsapp",
+    phase: 3, // Fase 3 — Comercial
   },
 
   // ============ CATÁLOGO ============
@@ -95,26 +114,30 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/produtos",
     icon: Package,
     permission: "catalog",
+    phase: 3, // Fase 3 — Comercial
   },
 
-  // ============ TÉCNICO ============
+  // ============ TÉCNICO (FASE 2 — Operações) ============
   {
     title: "Extintores",
     href: "/dashboard/extintores",
     icon: FireExtinguisher,
     permission: "extinguishers",
+    phase: 2,
   },
   {
     title: "Ordens de Serviço",
     href: "/dashboard/os",
     icon: ClipboardList,
     permission: "service_orders",
+    phase: 2,
   },
   {
     title: "Bancada",
     href: "/dashboard/bancada",
     icon: Wrench,
     permission: "bench",
+    phase: 2,
   },
 
   // ============ FINANCEIRO ============
@@ -123,24 +146,28 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/pedidos",
     icon: ShoppingCart,
     permission: "orders",
+    phase: 2, // Fase 2 — Operações
   },
   {
     title: "Financeiro",
     href: "/dashboard/financeiro",
     icon: ReceiptText,
     permission: "receipts",
+    phase: 2, // Fase 2 — Operações
   },
   {
     title: "Relatórios",
     href: "/dashboard/relatorios",
     icon: BarChart3,
     permission: "reports",
+    phase: 3, // Fase 3 — Comercial
   },
   {
     title: "Custos Financeiros",
     href: "/dashboard/custos",
     icon: DollarSign,
     permission: "financial_costs",
+    phase: 3, // Fase 3 — Comercial
   },
 ];
 
@@ -155,12 +182,15 @@ export const NAV_SECTIONS: { title: string; startHref: string }[] = [
   { title: "Financeiro", startHref: "/dashboard/pedidos" },
 ];
 
-/** Retorna os itens de navegação já filtrados por permissão e organizados por seção */
+/** Retorna os itens de navegação já filtrados por permissão + fase e organizados por seção */
 export function getNavItemsByRole(role: UserRole) {
   return NAV_ITEMS.filter((item) => {
+    // 1) Filtro por fase do projeto (workflow do manual — CURRENT_PHASE)
+    if (item.phase > CURRENT_PHASE) return false;
+    // 2) Filtro por permissão do cargo (ROLE_PERMISSIONS)
     if (!hasPermission(role, item.permission)) return false;
-    // "Portal do Cliente" e "Dashboard" usam a mesma rota (/dashboard):
-    // o portal é a home exclusiva de Cliente/Terceiro; os demais perfis veem "Dashboard".
+    // 3) "Portal do Cliente" e "Dashboard" usam a mesma rota (/dashboard):
+    //    o portal é a home exclusiva de Cliente/Terceiro; os demais perfis veem "Dashboard".
     if (item.permission === "customer_portal" && hasPermission(role, "dashboard")) return false;
     return true;
   });

@@ -1,5 +1,11 @@
+-- ╔══════════════════════════════════════════════════════════════════════╗
+-- ║  ⚠️  ARQUIVO LEGACY — NÃO UTILIZAR EM INSTALAÇÕES NOVAS!             ║
+-- ║  🟢 PARA SETUP DE UM PROJETO NOVO, USE APENAS: 001_initial_schema.sql ║
+-- ╚══════════════════════════════════════════════════════════════════════╝
+-- Este arquivo foi mantido SOMENTE para referência histórica.
+
 -- ==========================================================================
--- MIGRATION 001 — SCHEMA BASE COMPLETO DO ExtinControl CRM
+-- MIGRATION 001 — SCHEMA BASE COMPLETO DO ExtinControl CRM (LEGACY)
 -- ==========================================================================
 --        !!! APENAS PARA PRIMEIRA INSTALAÇÃO !!!
 --    Este bloco apaga TUDO no schema public (tabelas, views, tipos).

@@ -1,3 +1,9 @@
+-- ╔═════════════════════════════════════════════════════════════════════════╗
+-- ║  ⚠️  ARQUIVO LEGACY — SÓ USAR SE VOCÊ TIVER DADOS VINDOS DE VERSÃO    ║
+-- ║     ANTIGA DO CRM (antes de 01/10/2026).                              ║
+-- ║  🟢 INSTALAÇÕES NOVAS (banco vazio): USE APENAS 001_initial_schema.sql  ║
+-- ╚═════════════════════════════════════════════════════════════════════════╝
+
 -- Incremental upgrade for projects initialized with the previous CRM schema.
 -- Apply manually in Supabase SQL Editor when the old migration was run there.
 -- Existing tables are retained; incompatible tables are renamed with legacy_ prefix.
