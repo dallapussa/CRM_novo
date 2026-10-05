@@ -36,6 +36,7 @@ import type { Profile, UserRole } from "@/types";
 import { ROLE_LABELS } from "@/types";
 import { useToast } from "@/hooks/use-toast";
 import { useCreateUser, useUpdateUser } from "@/hooks/useUsers";
+import { applyMask, formatPhone } from "@/lib/utils";
 
 const userSchema = z.object({
   full_name: z.string().min(3, { message: "Nome deve ter pelo menos 3 caracteres" }),
@@ -64,7 +65,7 @@ export function UserForm({ initialData, mode }: UserFormProps) {
   const [values, setValues] = useState<FormValues>({
     full_name: initialData?.full_name || "",
     role: initialData?.role || "comercial",
-    phone: initialData?.phone || "",
+    phone: formatPhone(initialData?.phone || ""),
     is_active: initialData?.is_active ?? true,
   });
 
@@ -280,7 +281,7 @@ export function UserForm({ initialData, mode }: UserFormProps) {
                 </Label>
                 <Input
                   value={values.phone || ""}
-                  onChange={(e) => setField("phone", e.target.value)}
+                  onChange={(e) => setField("phone", applyMask(e.target.value, "phone"))}
                   placeholder="(00) 00000-0000"
                 />
               </div>

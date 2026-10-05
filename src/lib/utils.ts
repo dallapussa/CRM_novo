@@ -46,6 +46,16 @@ export function formatPhone(value: string) {
   return digits.replace(/(\d{2})(\d{5})(\d{4})/, "($1) $2-$3");
 }
 
+export function formatCEP(value: string) {
+  if (!value) return "";
+  const digits = value.replace(/\D/g, "").slice(0, 8);
+  return digits.replace(/(\d{5})(\d{3})/, "$1-$2");
+}
+
+export function unmask(value: string) {
+  return value.replace(/\D/g, "");
+}
+
 export function formatDate(date?: string | Date) {
   if (!date) return "";
   const d = typeof date === "string" ? new Date(date) : date;
@@ -66,4 +76,23 @@ export function formatDateTime(date?: string | Date) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+export type MaskType = "phone" | "cpf" | "cnpj" | "document" | "cep" | "none";
+
+export function applyMask(value: string, mask: MaskType) {
+  switch (mask) {
+    case "phone":
+      return formatPhone(value);
+    case "cpf":
+      return formatCPF(value);
+    case "cnpj":
+      return formatCNPJ(value);
+    case "document":
+      return formatDocument(value);
+    case "cep":
+      return formatCEP(value);
+    default:
+      return value;
+  }
 }

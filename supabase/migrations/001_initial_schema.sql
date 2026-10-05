@@ -381,6 +381,51 @@ create index agenda_events_company_id_idx on public.agenda_events(company_id);
 create index agenda_events_assigned_to_idx on public.agenda_events(assigned_to);
 create index agenda_events_starts_at_idx on public.agenda_events(starts_at);
 
+create table public.whatsapp_templates (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid references public.companies(id) on delete cascade,
+  slug text not null,
+  nome text not null,
+  descricao text,
+  conteudo text not null,
+  placeholders text[] not null default '{}',
+  habilitado boolean not null default true,
+  is_system boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
+  created_by uuid references auth.users(id) on delete set null,
+  check (is_system = false or company_id is null)
+);
+create index whatsapp_templates_company_id_idx on public.whatsapp_templates(company_id);
+
+create table public.bench_records (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  extinguisher_id uuid references public.extinguishers(id) on delete set null,
+  hose_id uuid references public.hoses(id) on delete set null,
+  service_order_id uuid references public.service_orders(id) on delete set null,
+  client_id uuid references public.clients(id) on delete set null,
+  stage text not null default 'recebido',
+  technician_id uuid references public.user_profiles(id) on delete set null,
+  arrived_at timestamptz not null default now(),
+  moved_at timestamptz,
+  due_at timestamptz,
+  observacoes text,
+  prioridade text not null default 'media',
+  equip_tipo text,
+  equip_capacidade text,
+  equip_patrimonio text,
+  cliente_nome text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
+  created_by uuid references auth.users(id) on delete set null
+);
+create index bench_records_company_id_idx on public.bench_records(company_id);
+create index bench_records_stage_idx on public.bench_records(stage);
+create index bench_records_service_order_id_idx on public.bench_records(service_order_id);
+
 create or replace function public.handle_updated_at()
 returns trigger
 language plpgsql
@@ -412,12 +457,22 @@ begin
   foreach table_name in array array[
     'companies', 'user_profiles', 'clients', 'extinguishers', 'hoses', 'documents',
     'leads', 'quotes', 'quote_items', 'service_orders', 'service_order_items', 'os_photos', 'orders', 'receipts',
-    'tasks', 'agenda_events', 'catalog_items', 'quote_templates'
+    'tasks', 'agenda_events', 'catalog_items', 'quote_templates', 'whatsapp_templates', 'bench_records'
   ] loop
     execute format('create trigger %I before update on public.%I for each row execute function public.handle_updated_at()', table_name || '_updated_at', table_name);
     execute format('create trigger %I before delete on public.%I for each row execute function public.soft_delete_row()', table_name || '_soft_delete', table_name);
   end loop;
 end;
+$$;
+
+create or replace function public.get_my_company_id()
+returns uuid
+language sql
+stable
+security definer
+set search_path = public, auth
+as $$
+  select company_id from public.user_profiles where id = auth.uid() limit 1;
 $$;
 
 create or replace function public.get_my_role()
@@ -467,10 +522,60 @@ end;
 $$;
 grant execute on function public.convert_lead_to_client(uuid) to authenticated;
 
--- Create the first account in Supabase Dashboard, then promote it manually:
--- 1. Insert one row into public.companies and copy its UUID.
--- 2. Associate and promote the first auth user:
--- update public.user_profiles set role = 'Admin', company_id = '<COMPANY_UUID>' where email = 'admin@example.com';
+create or replace function public.companies_manage()
+returns trigger
+language plpgsql
+set search_path = public, auth
+as $$
+declare
+  v_count integer;
+  v_company_id uuid;
+begin
+  if new.role = 'Admin' and new.company_id is null then
+    select count(*) into v_count from public.companies where deleted_at is null;
+    if v_count = 0 then
+      insert into public.companies (nome, ativo)
+      values (coalesce(new.nome, 'Minha Empresa'), true)
+      returning id into v_company_id;
+      new.company_id := v_company_id;
+    else
+      new.company_id := (select id from public.companies where deleted_at is null order by created_at limit 1);
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists user_profiles_manage on public.user_profiles;
+create trigger user_profiles_manage
+  before insert or update on public.user_profiles
+  for each row execute function public.companies_manage();
+
+create or replace function public.user_profiles_guard_role()
+returns trigger
+language plpgsql
+set search_path = public, auth
+as $$
+begin
+  if public.get_my_role() is distinct from 'Admin' then
+    if new.role is distinct from old.role then
+      raise exception 'Usuário não autorizado não pode alterar o cargo do perfil. Fale com um Administrador.';
+    end if;
+    if new.company_id is distinct from old.company_id then
+      raise exception 'Usuário não autorizado não pode alterar a empresa do perfil.';
+    end if;
+    if new.ativo is distinct from old.ativo then
+      raise exception 'Usuário não autorizado não pode ativar/desativar perfis.';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists user_profiles_guard_role on public.user_profiles;
+create trigger user_profiles_guard_role
+  before update on public.user_profiles
+  for each row execute function public.user_profiles_guard_role();
 
 create or replace function public.handle_new_user()
 returns trigger
@@ -478,14 +583,29 @@ language plpgsql
 security definer
 set search_path = public, auth
 as $$
+declare
+  v_telefone text;
+  v_nome text;
+  v_role public.user_role;
 begin
-  insert into public.user_profiles (id, nome, email, role, ativo)
+  v_nome     := coalesce(new.raw_user_meta_data->>'nome', split_part(new.email, '@', 1));
+  v_telefone := case when length(coalesce(new.raw_user_meta_data->>'telefone', '')) > 0
+                     then regexp_replace(new.raw_user_meta_data->>'telefone', '[^0-9]', '', 'g')
+                     else null end;
+  v_role     := coalesce((new.raw_user_meta_data->>'role')::public.user_role, 'Cliente');
+
+  insert into public.user_profiles (id, nome, email, role, telefone, ativo, created_by)
   values (
     new.id,
-    coalesce(new.raw_user_meta_data->>'nome', split_part(new.email, '@', 1)),
+    v_nome,
     lower(new.email),
-    'Cliente',
-    true
+    v_role,
+    v_telefone,
+    true,
+    case when current_setting('request.jwt.claim.sub', true) is not null
+         then current_setting('request.jwt.claim.sub', true)::uuid
+         else null
+    end
   )
   on conflict (id) do nothing;
   return new;
@@ -500,25 +620,77 @@ create trigger on_auth_user_created
 do $$
 declare
   table_name text;
+  cols text[];
+  has_company boolean;
 begin
   foreach table_name in array array[
     'companies', 'user_profiles', 'clients', 'extinguishers', 'hoses', 'documents',
     'leads', 'quotes', 'quote_items', 'service_orders', 'service_order_items', 'os_photos', 'orders', 'receipts',
-    'tasks', 'agenda_events', 'catalog_items', 'quote_templates'
+    'tasks', 'agenda_events', 'catalog_items', 'quote_templates', 'whatsapp_templates', 'bench_records'
   ] loop
     execute format('alter table public.%I enable row level security', table_name);
     execute format('revoke all on public.%I from anon', table_name);
     execute format('grant select, insert, update, delete on public.%I to authenticated', table_name);
-    if table_name = 'user_profiles' then
+
+    select array_agg(column_name::text) into cols
+    from information_schema.columns
+    where table_schema = 'public' and table_name = table_name;
+    has_company := 'company_id' = any(cols);
+
+    if table_name = 'companies' then
+      execute format('drop policy if exists %I on public.%I', table_name || '_authenticated_select', table_name);
+      execute format('create policy %I on public.%I for select to authenticated using (true)', table_name || '_authenticated_select', table_name);
+
+      execute format('drop policy if exists %I on public.%I', table_name || '_authenticated_insert', table_name);
+      execute format('create policy %I on public.%I for insert to authenticated with check (public.get_my_role() = ''Admin'')', table_name || '_authenticated_insert', table_name);
+
+      execute format('drop policy if exists %I on public.%I', table_name || '_authenticated_update', table_name);
+      execute format('create policy %I on public.%I for update to authenticated using (public.get_my_role() = ''Admin'') with check (public.get_my_role() = ''Admin'')', table_name || '_authenticated_update', table_name);
+
+      execute format('drop policy if exists %I on public.%I', table_name || '_authenticated_delete', table_name);
+      execute format('create policy %I on public.%I for delete to authenticated using (public.get_my_role() = ''Admin'')', table_name || '_authenticated_delete', table_name);
+
+    elsif table_name = 'user_profiles' then
+      execute format('drop policy if exists %I on public.%I', table_name || '_authenticated_select', table_name);
       execute 'create policy user_profiles_authenticated_select on public.user_profiles for select to authenticated using (auth.uid() is not null)';
+
+      execute format('drop policy if exists %I on public.%I', table_name || '_authenticated_insert', table_name);
       execute 'create policy user_profiles_authenticated_insert on public.user_profiles for insert to authenticated with check (public.get_my_role() = ''Admin'' or (id = auth.uid() and role = ''Cliente''))';
+
+      execute format('drop policy if exists %I on public.%I', table_name || '_authenticated_update', table_name);
       execute 'create policy user_profiles_authenticated_update on public.user_profiles for update to authenticated using (public.get_my_role() = ''Admin'' or id = auth.uid()) with check (public.get_my_role() = ''Admin'' or (id = auth.uid() and role = public.get_my_role()))';
+
+      execute format('drop policy if exists %I on public.%I', table_name || '_authenticated_delete', table_name);
       execute 'create policy user_profiles_authenticated_delete on public.user_profiles for delete to authenticated using (public.get_my_role() = ''Admin'')';
+
+    elsif has_company then
+
+      execute format('drop policy if exists %I on public.%I', table_name || '_authenticated_select', table_name);
+      execute format('create policy %I on public.%I for select to authenticated using (company_id = public.get_my_company_id())', table_name || '_authenticated_select', table_name);
+
+      execute format('drop policy if exists %I on public.%I', table_name || '_authenticated_insert', table_name);
+      execute format('create policy %I on public.%I for insert to authenticated with check (company_id = public.get_my_company_id())', table_name || '_authenticated_insert', table_name);
+
+      execute format('drop policy if exists %I on public.%I', table_name || '_authenticated_update', table_name);
+      execute format('create policy %I on public.%I for update to authenticated using (company_id = public.get_my_company_id()) with check (company_id = public.get_my_company_id())', table_name || '_authenticated_update', table_name);
+
+      execute format('drop policy if exists %I on public.%I', table_name || '_authenticated_delete', table_name);
+      execute format('create policy %I on public.%I for delete to authenticated using (company_id = public.get_my_company_id())', table_name || '_authenticated_delete', table_name);
+
     else
+
+      execute format('drop policy if exists %I on public.%I', table_name || '_authenticated_select', table_name);
       execute format('create policy %I on public.%I for select to authenticated using (auth.uid() is not null)', table_name || '_authenticated_select', table_name);
+
+      execute format('drop policy if exists %I on public.%I', table_name || '_authenticated_insert', table_name);
       execute format('create policy %I on public.%I for insert to authenticated with check (auth.uid() is not null)', table_name || '_authenticated_insert', table_name);
+
+      execute format('drop policy if exists %I on public.%I', table_name || '_authenticated_update', table_name);
       execute format('create policy %I on public.%I for update to authenticated using (auth.uid() is not null) with check (auth.uid() is not null)', table_name || '_authenticated_update', table_name);
+
+      execute format('drop policy if exists %I on public.%I', table_name || '_authenticated_delete', table_name);
       execute format('create policy %I on public.%I for delete to authenticated using (auth.uid() is not null)', table_name || '_authenticated_delete', table_name);
+
     end if;
   end loop;
 end;
@@ -540,23 +712,69 @@ drop policy if exists documentos_authenticated_update on storage.objects;
 drop policy if exists documentos_authenticated_delete on storage.objects;
 
 create policy documentos_authenticated_select on storage.objects
-  for select to authenticated using (bucket_id = 'documentos' and auth.uid() is not null);
+  for select to authenticated using (
+    bucket_id = 'documentos'
+    and exists (
+      select 1 from public.documents d
+      join public.clients c on c.id = d.client_id
+      where d.storage_path = storage.foldername(name)[1] || '/' || storage.filename(name)
+        and c.company_id = public.get_my_company_id()
+    )
+  );
 create policy documentos_authenticated_insert on storage.objects
-  for insert to authenticated with check (bucket_id = 'documentos' and auth.uid() is not null);
+  for insert to authenticated with check (
+    bucket_id = 'documentos'
+    and auth.uid() is not null
+  );
 create policy documentos_authenticated_update on storage.objects
-  for update to authenticated using (bucket_id = 'documentos' and auth.uid() is not null)
-  with check (bucket_id = 'documentos' and auth.uid() is not null);
+  for update to authenticated using (
+    bucket_id = 'documentos'
+    and auth.uid() is not null
+  ) with check (
+    bucket_id = 'documentos'
+    and auth.uid() is not null
+  );
 create policy documentos_authenticated_delete on storage.objects
-  for delete to authenticated using (bucket_id = 'documentos' and auth.uid() is not null);
+  for delete to authenticated using (
+    bucket_id = 'documentos'
+    and exists (
+      select 1 from public.documents d
+      join public.clients c on c.id = d.client_id
+      where d.storage_path = storage.foldername(name)[1] || '/' || storage.filename(name)
+        and c.company_id = public.get_my_company_id()
+    )
+  );
 
 drop policy if exists os_photos_authenticated_select on storage.objects;
 drop policy if exists os_photos_authenticated_insert on storage.objects;
 drop policy if exists os_photos_authenticated_update on storage.objects;
 drop policy if exists os_photos_authenticated_delete on storage.objects;
-create policy os_photos_authenticated_select on storage.objects for select to authenticated using (bucket_id = 'os-photos' and auth.uid() is not null);
-create policy os_photos_authenticated_insert on storage.objects for insert to authenticated with check (bucket_id = 'os-photos' and auth.uid() is not null);
-create policy os_photos_authenticated_update on storage.objects for update to authenticated using (bucket_id = 'os-photos' and auth.uid() is not null) with check (bucket_id = 'os-photos' and auth.uid() is not null);
-create policy os_photos_authenticated_delete on storage.objects for delete to authenticated using (bucket_id = 'os-photos' and auth.uid() is not null);
+
+create policy os_photos_authenticated_select on storage.objects
+  for select to authenticated using (
+    bucket_id = 'os-photos'
+    and exists (
+      select 1 from public.os_photos p
+      join public.service_orders so on so.id = p.service_order_id
+      where p.storage_path = storage.foldername(name)[1] || '/' || storage.filename(name)
+        and so.company_id = public.get_my_company_id()
+    )
+  );
+create policy os_photos_authenticated_insert on storage.objects
+  for insert to authenticated with check (bucket_id = 'os-photos' and auth.uid() is not null);
+create policy os_photos_authenticated_update on storage.objects
+  for update to authenticated using (bucket_id = 'os-photos' and auth.uid() is not null)
+  with check (bucket_id = 'os-photos' and auth.uid() is not null);
+create policy os_photos_authenticated_delete on storage.objects
+  for delete to authenticated using (
+    bucket_id = 'os-photos'
+    and exists (
+      select 1 from public.os_photos p
+      join public.service_orders so on so.id = p.service_order_id
+      where p.storage_path = storage.foldername(name)[1] || '/' || storage.filename(name)
+        and so.company_id = public.get_my_company_id()
+    )
+  );
 
 grant usage on schema public to authenticated;
 
@@ -564,6 +782,9 @@ grant usage on schema public to authenticated;
 -- 👤 PASSO-A-PASSO VISUAL: CRIAR O PRIMEIRO ADMINISTRADOR DO SISTEMA
 -- =============================================================================
 --  (SÓ É PRECISO FAZER ISSO UMA VEZ, logo após criar o projeto Supabase!)
+--
+--    ✨ NOVO: O trigger companies_manage() CRIA A EMPRESA AUTOMATICAMENTE!
+--       Você NÃO precisa inserir uma empresa manualmente.
 --
 -- ▶️ PASSO 1 — Criar o usuário no painel do Supabase:
 --    1. Abra: https://app.supabase.com  →  entre no seu projeto
@@ -574,49 +795,54 @@ grant usage on schema public to authenticated;
 --       • Email do admin:  admin@suaempresa.com.br   (troque pelo seu)
 --       • Senha:           Crie uma SENHA FORTE e anote num lugar seguro!
 --       • Auto Confirm User?:  ✅ MARQUE ESTA OPÇÃO (muito importante!)
+--       • User Metadata (opcional): clique em "Add field" → campo: nome,
+--         valor: "Nome do Administrador"
 --    6. Clique no botão: "Create user"
+--    7. Copie o UID do usuário (campo cinza pequeno: abc123-456...)
+--       e guarde para o PASSO 2.
 --
--- ▶️ PASSO 2 — Criar a PRIMEIRA EMPRESA e copiar 2 UUIDs:
+-- ▶️ PASSO 2 — Promover o usuário a ADMINISTRADOR:
 --    1. Menu ESQUERDO: clique no ícone 📝 (SQL Editor)
 --    2. Clique no botão azul: "New query"
---    3. Cole o SQL abaixo (edite os campos da empresa com seus dados):
---       ---------------------------------------------------------------
---         INSERT INTO public.companies (nome, cnpj, email, telefone, ativo)
---         VALUES (
---           'Nome da Sua Empresa LTDA',  -- ← TROQUE PELO NOME REAL
---           '00000000000100',             -- ← CNPJ SÓ NÚMEROS
---           'contato@suaempresa.com.br', -- ← EMAIL REAL
---           '1130001234',                 -- ← TELEFONE SÓ NÚMEROS (com DDD)
---           true
---         );
---       ---------------------------------------------------------------
---    4. Clique em "Run" (botão ► verde)
---    5. Agora, para VER o UUID da empresa, rode esta consulta:
---       SELECT id FROM public.companies LIMIT 1;
---    6. Copie o UUID que aparece (ex: fbb66b5c-880a-42b0-bcfd-45301d939309)
---       e guarde.
---    7. Agora veja o UUID do USUÁRIO ADMIN que você criou no Passo 1:
---       • Volte em 🔐 Authentication → Users
---       • Clique no email do admin para expandir
---       • Copie o campo UID (ex: 4fec4a85-d041-45cf-97da-4960fae142c4)
---         e guarde.
---
--- ▶️ PASSO 3 — Promover o usuário a ADMINISTRADOR:
---    1. Volte no SQL Editor → New query
---    2. Cole o SQL ABAIXO, TROCANDO os 2 UUIDs pelos que você copiou:
+--    3. Cole o SQL ABAIXO, TROCANDO o UUID pelo UID que você copiou:
 --       ---------------------------------------------------------------
 --         UPDATE public.user_profiles
---         SET
---           role       = 'Admin',
---           company_id = 'COLE-AQUI-UUID-DA-EMPRESA',
---           ativo      = true
+--         SET role  = 'Admin',
+--             nome  = 'Administrador'  -- ← troque pelo nome real (opcional)
 --         WHERE id = 'COLE-AQUI-UUID-DO-USUARIO-ADMIN';
 --       ---------------------------------------------------------------
---    3. Clique em "Run" (► verde)
---    4. ✅ PRONTO! Agora você já pode logar no CRM com email+sua senha.
+--       👉 O TRIGGER companies_manage() VAI:
+--            • Verificar que ainda NÃO EXISTE nenhuma empresa cadastrada
+--            • Criar a PRIMEIRA empresa automaticamente com o nome do admin
+--            • Vincular o company_id no perfil do admin
+--    4. Clique em "Run" (botão ► verde)
 --
--- ▶️ PASSO 4 — Verificação opcional (confirmar que deu certo):
+--    (OPCIONAL) Se você QUISER definir dados da empresa no momento da criação:
+--       1. Primeiro crie a empresa manualmente antes do UPDATE:
+--            INSERT INTO public.companies (nome, cnpj, email, telefone, ativo)
+--            VALUES ('Nome da Sua Empresa LTDA', '00000000000100',
+--                    'contato@suaempresa.com.br', '1130001234', true);
+--       2. Depois copie o UUID da empresa e rode o UPDATE com company_id:
+--            UPDATE public.user_profiles
+--            SET role='Admin', company_id='UUID-DA-EMPRESA'
+--            WHERE id='UUID-DO-USUARIO';
+--
+-- ▶️ PASSO 3 — Atualizar a empresa (editar dados reais):
+--    1. Após o primeiro login, o trigger já criou a empresa automaticamente.
+--    2. (Opcional) No SQL Editor, atualize os dados da empresa:
+--       UPDATE public.companies
+--       SET nome     = 'JC Extintores e Segurança LTDA',
+--           cnpj     = '00000000000100',
+--           email    = 'contato@jcextintores.com.br',
+--           telefone = '1130001234'
+--       WHERE id = (SELECT company_id FROM public.user_profiles
+--                    WHERE id = 'COLE-AQUI-UUID-DO-USUARIO-ADMIN');
+--
+-- ▶️ PASSO 4 — Verificação (confirmar que deu certo):
 --    No SQL Editor, rode:
 --       SELECT email, role, ativo, company_id FROM public.user_profiles;
---    Deve aparecer o seu email com role = 'Admin'.
+--       SELECT id, nome, ativo FROM public.companies;
+--    Deve aparecer o email com role = 'Admin' e UMA empresa vinculada.
+--
+--    ✅ PRONTO! Agora você já pode logar no CRM com email + senha.
 -- =============================================================================

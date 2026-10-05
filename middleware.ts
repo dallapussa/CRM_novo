@@ -8,6 +8,53 @@ const PUBLIC_ROUTES = [
   "/auth/callback",
 ];
 
+type UserRole = "admin" | "comercial" | "tecnico" | "financeiro" | "cliente" | "terceiro";
+type RolePermission =
+  | "dashboard" | "users" | "clients" | "leads" | "quotes" | "agenda" | "whatsapp"
+  | "catalog" | "extinguishers" | "service_orders" | "bench" | "orders" | "receipts"
+  | "reports" | "customer_portal" | "financial_costs";
+
+const ROLE_PERMISSIONS: Record<UserRole, readonly RolePermission[]> = {
+  admin:        ["dashboard","users","clients","leads","quotes","agenda","whatsapp","catalog","extinguishers","service_orders","bench","orders","receipts","reports","customer_portal","financial_costs"],
+  comercial:    ["dashboard","clients","leads","quotes","agenda","whatsapp","catalog"],
+  tecnico:      ["dashboard","clients","extinguishers","service_orders","bench"],
+  financeiro:   ["dashboard","orders","receipts","reports"],
+  cliente:      ["customer_portal"],
+  terceiro:     ["customer_portal"],
+};
+
+const PATH_PERMISSION: Record<string, RolePermission> = {
+  "/dashboard": "dashboard",
+  "/dashboard/usuarios": "users",
+  "/dashboard/clientes": "clients",
+  "/dashboard/leads": "leads",
+  "/dashboard/orcamentos": "quotes",
+  "/dashboard/agenda": "agenda",
+  "/dashboard/whatsapp": "whatsapp",
+  "/dashboard/produtos": "catalog",
+  "/dashboard/extintores": "extinguishers",
+  "/dashboard/os": "service_orders",
+  "/dashboard/bancada": "bench",
+  "/dashboard/pedidos": "orders",
+  "/dashboard/financeiro": "receipts",
+  "/dashboard/relatorios": "reports",
+  "/dashboard/custos": "financial_costs",
+};
+
+function hasPermission(role: UserRole | null | undefined, permission: RolePermission): boolean {
+  return Boolean(role && ROLE_PERMISSIONS[role].includes(permission));
+}
+
+function getPermissionForPath(pathname: string): RolePermission | null {
+  if (pathname === "/dashboard/perfil") return null;
+  if (pathname === "/dashboard") return null;
+  const keys = Object.keys(PATH_PERMISSION).sort((a, b) => b.length - a.length);
+  for (const k of keys) {
+    if (pathname === k || pathname.startsWith(k + "/")) return PATH_PERMISSION[k];
+  }
+  return null;
+}
+
 function isPublicRoute(pathname: string): boolean {
   if (pathname === "/") return true;
   return PUBLIC_ROUTES.some((route) =>
@@ -54,6 +101,42 @@ export async function middleware(request: NextRequest) {
     const redirect = pathname + (searchParams.toString() ? `?${searchParams.toString()}` : "");
     if (pathname !== "/") loginUrl.searchParams.set("redirect", redirect);
     return NextResponse.redirect(loginUrl);
+  }
+
+  if (user && pathname.startsWith("/dashboard")) {
+    const permission = getPermissionForPath(pathname);
+    if (permission !== null) {
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (profile?.role) {
+        const dbRoleToApp: Record<string, UserRole> = {
+          "Admin": "admin",
+          "Comercial": "comercial",
+          "Técnico": "tecnico",
+          "Financeiro": "financeiro",
+          "Cliente": "cliente",
+          "Terceiro": "terceiro",
+        };
+        const appRole = dbRoleToApp[String(profile.role)] ?? "cliente";
+
+        let effectivePermission: RolePermission = permission;
+        if (pathname === "/dashboard") {
+          effectivePermission = hasPermission(appRole, "dashboard") ? "dashboard" : "customer_portal";
+        }
+
+        if (!hasPermission(appRole, effectivePermission)) {
+          const fallback = new URL(
+            hasPermission(appRole, "dashboard") ? "/dashboard" : "/dashboard/perfil",
+            request.url
+          );
+          return NextResponse.redirect(fallback);
+        }
+      }
+    }
   }
 
   return response;

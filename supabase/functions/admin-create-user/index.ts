@@ -8,6 +8,13 @@ const corsHeaders = {
 
 const roles = ["Admin", "Comercial", "Técnico", "Financeiro", "Cliente", "Terceiro"] as const;
 
+function response(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
 function generateTemporaryPassword() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%_-";
   const bytes = new Uint8Array(32);
@@ -23,11 +30,32 @@ Deno.serve(async (request) => {
   const token = authorization?.replace(/^Bearer\s+/i, "");
   if (!token) return response({ error: "Authentication required" }, 401);
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
-    return response({ error: "Server configuration is incomplete" }, 500);
+  // ====================================================================
+  // � VARIÁVEIS DE AMBIENTE (via Secrets do Supabase)
+  // ====================================================================
+  // ⚠️ NÃO use prefixo SUPABASE_ — ele é RESERVADO no Supabase Edge Functions.
+  //    Use sempre APP_ ou outro prefixo customizado.
+  //
+  // 📝 Para configurar no painel do Supabase:
+  //    1. Menu → Edge Functions → Secrets
+  //    2. Adicione as 3 chaves abaixo (valores do painel → Settings → API):
+  //       APP_SUPABASE_URL        = https://seu-projeto.supabase.co
+  //       APP_SUPABASE_ANON_KEY   = a chave anon (pública)
+  //       APP_SERVICE_ROLE_KEY    = a chave service_role (PRIVADA!)
+  // ====================================================================
+  const supabaseUrl     = Deno.env.get("APP_SUPABASE_URL") ?? "";
+  const anonKey         = (Deno.env.get("APP_SUPABASE_ANON_KEY") ?? "").trim();
+  const serviceRoleKey  = (Deno.env.get("APP_SERVICE_ROLE_KEY") ?? "").trim();
+
+  if (!supabaseUrl.startsWith("https://")) {
+    return response({
+      error: "APP_SUPABASE_URL não configurada. Acesse Edge Functions → Secrets e configure as 3 variáveis de ambiente.",
+    }, 500);
+  }
+  if (!anonKey || !serviceRoleKey || anonKey.length < 40 || serviceRoleKey.length < 40) {
+    return response({
+      error: "Chaves JWT não configuradas ou incompletas. Acesse Edge Functions → Secrets e preencha APP_SUPABASE_ANON_KEY e APP_SERVICE_ROLE_KEY.",
+    }, 500);
   }
 
   const requester = createClient(supabaseUrl, anonKey, {
@@ -99,10 +127,3 @@ Deno.serve(async (request) => {
     temporaryPassword,
   }, 201);
 });
-
-function response(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}

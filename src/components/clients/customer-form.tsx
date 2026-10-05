@@ -38,6 +38,7 @@ import type { Customer } from "@/types";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useSaveClient } from "@/hooks/useClients";
+import { applyMask, formatCEP, formatCNPJ, formatCPF, formatPhone } from "@/lib/utils";
 
 const customerSchema = z.object({
   type: z.enum(["pf", "pj"], { message: "Selecione o tipo de cliente" }),
@@ -81,14 +82,16 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
   const [values, setValues] = useState<FormValues>({
     type: initialData?.type || "pj",
     name: initialData?.name || "",
-    document: initialData?.document || "",
+    document: (initialData?.type || "pj") === "pj"
+      ? formatCNPJ(initialData?.document || "")
+      : formatCPF(initialData?.document || ""),
     ie_rg: initialData?.ie_rg || "",
-    phone1: initialData?.phone1 || "",
-    phone2: initialData?.phone2 || "",
+    phone1: formatPhone(initialData?.phone1 || ""),
+    phone2: formatPhone(initialData?.phone2 || ""),
     email: initialData?.email || "",
     is_active: initialData?.is_active ?? true,
     notes: initialData?.notes || "",
-    cep: initialData?.address?.cep || "",
+    cep: formatCEP(initialData?.address?.cep || ""),
     street: initialData?.address?.street || "",
     number: initialData?.address?.number || "",
     complement: initialData?.address?.complement || "",
@@ -133,7 +136,7 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
     const address =
       values.cep || values.street || values.city || values.state
         ? {
-            cep: values.cep || undefined,
+            cep: values.cep ? values.cep.replace(/\D/g, "") : undefined,
             street: values.street || undefined,
             number: values.number || undefined,
             complement: values.complement || undefined,
@@ -239,7 +242,21 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
                 <Label>Tipo de Cliente *</Label>
                 <Select
                   value={values.type}
-                  onValueChange={(v) => setField("type", v as "pf" | "pj")}
+                  onValueChange={(v) => {
+                    const tipo = v as "pf" | "pj";
+                    setValues((prev) => {
+                      const raw = prev.document.replace(/\D/g, "");
+                      const mascarado = tipo === "pj" ? formatCNPJ(raw) : formatCPF(raw);
+                      return { ...prev, type: tipo, document: mascarado };
+                    });
+                    if (errors.type) {
+                      setErrors((prev) => {
+                        const n = { ...prev };
+                        delete n.type;
+                        return n;
+                      });
+                    }
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -283,7 +300,12 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
                 <Label>{labelDoc} *</Label>
                 <Input
                   value={values.document}
-                  onChange={(e) => setField("document", e.target.value)}
+                  onChange={(e) =>
+                    setField(
+                      "document",
+                      applyMask(e.target.value, values.type === "pj" ? "cnpj" : "cpf")
+                    )
+                  }
                   placeholder={
                     values.type === "pj" ? "00.000.000/0000-00" : "000.000.000-00"
                   }
@@ -349,7 +371,7 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
                 <Label>Telefone Principal *</Label>
                 <Input
                   value={values.phone1}
-                  onChange={(e) => setField("phone1", e.target.value)}
+                  onChange={(e) => setField("phone1", applyMask(e.target.value, "phone"))}
                   placeholder="(00) 00000-0000"
                 />
                 {errors.phone1 && (
@@ -360,7 +382,7 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
                 <Label>Telefone Secundário</Label>
                 <Input
                   value={values.phone2 || ""}
-                  onChange={(e) => setField("phone2", e.target.value)}
+                  onChange={(e) => setField("phone2", applyMask(e.target.value, "phone"))}
                   placeholder="(00) 00000-0000"
                 />
               </div>
@@ -397,7 +419,7 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
                 <Label>CEP</Label>
                 <Input
                   value={values.cep || ""}
-                  onChange={(e) => setField("cep", e.target.value)}
+                  onChange={(e) => setField("cep", applyMask(e.target.value, "cep"))}
                   placeholder="00000-000"
                 />
               </div>
