@@ -53,6 +53,8 @@ create table public.clients (
   email text,
   telefone text,
   telefone2 text,
+  whatsapp text,
+  gov_password text,
   ie_rg text,
   address_street text,
   address_number text,

@@ -16,6 +16,13 @@ import {
   Plus,
   Trash2,
   AlertCircle,
+  MessageCircle,
+  ExternalLink,
+  ShieldCheck,
+  Eye,
+  EyeOff,
+  Copy,
+  Check,
 } from "lucide-react";
 import {
   Card,
@@ -46,6 +53,7 @@ import {
   formatDocument,
   formatPhone,
 } from "@/lib/utils";
+import { ClientDocuments } from "@/components/clients/client-documents";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
@@ -79,8 +87,22 @@ export function CustomerDetail({
   const router = useRouter();
   const { toast } = useToast();
   const [showDelete, setShowDelete] = useState(false);
+  const [showGovPassword, setShowGovPassword] = useState(false);
+  const [copiedGovPassword, setCopiedGovPassword] = useState(false);
   const deleteMutation = useDeleteClient();
   const isDeleting = deleteMutation.isPending;
+
+  function handleCopyGovPassword() {
+    if (!customer.gov_password) return;
+    navigator.clipboard.writeText(customer.gov_password);
+    setCopiedGovPassword(true);
+    toast({
+      variant: "success",
+      title: "Senha copiada!",
+      description: "A senha do GOV.BR foi copiada para a área de transferência.",
+    });
+    setTimeout(() => setCopiedGovPassword(false), 2000);
+  }
 
   async function handleDelete() {
     try {
@@ -266,19 +288,49 @@ export function CustomerDetail({
           <Card>
             <CardHeader>
               <div className="flex items-center gap-2">
-                <Phone className="h-5 w-5 text-green-600" />
-                <CardTitle className="text-base">Contato</CardTitle>
+                <Phone className="h-5 w-5 text-emerald-600" />
+                <CardTitle className="text-base">Contato & WhatsApp</CardTitle>
               </div>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-3.5">
               <div className="flex items-start gap-2.5">
                 <Phone className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-                <div>
+                <div className="flex-1">
                   <p className="font-semibold">{formatPhone(customer.phone1)}</p>
-                  <p className="text-xs text-muted-foreground">Principal</p>
+                  <p className="text-xs text-muted-foreground">Telefone Principal</p>
                 </div>
               </div>
-              {customer.phone2 && (
+
+              {customer.whatsapp && (
+                <div className="flex items-start gap-2.5 rounded-lg border border-emerald-100 bg-emerald-50/60 p-2.5 dark:bg-emerald-950/20 dark:border-emerald-900/40">
+                  <MessageCircle className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
+                  <div className="flex-1">
+                    <p className="font-semibold text-emerald-950 dark:text-emerald-100">
+                      {formatPhone(customer.whatsapp)}
+                    </p>
+                    <p className="text-xs text-emerald-700 dark:text-emerald-300 mb-2">
+                      WhatsApp Dedicado
+                    </p>
+                    <Button
+                      asChild
+                      size="sm"
+                      className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+                    >
+                      <a
+                        href={`https://wa.me/55${customer.whatsapp.replace(/\D/g, "")}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <MessageCircle className="h-3.5 w-3.5" />
+                        Conversar no WhatsApp
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {customer.phone2 && customer.phone2 !== customer.whatsapp && (
                 <div className="flex items-start gap-2.5">
                   <Phone className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                   <div>
@@ -287,6 +339,7 @@ export function CustomerDetail({
                   </div>
                 </div>
               )}
+
               {customer.email && (
                 <div className="flex items-start gap-2.5">
                   <Mail className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
@@ -299,6 +352,77 @@ export function CustomerDetail({
                     </a>
                     <p className="text-xs text-muted-foreground">E-mail</p>
                   </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Credencial GOV.BR */}
+          <Card className="border-amber-200/80 bg-amber-50/20 dark:bg-amber-950/10">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-5 w-5 text-amber-600" />
+                  <CardTitle className="text-base">Acesso GOV.BR</CardTitle>
+                </div>
+                <Badge variant="outline" className="bg-amber-100/70 text-amber-800 border-amber-300 text-xs font-normal">
+                  Restrito
+                </Badge>
+              </div>
+              <CardDescription className="text-xs">
+                Credencial de acesso aos portais de prevenção e combate a incêndio (PPCI / Bombeiros).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {customer.gov_password ? (
+                <div>
+                  <div className="flex items-center justify-between rounded-md border border-amber-200 bg-background p-2.5">
+                    <span className="font-mono text-sm tracking-wider select-all">
+                      {showGovPassword ? customer.gov_password : "••••••••••••"}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowGovPassword(!showGovPassword)}
+                        title={showGovPassword ? "Ocultar senha" : "Exibir senha"}
+                      >
+                        {showGovPassword ? (
+                          <EyeOff className="h-3.5 w-3.5" />
+                        ) : (
+                          <Eye className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                        onClick={handleCopyGovPassword}
+                        title="Copiar senha"
+                      >
+                        {copiedGovPassword ? (
+                          <Check className="h-3.5 w-3.5 text-emerald-600" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1.5">
+                    Acesso restrito para consulta e tramitação de alvarás e PPCI.
+                  </p>
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground py-1">
+                  <p>Nenhuma senha GOV.BR cadastrada.</p>
+                  <Button asChild variant="link" className="p-0 h-auto text-xs text-amber-700 hover:text-amber-800 mt-1">
+                    <Link href={`/dashboard/clientes/${customer.id}/editar`}>
+                      Cadastrar senha do GOV.BR
+                    </Link>
+                  </Button>
                 </div>
               )}
             </CardContent>
@@ -498,6 +622,9 @@ export function CustomerDetail({
               </div>
             </CardContent>
           </Card>
+
+          {/* Gerenciador de Arquivos & Documentos Técnicos do Cliente (Storage) */}
+          <ClientDocuments clientId={customer.id} />
         </div>
       </div>
 

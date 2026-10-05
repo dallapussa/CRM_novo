@@ -68,7 +68,12 @@ export async function saveProduct(input: ProductInput, id?: string): Promise<str
 
 export async function deleteProduct(id: string): Promise<void> {
   const { supabase, companyId } = await getTenantContext();
-  const { error } = await supabase.from("catalog_items").delete().eq("company_id", companyId).eq("id", id).eq("is_system", false);
+  const { error } = await supabase
+    .from("catalog_items")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("company_id", companyId)
+    .eq("id", id)
+    .eq("is_system", false);
   if (error) throw error;
 }
 

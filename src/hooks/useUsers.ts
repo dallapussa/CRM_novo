@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createUser, getUserProfile, listUsers, saveOwnProfile, setUserActive, updateUser, type AdminCreateUserInput } from "@/services/users.service";
+import { createUser, deleteUser, getUserProfile, listUsers, saveOwnProfile, setUserActive, updateUser, type AdminCreateUserInput } from "@/services/users.service";
 import type { Profile } from "@/types";
 
 export const userKeys = { all: ["users"] as const };
@@ -25,6 +25,14 @@ export function useSetUserActive() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, is_active }: { id: string; is_active: boolean }) => setUserActive(id, is_active),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: userKeys.all }),
+  });
+}
+
+export function useDeleteUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteUser(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: userKeys.all }),
   });
 }

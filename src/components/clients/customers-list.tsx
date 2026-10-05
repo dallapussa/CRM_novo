@@ -13,6 +13,7 @@ import {
   Eye,
   Filter,
   X,
+  MessageCircle,
 } from "lucide-react";
 import {
   Table,
@@ -75,6 +76,7 @@ export function CustomersList({ initialCustomers }: CustomersListProps = {}) {
           c.email,
           c.phone1,
           c.phone2,
+          c.whatsapp,
           c.ie_rg,
         ]
           .filter(Boolean)
@@ -307,12 +309,26 @@ export function CustomersList({ initialCustomers }: CustomersListProps = {}) {
                       <TableCell>
                         <div className="text-sm">
                           <div className="flex items-center gap-1 text-muted-foreground">
-                            <Phone className="h-3.5 w-3.5" />
+                            <Phone className="h-3.5 w-3.5 shrink-0" />
                             {formatPhone(c.phone1)}
                           </div>
-                          {c.phone2 && (
+                          {c.whatsapp && (
+                            <div className="mt-0.5">
+                              <a
+                                href={`https://wa.me/55${c.whatsapp.replace(/\D/g, "")}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-700 hover:underline"
+                                title="Abrir conversa no WhatsApp"
+                              >
+                                <MessageCircle className="h-3 w-3 fill-emerald-500/20" />
+                                {formatPhone(c.whatsapp)}
+                              </a>
+                            </div>
+                          )}
+                          {c.phone2 && c.phone2 !== c.whatsapp && (
                             <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
-                              <Phone className="h-3 w-3" />
+                              <Phone className="h-3 w-3 shrink-0" />
                               {formatPhone(c.phone2)}
                             </div>
                           )}
@@ -334,7 +350,24 @@ export function CustomersList({ initialCustomers }: CustomersListProps = {}) {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="inline-flex gap-1">
+                        <div className="inline-flex items-center gap-1">
+                          {(c.whatsapp || c.phone1) && (
+                            <Button
+                              asChild
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                              title="Conversar no WhatsApp"
+                            >
+                              <a
+                                href={`https://wa.me/55${(c.whatsapp || c.phone1).replace(/\D/g, "")}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <MessageCircle className="h-4 w-4" />
+                              </a>
+                            </Button>
+                          )}
                           <Button
                             asChild
                             variant="ghost"

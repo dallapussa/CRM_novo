@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  Wrench,
 } from "lucide-react";
 import {
   Table,
@@ -47,6 +48,7 @@ import { formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useDeleteExtinguisher, useExtinguishers } from "@/hooks/useExtinguishers";
 import { useClients } from "@/hooks/useClients";
+import { useSaveBenchRecord } from "@/hooks/useBench";
 
 interface ExtinguishersListProps {
   initialExtinguishers?: Extinguisher[];
@@ -97,6 +99,36 @@ export function ExtinguishersList({ initialExtinguishers }: ExtinguishersListPro
   const { toast } = useToast();
   const deleteMutation = useDeleteExtinguisher();
   const isDeleting = deleteMutation.isPending;
+  const saveBenchMutation = useSaveBenchRecord();
+
+  async function handleSendToBench(extinguisher: Extinguisher) {
+    try {
+      await saveBenchMutation.mutateAsync({
+        input: {
+          client_id: extinguisher.customer_id,
+          extinguisher_id: extinguisher.id,
+          customer_name: extinguisher.customer?.name || "Cliente",
+          equip_type: `${extinguisher.type} ${extinguisher.capacity}`,
+          equip_capacity: extinguisher.capacity,
+          equip_serial: extinguisher.serial_number,
+          stage: "entrada",
+          priority: "media",
+          notes: `Enviado da listagem de extintores para manutenção/recarga. Vencimento: ${formatDate(extinguisher.expiration_date)}.`,
+        },
+      });
+      toast({
+        variant: "success",
+        title: "Enviado para a Bancada!",
+        description: `${extinguisher.type} ${extinguisher.capacity} está na etapa de Entrada da oficina.`,
+      });
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao enviar",
+        description: err?.message || "Não foi possível registrar o extintor na bancada.",
+      });
+    }
+  }
 
   const filtered = useMemo(() => {
     return extinguishers.filter((e) => {
@@ -346,7 +378,16 @@ export function ExtinguishersList({ initialExtinguishers }: ExtinguishersListPro
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="inline-flex gap-1">
+                        <div className="inline-flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                            title="Enviar para Bancada / Oficina"
+                            onClick={() => handleSendToBench(e)}
+                          >
+                            <Wrench className="h-4 w-4" />
+                          </Button>
                           <Button
                             asChild
                             variant="ghost"

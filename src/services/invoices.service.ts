@@ -89,7 +89,11 @@ export async function saveInvoice(input: Partial<InvoiceInput>, id?: string): Pr
 
 export async function deleteInvoice(id: string): Promise<void> {
   const { supabase, companyId } = await getTenantContext();
-  const { error } = await supabase.from("receipts").delete().eq("company_id", companyId).eq("id", id);
+  const { error } = await supabase
+    .from("receipts")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("company_id", companyId)
+    .eq("id", id);
   if (error) throw error;
 }
 

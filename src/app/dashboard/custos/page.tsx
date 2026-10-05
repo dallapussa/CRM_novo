@@ -1,16 +1,10 @@
-import { PagePlaceholder } from "@/components/layout/page-placeholder";
-import { DollarSign } from "lucide-react";
+import { CostsView } from "@/components/costs/costs-view";
+
+export const metadata = {
+  title: "Custos Financeiros | ExtinControl CRM",
+  description: "Controle de custos de matérias-primas e insumos de oficina.",
+};
 
 export default function CustosPage() {
-  return (
-    <PagePlaceholder
-      icon={DollarSign}
-      eyebrow="Restrito — Apenas Administrador"
-      title="Custos Financeiros"
-      description="Visão completa da margem de lucro: custo de peças, mão de obra técnica, comissões, aluguel, despesas administrativas e markup ideal por serviço."
-      status="Em construção"
-      actionLabel="Ver Relatórios"
-      actionHref="/dashboard/relatorios"
-    />
-  );
+  return <CostsView />;
 }

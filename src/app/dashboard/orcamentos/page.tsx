@@ -1,16 +1,10 @@
-import { PagePlaceholder } from "@/components/layout/page-placeholder";
-import { FileSpreadsheet } from "lucide-react";
+import { QuotesList } from "@/components/quotes/quotes-list";
+
+export const metadata = {
+  title: "Orçamentos | ExtinControl CRM",
+  description: "Gestão comercial de orçamentos e propostas de recarga e prevenção contra incêndio.",
+};
 
 export default function OrcamentosPage() {
-  return (
-    <PagePlaceholder
-      icon={FileSpreadsheet}
-      eyebrow="Módulo Comercial"
-      title="Orçamentos"
-      description="Em breve você poderá criar orçamentos profissionais com modelos customizáveis, itens do catálogo, aprovação por e-mail e conversão direta em Ordem de Serviço."
-      status="Em construção"
-      actionLabel="Ver Clientes"
-      actionHref="/dashboard/clientes"
-    />
-  );
+  return <QuotesList />;
 }

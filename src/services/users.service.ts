@@ -17,6 +17,7 @@ const appRoleByDatabaseRole: Record<string, UserRole> = {
   Admin: "admin",
   Comercial: "comercial",
   "Técnico": "tecnico",
+  Tecnico: "tecnico",
   Financeiro: "financeiro",
   Cliente: "cliente",
   Terceiro: "terceiro",
@@ -25,7 +26,7 @@ const appRoleByDatabaseRole: Record<string, UserRole> = {
 const databaseRoleByAppRole: Record<UserRole, string> = {
   admin: "Admin",
   comercial: "Comercial",
-  tecnico: "Técnico",
+  tecnico: "Tecnico",
   financeiro: "Financeiro",
   cliente: "Cliente",
   terceiro: "Terceiro",
@@ -45,17 +46,62 @@ function mapUserProfile(row: Record<string, unknown>): Profile {
 }
 
 export async function listUsers(): Promise<Profile[]> {
-  const { data, error } = await createClient().from("user_profiles").select("*").order("nome", { ascending: true });
+  const { data, error } = await createClient()
+    .from("user_profiles")
+    .select("*")
+    .is("deleted_at", null)
+    .order("nome", { ascending: true });
   if (error) throw error;
   return (data || []).map((row) => mapUserProfile(row));
 }
 
 export async function createUser(input: AdminCreateUserInput): Promise<AdminCreateUserResult> {
+  const dbRole = databaseRoleByAppRole[input.role] || input.role;
+
+  // 1. Cria via API do servidor (Service Role segura no Next.js)
+  try {
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (session?.access_token) {
+      headers["Authorization"] = `Bearer ${session.access_token}`;
+    }
+
+    const res = await fetch("/api/admin/create-user", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        email: input.email,
+        nome: input.full_name,
+        role: dbRole,
+        telefone: input.phone ?? null,
+      }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        profile: mapUserProfile(data.profile as Record<string, unknown>),
+        temporaryPassword: data.temporaryPassword as string,
+      };
+    }
+
+    const errorPayload = await res.json().catch(() => ({}));
+    if (res.status === 400 || res.status === 401 || res.status === 403) {
+      throw new Error(errorPayload.error || "Erro ao criar usuário.");
+    }
+  } catch (err: any) {
+    if (err.message && !err.message.includes("fetch")) {
+      throw err;
+    }
+  }
+
+  // 2. Fallback para Supabase Edge Function se necessário
   const { data, error } = await createClient().functions.invoke("admin-create-user", {
     body: {
       email: input.email,
       nome: input.full_name,
-      role: databaseRoleByAppRole[input.role],
+      role: dbRole,
       telefone: input.phone ?? null,
     },
   });
@@ -81,8 +127,24 @@ export async function setUserActive(id: string, is_active: boolean): Promise<voi
   await updateUser(id, { is_active });
 }
 
+export async function deleteUser(id: string): Promise<void> {
+  const { error } = await createClient()
+    .from("user_profiles")
+    .update({
+      ativo: false,
+      deleted_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) throw error;
+}
+
 export async function getUserProfile(id: string): Promise<Profile | null> {
-  const { data, error } = await createClient().from("user_profiles").select("*").eq("id", id).maybeSingle();
+  const { data, error } = await createClient()
+    .from("user_profiles")
+    .select("*")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
   if (error) throw error;
   return data ? mapUserProfile(data) : null;
 }

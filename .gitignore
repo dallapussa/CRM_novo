@@ -39,3 +39,4 @@ drizzle
 .idea
 .cursor/
 *.tsbuildinfo
+*.tsbuildinfo

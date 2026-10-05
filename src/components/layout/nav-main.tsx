@@ -22,6 +22,7 @@ import {
   ReceiptText,
   DollarSign,
   ShieldCheck,
+  Waves,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { hasPermission, type RolePermission, type UserRole } from "@/types";
@@ -32,8 +33,7 @@ import { hasPermission, type RolePermission, type UserRole } from "@/types";
 // 1 = Fase 1 (MVP)  → só aparece Login, Dashboard, Clientes, Usuários
 // 2 = Fase 2 (Operações) → libera Extintores, OS, Bancada, Pedidos, Financeiro
 // 3 = Fase 3 (Comercial) → libera tudo: Leads, Orçamentos, Agenda, WhatsApp, Relatórios, Custos
-// Quando passar no checklist de aceite da Fase, basta trocar o número abaixo!
-const CURRENT_PHASE: 1 | 2 | 3 = 1;
+const CURRENT_PHASE: 1 | 2 | 3 = 3;
 
 export interface NavItem {
   title: string;
@@ -123,6 +123,13 @@ const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/extintores",
     icon: FireExtinguisher,
     permission: "extinguishers",
+    phase: 2,
+  },
+  {
+    title: "Mangueiras",
+    href: "/dashboard/mangueiras",
+    icon: Waves,
+    permission: "hoses",
     phase: 2,
   },
   {
@@ -253,6 +260,7 @@ export function NavMain({ role }: NavMainProps) {
     "/dashboard/whatsapp": "Comercial",
     "/dashboard/produtos": "Catálogo",
     "/dashboard/extintores": "Operações",
+    "/dashboard/mangueiras": "Operações",
     "/dashboard/os": "Operações",
     "/dashboard/bancada": "Operações",
     "/dashboard/pedidos": "Financeiro",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -12,6 +12,15 @@ import {
   FileText,
   Phone,
   Mail,
+  MessageCircle,
+  ExternalLink,
+  ShieldCheck,
+  Eye,
+  EyeOff,
+  Copy,
+  Check,
+  Loader2,
+  Search,
 } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -38,7 +47,7 @@ import type { Customer } from "@/types";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useSaveClient } from "@/hooks/useClients";
-import { applyMask, formatCEP, formatCNPJ, formatCPF, formatPhone } from "@/lib/utils";
+import { applyMask, formatCEP, formatCNPJ, formatCPF, formatPhone, fetchAddressByCep } from "@/lib/utils";
 
 const customerSchema = z.object({
   type: z.enum(["pf", "pj"], { message: "Selecione o tipo de cliente" }),
@@ -47,6 +56,8 @@ const customerSchema = z.object({
   ie_rg: z.string().optional(),
   phone1: z.string().min(10, { message: "Telefone principal inválido" }),
   phone2: z.string().optional(),
+  whatsapp: z.string().optional(),
+  gov_password: z.string().optional(),
   email: z.union([z.literal(""), z.string().email({ message: "E-mail inválido" })]).optional(),
   is_active: z.boolean().default(true),
   notes: z.string().optional(),
@@ -78,6 +89,10 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
   const saveClientMutation = useSaveClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showGovPassword, setShowGovPassword] = useState(false);
+  const [isSearchingCep, setIsSearchingCep] = useState(false);
+  const [copiedGovPassword, setCopiedGovPassword] = useState(false);
+  const numberInputRef = useRef<HTMLInputElement>(null);
 
   const [values, setValues] = useState<FormValues>({
     type: initialData?.type || "pj",
@@ -88,6 +103,8 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
     ie_rg: initialData?.ie_rg || "",
     phone1: formatPhone(initialData?.phone1 || ""),
     phone2: formatPhone(initialData?.phone2 || ""),
+    whatsapp: formatPhone(initialData?.whatsapp || ""),
+    gov_password: initialData?.gov_password || "",
     email: initialData?.email || "",
     is_active: initialData?.is_active ?? true,
     notes: initialData?.notes || "",
@@ -109,6 +126,55 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
         return n;
       });
     }
+  }
+
+  async function handleCepLookup(cepValue: string) {
+    const clean = cepValue.replace(/\D/g, "");
+    if (clean.length !== 8) return;
+    setIsSearchingCep(true);
+    try {
+      const result = await fetchAddressByCep(clean);
+      if (result) {
+        setValues((prev) => ({
+          ...prev,
+          cep: formatCEP(clean),
+          street: result.street || prev.street,
+          neighborhood: result.neighborhood || prev.neighborhood,
+          city: result.city || prev.city,
+          state: result.state || prev.state,
+        }));
+        toast({
+          variant: "success",
+          title: "Endereço localizado!",
+          description: `${result.street ? result.street + ", " : ""}${result.neighborhood || result.city} (${result.state})`,
+        });
+        setTimeout(() => {
+          numberInputRef.current?.focus();
+        }, 150);
+      } else {
+        toast({
+          variant: "default",
+          title: "CEP não encontrado",
+          description: "Não localizamos o endereço automaticamente. Preencha manualmente.",
+        });
+      }
+    } catch {
+      //
+    } finally {
+      setIsSearchingCep(false);
+    }
+  }
+
+  function handleCopyGovPassword() {
+    if (!values.gov_password) return;
+    navigator.clipboard.writeText(values.gov_password);
+    setCopiedGovPassword(true);
+    toast({
+      variant: "success",
+      title: "Senha copiada!",
+      description: "A senha do GOV.BR foi copiada para a área de transferência.",
+    });
+    setTimeout(() => setCopiedGovPassword(false), 2000);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -159,6 +225,8 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
         ie_rg: values.ie_rg?.trim() || null,
         phone1: values.phone1.replace(/\D/g, ""),
         phone2: values.phone2 ? values.phone2.replace(/\D/g, "") : null,
+        whatsapp: values.whatsapp ? values.whatsapp.replace(/\D/g, "") : null,
+        gov_password: values.gov_password?.trim() || null,
         email: values.email?.trim() || null,
         address,
         notes: values.notes?.trim() || null,
@@ -360,10 +428,10 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
-              <Phone className="h-5 w-5 text-green-600" />
-              <CardTitle className="text-base">Contato</CardTitle>
+              <Phone className="h-5 w-5 text-emerald-600" />
+              <CardTitle className="text-base">Contato & WhatsApp</CardTitle>
             </div>
-            <CardDescription>Telefones e e-mail</CardDescription>
+            <CardDescription>Telefones, WhatsApp dedicado e e-mail de contato</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 md:grid-cols-3">
@@ -378,6 +446,46 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
                   <p className="text-xs text-red-600">{errors.phone1}</p>
                 )}
               </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="whatsapp-input" className="flex items-center gap-1.5 font-medium">
+                    <MessageCircle className="h-4 w-4 text-emerald-600" />
+                    WhatsApp
+                  </Label>
+                  {values.phone1 && values.phone1.replace(/\D/g, "").length >= 10 && values.phone1 !== values.whatsapp && (
+                    <button
+                      type="button"
+                      onClick={() => setField("whatsapp", values.phone1)}
+                      className="text-xs text-emerald-700 hover:text-emerald-800 hover:underline cursor-pointer"
+                      title="Copiar número do Telefone Principal"
+                    >
+                      Copiar do principal
+                    </button>
+                  )}
+                </div>
+                <Input
+                  id="whatsapp-input"
+                  value={values.whatsapp || ""}
+                  onChange={(e) => setField("whatsapp", applyMask(e.target.value, "phone"))}
+                  placeholder="(00) 00000-0000"
+                />
+                {values.whatsapp && values.whatsapp.replace(/\D/g, "").length >= 10 && (
+                  <div className="pt-1">
+                    <a
+                      href={`https://wa.me/55${values.whatsapp.replace(/\D/g, "")}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-700 hover:underline"
+                    >
+                      <MessageCircle className="h-3 w-3" />
+                      Iniciar conversa no WhatsApp
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-1.5">
                 <Label>Telefone Secundário</Label>
                 <Input
@@ -386,7 +494,10 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
                   placeholder="(00) 00000-0000"
                 />
               </div>
-              <div className="space-y-1.5">
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-1.5 md:col-span-2">
                 <Label>
                   <Mail className="inline h-3.5 w-3.5 mr-1" />
                   E-mail
@@ -411,20 +522,57 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
               <MapPin className="h-5 w-5 text-orange-600" />
               <CardTitle className="text-base">Endereço</CardTitle>
             </div>
-            <CardDescription>Opcional</CardDescription>
+            <CardDescription>
+              Preenchimento automático do endereço ao digitar o CEP
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 md:grid-cols-4">
               <div className="space-y-1.5">
-                <Label>CEP</Label>
-                <Input
-                  value={values.cep || ""}
-                  onChange={(e) => setField("cep", applyMask(e.target.value, "cep"))}
-                  placeholder="00000-000"
-                />
+                <div className="flex items-center justify-between">
+                  <Label>CEP</Label>
+                  {isSearchingCep && (
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Loader2 className="h-3 w-3 animate-spin text-orange-600" />
+                      Buscando...
+                    </span>
+                  )}
+                </div>
+                <div className="relative">
+                  <Input
+                    value={values.cep || ""}
+                    onChange={(e) => {
+                      const masked = applyMask(e.target.value, "cep");
+                      setField("cep", masked);
+                      if (masked.replace(/\D/g, "").length === 8) {
+                        handleCepLookup(masked);
+                      }
+                    }}
+                    onBlur={() => {
+                      if (values.cep && values.cep.replace(/\D/g, "").length === 8 && !values.street) {
+                        handleCepLookup(values.cep);
+                      }
+                    }}
+                    placeholder="00000-000"
+                    className="pr-9"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => values.cep && handleCepLookup(values.cep)}
+                    disabled={isSearchingCep || !values.cep || values.cep.replace(/\D/g, "").length !== 8}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:pointer-events-none p-1"
+                    title="Buscar endereço por este CEP"
+                  >
+                    {isSearchingCep ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-orange-600" />
+                    ) : (
+                      <Search className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
               </div>
               <div className="space-y-1.5 md:col-span-2">
-                <Label>Logradouro</Label>
+                <Label>Logradouro (Rua / Avenida)</Label>
                 <Input
                   value={values.street || ""}
                   onChange={(e) => setField("street", e.target.value)}
@@ -434,6 +582,7 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
               <div className="space-y-1.5">
                 <Label>Número</Label>
                 <Input
+                  ref={numberInputRef}
                   value={values.number || ""}
                   onChange={(e) => setField("number", e.target.value)}
                   placeholder="123"
@@ -481,8 +630,85 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
               <Input
                 value={values.complement || ""}
                 onChange={(e) => setField("complement", e.target.value)}
-                placeholder="Sala, andar, referência..."
+                placeholder="Sala, andar, bloco, galpão..."
               />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Campo de Senha do GOV.BR */}
+        <Card className="border-amber-200/80 bg-amber-50/20 dark:bg-amber-950/10">
+          <CardHeader>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-amber-600" />
+                <CardTitle className="text-base">Acesso GOV.BR (PPCI / Bombeiros)</CardTitle>
+              </div>
+              <Badge variant="outline" className="bg-amber-100/70 text-amber-800 border-amber-300 text-xs font-normal">
+                Uso Restrito & Confidencial
+              </Badge>
+            </div>
+            <CardDescription>
+              Senha utilizada para consulta de processos, emissão de alvarás e tramitação do PPCI junto ao Corpo de Bombeiros.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950/30 dark:border-amber-900/50 dark:text-amber-300">
+              <p className="font-semibold flex items-center gap-1.5">
+                <ShieldCheck className="h-4 w-4 shrink-0 text-amber-600" />
+                Recomendação de segurança:
+              </p>
+              <p className="mt-0.5 text-amber-800/90 dark:text-amber-300/80">
+                Esta senha é mantida com acesso restrito e serve exclusivamente para que a equipe técnica e engenharia realizem os trâmites do PPCI e vistorias nos órgãos oficiais.
+              </p>
+            </div>
+
+            <div className="space-y-1.5 max-w-md">
+              <Label htmlFor="gov-password">Senha do portal GOV.BR</Label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Input
+                    id="gov-password"
+                    type={showGovPassword ? "text" : "password"}
+                    value={values.gov_password || ""}
+                    onChange={(e) => setField("gov_password", e.target.value)}
+                    placeholder="Digite ou cole a senha do GOV.BR..."
+                    className="pr-10 font-mono"
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowGovPassword(!showGovPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-0.5"
+                    title={showGovPassword ? "Ocultar senha" : "Exibir senha"}
+                  >
+                    {showGovPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+                {values.gov_password && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={handleCopyGovPassword}
+                    title="Copiar senha"
+                    className="shrink-0 h-10 w-10"
+                  >
+                    {copiedGovPassword ? (
+                      <Check className="h-4 w-4 text-emerald-600" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                  </Button>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Clique no ícone de olho para verificar a senha digitada.
+              </p>
             </div>
           </CardContent>
         </Card>

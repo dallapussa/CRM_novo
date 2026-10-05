@@ -10,6 +10,7 @@ export type RolePermission =
   | "whatsapp"
   | "catalog"
   | "extinguishers"
+  | "hoses"
   | "service_orders"
   | "bench"
   | "orders"
@@ -20,7 +21,7 @@ export type RolePermission =
 
 const allPermissions: RolePermission[] = [
   "dashboard", "users", "clients", "leads", "quotes", "agenda", "whatsapp",
-  "catalog", "extinguishers", "service_orders", "bench", "orders", "receipts",
+  "catalog", "extinguishers", "hoses", "service_orders", "bench", "orders", "receipts",
   "reports", "customer_portal", "financial_costs",
 ];
 
@@ -39,7 +40,7 @@ const allPermissions: RolePermission[] = [
 export const ROLE_PERMISSIONS: Record<UserRole, readonly RolePermission[]> = {
   admin: allPermissions,
   comercial: ["dashboard", "clients", "leads", "quotes", "agenda", "whatsapp", "catalog"],
-  tecnico: ["dashboard", "clients", "extinguishers", "service_orders", "bench"],
+  tecnico: ["dashboard", "clients", "extinguishers", "hoses", "service_orders", "bench"],
   financeiro: ["dashboard", "orders", "receipts", "reports"],
   cliente: ["customer_portal"],
   terceiro: ["customer_portal"],
@@ -57,6 +58,7 @@ export const PATH_PERMISSION: Record<string, RolePermission> = {
   "/dashboard/whatsapp": "whatsapp",
   "/dashboard/produtos": "catalog",
   "/dashboard/extintores": "extinguishers",
+  "/dashboard/mangueiras": "hoses",
   "/dashboard/os": "service_orders",
   "/dashboard/bancada": "bench",
   "/dashboard/pedidos": "orders",
@@ -110,6 +112,8 @@ export interface Customer {
   ie_rg?: string | null;
   phone1: string;
   phone2?: string | null;
+  whatsapp?: string | null;
+  gov_password?: string | null;
   email?: string | null;
   address?: { cep?: string; street?: string; number?: string; complement?: string; neighborhood?: string; city?: string; state?: string } | null;
   notes?: string | null;
@@ -263,39 +267,90 @@ export interface Lead {
 // FASE 2 — OPERATIONS (Operações)
 // =========================================================================
 
+export type HoseType = "Tipo 1" | "Tipo 2" | "Tipo 3" | "Tipo 4" | "Tipo 5" | string;
+
 export interface Hose {
   id: string;
-  customer_id: string;
-  type: string;
-  length_meters: number;
+  company_id: string;
+  client_id: string;
+  customer_id?: string;
+  tipo: HoseType;
+  type?: string;
+  comprimento: number;
+  comprimento_m?: number | null;
+  length_meters?: number;
+  diametro_polegadas?: string | null;
+  numero_serie?: string | null;
   serial_number?: string | null;
+  patrimonio?: string | null;
   asset_number?: string | null;
+  localizacao?: string | null;
   location?: string | null;
+  fabricante?: string | null;
+  data_fabricacao?: string | null;
+  last_test_at?: string | null;
   last_test_date?: string | null;
-  next_test_date: string;
-  status: "Ativo" | "Inativo" | string;
+  next_test_at?: string | null;
+  next_test_date?: string | null;
+  teste_estanque_validade?: string | null;
+  status: "Ativo" | "Inativo" | "Aprovada" | "Reprovada" | "Em teste" | string;
+  observacoes?: string | null;
   notes?: string | null;
   created_at?: string;
   updated_at?: string;
+  client?: { name: string; document?: string } | null;
   customer?: { id: string; name: string } | null;
 }
-export const HOSE_TYPES = ["Tipo 1 — Incêndio", "Tipo 2 — Incêndio", "Tipo 3 — Incêndio", "Mangueira de Hidrante", "Outra"];
+export const HOSE_TYPES = ["Tipo 1", "Tipo 2", "Tipo 3", "Tipo 4", "Tipo 5"];
+export const HOSE_LENGTHS = [15, 20, 25, 30];
+export const HOSE_DIAMETERS = ["1 1/2\"", "2 1/2\""];
 export const HOSE_TEST_STATUS_LABELS: Record<string, string> = { vencido: "Vencido", vence_em_breve: "Vence em breve", ok: "Em dia" };
 
 // ------- BANCADA / KANBAN (recargas em andamento) -------
-export type BenchStage = "recebido" | "inspecao" | "desmontagem" | "recarga" | "hidrostatico" | "secagem" | "montagem" | "pintura" | "qualidade" | "liberado" | "entregue";
+export type BenchStage =
+  | "entrada"
+  | "oficina"
+  | "saida"
+  | "despressurizacao"
+  | "teste_hidrostatico"
+  | "recarga"
+  | "montagem"
+  | "inspecao_final"
+  | "recebido"
+  | "inspecao"
+  | "desmontagem"
+  | "hidrostatico"
+  | "secagem"
+  | "pintura"
+  | "qualidade"
+  | "liberado"
+  | "entregue"
+  | string;
+
+export type BenchPriority = "baixa" | "media" | "alta" | "urgente";
+
+export const BENCH_PRIORITY_LABELS: Record<BenchPriority, string> = {
+  baixa: "Baixa",
+  media: "Média",
+  alta: "Alta",
+  urgente: "Urgente",
+};
+
+export const BENCH_PRIORITY_COLORS: Record<BenchPriority, string> = {
+  baixa: "bg-slate-100 text-slate-700 border-slate-200",
+  media: "bg-blue-100 text-blue-700 border-blue-200",
+  alta: "bg-amber-100 text-amber-700 border-amber-200",
+  urgente: "bg-red-100 text-red-700 border-red-200 font-bold",
+};
+
 export const BENCH_STAGES: readonly { key: BenchStage; label: string; color: string }[] = [
-  { key: "recebido",    label: "Recebido",         color: "bg-slate-100 text-slate-700 border-slate-200" },
-  { key: "inspecao",    label: "Inspeção Inicial", color: "bg-blue-100 text-blue-700 border-blue-200" },
-  { key: "desmontagem", label: "Desmontagem",      color: "bg-indigo-100 text-indigo-700 border-indigo-200" },
-  { key: "recarga",     label: "Recarga",          color: "bg-amber-100 text-amber-700 border-amber-200" },
-  { key: "hidrostatico",label: "Teste Hidrostático",color: "bg-yellow-100 text-yellow-700 border-yellow-200" },
-  { key: "secagem",     label: "Secagem",          color: "bg-orange-100 text-orange-700 border-orange-200" },
-  { key: "montagem",    label: "Montagem",         color: "bg-teal-100 text-teal-700 border-teal-200" },
-  { key: "pintura",     label: "Pintura",          color: "bg-pink-100 text-pink-700 border-pink-200" },
-  { key: "qualidade",   label: "Qualidade",        color: "bg-violet-100 text-violet-700 border-violet-200" },
-  { key: "liberado",    label: "Liberado",         color: "bg-green-100 text-green-700 border-green-200" },
-  { key: "entregue",    label: "Entregue",         color: "bg-zinc-100 text-zinc-600 border-zinc-200" },
+  { key: "entrada",           label: "Entrada",          color: "bg-blue-100 text-blue-700 border-blue-200" },
+  { key: "despressurizacao",  label: "Despressurização", color: "bg-amber-100 text-amber-700 border-amber-200" },
+  { key: "teste_hidrostatico",label: "Teste Hidrostático",color: "bg-purple-100 text-purple-700 border-purple-200" },
+  { key: "oficina",           label: "Na Oficina",       color: "bg-orange-100 text-orange-700 border-orange-200" },
+  { key: "montagem",          label: "Montagem",         color: "bg-indigo-100 text-indigo-700 border-indigo-200" },
+  { key: "inspecao_final",    label: "Inspeção Final",   color: "bg-teal-100 text-teal-700 border-teal-200" },
+  { key: "saida",             label: "Saída",            color: "bg-green-100 text-green-700 border-green-200" },
 ];
 
 export interface BenchRecord {
@@ -311,35 +366,81 @@ export interface BenchRecord {
   moved_at?: string | null;
   due_at?: string | null;
   notes?: string | null;
-  priority?: "baixa" | "media" | "alta" | "urgente";
-  // Dados de equipamento (denormalizado para aparecer no card sem join)
+  priority: BenchPriority;
   equip_type?: string | null;
   equip_capacity?: string | null;
   equip_serial?: string | null;
   customer_name?: string | null;
+  created_by?: string | null;
   created_at?: string;
   updated_at?: string;
+  technician?: { full_name: string } | null;
+  client?: { name: string } | null;
 }
 
 // ------- PEDIDOS (Orders) -------
-export type OrderStatus = "Aberto" | "Aprovado" | "Parcial" | "Enviado" | "Entregue" | "Faturado" | "Cancelado" | string;
+export type OrderStatus =
+  | "pendente"
+  | "faturado"
+  | "entregue"
+  | "cancelado"
+  | "Aberto"
+  | "Aprovado"
+  | "Parcial"
+  | "Enviado"
+  | "Entregue"
+  | "Faturado"
+  | "Cancelado"
+  | string;
+
 export interface Order {
   id: string;
   company_id: string;
-  number: number;
+  number?: number;
+  numero?: number;
   client_id: string;
   service_order_id?: string | null;
   quote_id?: string | null;
   status: OrderStatus;
+  subtotal?: number;
+  discount?: number;
   total: number;
-  ordered_at: string;
+  ordered_at?: string;
   notes?: string | null;
-  created_by: string;
+  created_by?: string | null;
   created_at?: string;
   updated_at?: string;
+  client?: { name: string; document?: string } | null;
   customer?: { id: string; name: string } | null;
 }
-export const ORDER_STATUS_LABELS: Record<string, string> = { Aberto: "Aberto", Aprovado: "Aprovado", Parcial: "Parcial", Enviado: "Enviado", Entregue: "Entregue", Faturado: "Faturado", Cancelado: "Cancelado" };
+
+export const ORDER_STATUS_LABELS: Record<string, string> = {
+  pendente: "Pendente",
+  faturado: "Faturado",
+  entregue: "Entregue",
+  cancelado: "Cancelado",
+  Aberto: "Aberto",
+  Aprovado: "Aprovado",
+  Parcial: "Parcial",
+  Enviado: "Enviado",
+  Entregue: "Entregue",
+  Faturado: "Faturado",
+  Cancelado: "Cancelado",
+};
+
+export const ORDER_STATUS_COLORS: Record<string, string> = {
+  pendente: "bg-yellow-100 text-yellow-700 border-yellow-200",
+  faturado: "bg-blue-100 text-blue-700 border-blue-200",
+  entregue: "bg-green-100 text-green-700 border-green-200",
+  cancelado: "bg-gray-100 text-gray-600 border-gray-200",
+  Aberto: "bg-yellow-100 text-yellow-700 border-yellow-200",
+  Aprovado: "bg-blue-100 text-blue-700 border-blue-200",
+  Parcial: "bg-blue-100 text-blue-700 border-blue-200",
+  Enviado: "bg-indigo-100 text-indigo-700 border-indigo-200",
+  Entregue: "bg-green-100 text-green-700 border-green-200",
+  Faturado: "bg-green-100 text-green-700 border-green-200",
+  Cancelado: "bg-gray-100 text-gray-600 border-gray-200",
+};
 
 // ------- RECIBOS (Receipts) — contas a receber / pagar -------
 export type ReceiptStatus = "Pendente" | "Parcial" | "Recebido" | "Atrasado" | "Cancelado" | string;

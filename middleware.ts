@@ -11,13 +11,13 @@ const PUBLIC_ROUTES = [
 type UserRole = "admin" | "comercial" | "tecnico" | "financeiro" | "cliente" | "terceiro";
 type RolePermission =
   | "dashboard" | "users" | "clients" | "leads" | "quotes" | "agenda" | "whatsapp"
-  | "catalog" | "extinguishers" | "service_orders" | "bench" | "orders" | "receipts"
+  | "catalog" | "extinguishers" | "hoses" | "service_orders" | "bench" | "orders" | "receipts"
   | "reports" | "customer_portal" | "financial_costs";
 
 const ROLE_PERMISSIONS: Record<UserRole, readonly RolePermission[]> = {
-  admin:        ["dashboard","users","clients","leads","quotes","agenda","whatsapp","catalog","extinguishers","service_orders","bench","orders","receipts","reports","customer_portal","financial_costs"],
+  admin:        ["dashboard","users","clients","leads","quotes","agenda","whatsapp","catalog","extinguishers","hoses","service_orders","bench","orders","receipts","reports","customer_portal","financial_costs"],
   comercial:    ["dashboard","clients","leads","quotes","agenda","whatsapp","catalog"],
-  tecnico:      ["dashboard","clients","extinguishers","service_orders","bench"],
+  tecnico:      ["dashboard","clients","extinguishers","hoses","service_orders","bench"],
   financeiro:   ["dashboard","orders","receipts","reports"],
   cliente:      ["customer_portal"],
   terceiro:     ["customer_portal"],
@@ -33,6 +33,7 @@ const PATH_PERMISSION: Record<string, RolePermission> = {
   "/dashboard/whatsapp": "whatsapp",
   "/dashboard/produtos": "catalog",
   "/dashboard/extintores": "extinguishers",
+  "/dashboard/mangueiras": "hoses",
   "/dashboard/os": "service_orders",
   "/dashboard/bancada": "bench",
   "/dashboard/pedidos": "orders",

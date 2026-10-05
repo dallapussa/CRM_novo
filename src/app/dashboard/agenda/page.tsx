@@ -1,16 +1,10 @@
-import { PagePlaceholder } from "@/components/layout/page-placeholder";
-import { CalendarDays } from "lucide-react";
+import { AgendaView } from "@/components/agenda/agenda-view";
+
+export const metadata = {
+  title: "Agenda | ExtinControl CRM",
+  description: "Controle de visitas técnicas, coletas, entregas e agendamentos operacionais.",
+};
 
 export default function AgendaPage() {
-  return (
-    <PagePlaceholder
-      icon={CalendarDays}
-      eyebrow="Módulo Comercial / Operações"
-      title="Agenda"
-      description="Calendário unificado de visitas técnicas, OS agendadas, follow-ups comerciais e compromissos. Arrasta e solta, visão por dia/semana/mês e lembretes por WhatsApp."
-      status="Em construção"
-      actionLabel="Ver OS"
-      actionHref="/dashboard/os"
-    />
-  );
+  return <AgendaView />;
 }

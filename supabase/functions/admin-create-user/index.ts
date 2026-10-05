@@ -6,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const roles = ["Admin", "Comercial", "Técnico", "Financeiro", "Cliente", "Terceiro"] as const;
+const roles = ["Admin", "Comercial", "Técnico", "Tecnico", "Financeiro", "Cliente", "Terceiro"] as const;
 
 function response(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -43,18 +43,18 @@ Deno.serve(async (request) => {
   //       APP_SUPABASE_ANON_KEY   = a chave anon (pública)
   //       APP_SERVICE_ROLE_KEY    = a chave service_role (PRIVADA!)
   // ====================================================================
-  const supabaseUrl     = Deno.env.get("APP_SUPABASE_URL") ?? "";
-  const anonKey         = (Deno.env.get("APP_SUPABASE_ANON_KEY") ?? "").trim();
-  const serviceRoleKey  = (Deno.env.get("APP_SERVICE_ROLE_KEY") ?? "").trim();
+  const supabaseUrl     = (Deno.env.get("APP_SUPABASE_URL") ?? Deno.env.get("SUPABASE_URL") ?? "").trim();
+  const anonKey         = (Deno.env.get("APP_SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_ANON_KEY") ?? "").trim();
+  const serviceRoleKey  = (Deno.env.get("APP_SERVICE_ROLE_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
 
   if (!supabaseUrl.startsWith("https://")) {
     return response({
-      error: "APP_SUPABASE_URL não configurada. Acesse Edge Functions → Secrets e configure as 3 variáveis de ambiente.",
+      error: "SUPABASE_URL ou APP_SUPABASE_URL não configurada. Configure no painel do Supabase.",
     }, 500);
   }
   if (!anonKey || !serviceRoleKey || anonKey.length < 40 || serviceRoleKey.length < 40) {
     return response({
-      error: "Chaves JWT não configuradas ou incompletas. Acesse Edge Functions → Secrets e preencha APP_SUPABASE_ANON_KEY e APP_SERVICE_ROLE_KEY.",
+      error: "Chaves JWT não configuradas ou incompletas. Verifique SUPABASE_SERVICE_ROLE_KEY e SUPABASE_ANON_KEY.",
     }, 500);
   }
 
@@ -84,6 +84,7 @@ Deno.serve(async (request) => {
   const email = typeof input.email === "string" ? input.email.trim().toLowerCase() : "";
   const name = typeof input.nome === "string" ? input.nome.trim() : "";
   const role = input.role;
+  const dbRole = role === "Técnico" ? "Tecnico" : role;
   const phone = typeof input.telefone === "string" ? input.telefone.replace(/\D/g, "") : null;
   if (!email.includes("@") || name.length < 2 || !roles.includes(role as typeof roles[number])) {
     return response({ error: "Valid email, name, and role are required" }, 400);
@@ -99,7 +100,7 @@ Deno.serve(async (request) => {
     email_confirm: true,
     user_metadata: {
       nome: name,
-      role,
+      role: dbRole,
       telefone: phone,
     },
   });
@@ -109,7 +110,7 @@ Deno.serve(async (request) => {
     telefone: phone,
     company_id: requesterProfile.company_id,
   };
-  if (role !== "Cliente") profileUpdate.role = role;
+  if (dbRole !== "Cliente") profileUpdate.role = dbRole;
   const { data: profile, error: profileError } = await admin
     .from("user_profiles")
     .update(profileUpdate)

@@ -95,20 +95,42 @@ function mapServiceOrderItem(row: Record<string, any>): ServiceOrderItem {
 export async function listServiceOrders(): Promise<ServiceOrder[]> {
   const { supabase, companyId } = await getTenantContext();
   const { data, error } = await supabase.from("service_orders")
-    .select("*,client:clients!inner(id,razao_social,company_id),technician:assigned_to(nome)")
+    .select("*,client:clients!inner(id,razao_social,company_id)")
     .eq("company_id", companyId).eq("client.company_id", companyId).is("deleted_at", null)
     .order("created_at", { ascending: false });
   if (error) throw error;
-  return (data || []).map((row) => mapServiceOrder(row));
+
+  const rawRows = data || [];
+  const techIds = Array.from(new Set(rawRows.map((r: any) => r.assigned_to).filter(Boolean)));
+  const techMap = new Map<string, string>();
+  if (techIds.length > 0) {
+    const { data: techData } = await supabase.from("user_profiles").select("id,nome").in("id", techIds);
+    (techData || []).forEach((u: any) => techMap.set(u.id, u.nome));
+  }
+
+  return rawRows.map((row) => ({
+    ...mapServiceOrder(row),
+    technician: row.assigned_to && techMap.has(row.assigned_to) ? { full_name: techMap.get(row.assigned_to)! } : null,
+  }));
 }
 
 export async function getServiceOrder(id: string): Promise<ServiceOrder> {
   const { supabase, companyId } = await getTenantContext();
   const { data, error } = await supabase.from("service_orders")
-    .select("*,client:clients!inner(id,razao_social,company_id),technician:assigned_to(nome)")
+    .select("*,client:clients!inner(id,razao_social,company_id)")
     .eq("company_id", companyId).eq("client.company_id", companyId).eq("id", id).is("deleted_at", null).single();
   if (error) throw error;
-  return mapServiceOrder(data);
+
+  let technicianName: string | null = null;
+  if (data.assigned_to) {
+    const { data: tech } = await supabase.from("user_profiles").select("nome").eq("id", data.assigned_to).maybeSingle();
+    technicianName = tech?.nome ?? null;
+  }
+
+  return {
+    ...mapServiceOrder(data),
+    technician: technicianName ? { full_name: technicianName } : null,
+  };
 }
 
 async function verifyClientInCompany(clientId: string, companyId: string) {
@@ -164,9 +186,11 @@ export async function updateServiceOrder(id: string, patch: Partial<ServiceOrder
 
 export async function deleteServiceOrder(id: string): Promise<void> {
   const { supabase, companyId } = await getTenantContext();
-  const { error: itemError } = await supabase.from("service_order_items").delete().eq("service_order_id", id);
-  if (itemError) throw itemError;
-  const { error } = await supabase.from("service_orders").delete().eq("company_id", companyId).eq("id", id);
+  const { error } = await supabase
+    .from("service_orders")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("company_id", companyId)
+    .eq("id", id);
   if (error) throw error;
 }
 

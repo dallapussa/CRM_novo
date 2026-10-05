@@ -56,9 +56,10 @@ export function unmask(value: string) {
   return value.replace(/\D/g, "");
 }
 
-export function formatDate(date?: string | Date) {
+export function formatDate(date?: string | Date | null) {
   if (!date) return "";
   const d = typeof date === "string" ? new Date(date) : date;
+  if (isNaN(d.getTime())) return "";
   return d.toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "2-digit",
@@ -66,9 +67,10 @@ export function formatDate(date?: string | Date) {
   });
 }
 
-export function formatDateTime(date?: string | Date) {
+export function formatDateTime(date?: string | Date | null) {
   if (!date) return "";
   const d = typeof date === "string" ? new Date(date) : date;
+  if (isNaN(d.getTime())) return "";
   return d.toLocaleString("pt-BR", {
     day: "2-digit",
     month: "2-digit",
@@ -96,3 +98,5 @@ export function applyMask(value: string, mask: MaskType) {
       return value;
   }
 }
+
+export { fetchAddressByCep, type AddressLookupResult } from "./cep";

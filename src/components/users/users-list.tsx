@@ -47,7 +47,7 @@ import type { Profile, UserRole } from "@/types";
 import { ROLE_LABELS, ROLE_COLORS } from "@/types";
 import { formatDate, formatPhone } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { useSetUserActive, useUsers } from "@/hooks/useUsers";
+import { useDeleteUser, useSetUserActive, useUsers } from "@/hooks/useUsers";
 
 interface UsersListProps {
   initialUsers?: Profile[];
@@ -61,7 +61,8 @@ export function UsersList({ initialUsers }: UsersListProps = {}) {
   const [deleteUser, setDeleteUser] = useState<Profile | null>(null);
   const { toast } = useToast();
   const setActiveMutation = useSetUserActive();
-  const isDeleting = setActiveMutation.isPending;
+  const deleteMutation = useDeleteUser();
+  const isDeleting = deleteMutation.isPending;
 
   const filtered = useMemo(() => {
     return users.filter((u) => {
@@ -85,18 +86,18 @@ export function UsersList({ initialUsers }: UsersListProps = {}) {
   async function handleDelete() {
     if (!deleteUser) return;
     try {
-      await setActiveMutation.mutateAsync({ id: deleteUser.id, is_active: false });
+      await deleteMutation.mutateAsync(deleteUser.id);
       toast({
         variant: "success",
-        title: "Usuário inativado",
-        description: `${deleteUser.full_name} foi inativado com sucesso.`,
+        title: "Usuário removido",
+        description: `${deleteUser.full_name} foi removido com sucesso.`,
       });
       setDeleteUser(null);
     } catch (err: any) {
       toast({
         variant: "destructive",
-        title: "Erro ao inativar",
-        description: err?.message || "Não foi possível inativar o usuário.",
+        title: "Erro ao remover",
+        description: err?.message || "Não foi possível remover o usuário.",
       });
     }
   }
@@ -372,12 +373,12 @@ export function UsersList({ initialUsers }: UsersListProps = {}) {
                             >
                               <UserCog className="h-4 w-4" />
                             </Button>
-                            {u.is_active && (
+                            {u.email !== "dallapussa@gmail.com" && (
                               <Button
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                title="Inativar"
+                                title="Remover usuário"
                                 onClick={() => setDeleteUser(u)}
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -398,12 +399,11 @@ export function UsersList({ initialUsers }: UsersListProps = {}) {
       <Dialog open={!!deleteUser} onOpenChange={(o) => !o && setDeleteUser(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Inativar usuário?</DialogTitle>
+            <DialogTitle>Remover usuário?</DialogTitle>
             <DialogDescription>
-              Tem certeza que deseja inativar{" "}
-              <span className="font-semibold">{deleteUser?.full_name}</span>?
-              O usuário não poderá mais acessar o sistema. Esta ação pode ser revertida
-              ativando o usuário novamente.
+              Tem certeza que deseja remover o usuário{" "}
+              <span className="font-semibold">{deleteUser?.full_name}</span> ({deleteUser?.email})?
+              Ele não terá mais acesso ao sistema e não aparecerá nas listagens ativas.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -411,7 +411,7 @@ export function UsersList({ initialUsers }: UsersListProps = {}) {
               Cancelar
             </Button>
             <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
-              {isDeleting ? "Inativando..." : "Sim, inativar"}
+              {isDeleting ? "Removendo..." : "Sim, remover"}
             </Button>
           </DialogFooter>
         </DialogContent>
