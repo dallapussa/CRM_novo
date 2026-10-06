@@ -66,6 +66,7 @@ export const PATH_PERMISSION: Record<string, RolePermission> = {
   "/dashboard/relatorios": "reports",
   "/dashboard/custos": "financial_costs",
   "/dashboard/vencimentos": "dashboard",
+  "/dashboard/lotes": "service_orders",
 };
 
 /** Retorna a permissão exigida para um dado pathname (ex: /dashboard/usuarios/123) */
@@ -675,6 +676,7 @@ export type ModalidadeRecarga = "Reaproveitamento" | "Normal";
 
 export interface OrdemRecolhimento {
   id: string;
+  lote_id?: string | null;
   client_id: string;
   numero_ordem: number;
   motivo: OrdemRecolhimentoMotivo;
@@ -688,7 +690,19 @@ export interface OrdemRecolhimento {
   created_at?: string;
   updated_at?: string;
   created_by?: string | null;
-  client?: { id: string; name: string; document?: string } | null;
+  client?: {
+    id: string;
+    name: string;
+    document?: string;
+    telefone?: string | null;
+    address?: {
+      street?: string | null;
+      number?: string | null;
+      neighborhood?: string | null;
+      city?: string | null;
+      state?: string | null;
+    } | null;
+  } | null;
   itens?: ItemRecolhimento[];
 }
 
@@ -700,4 +714,26 @@ export interface ItemRecolhimento {
   valor_registrado: number;
   created_at?: string;
   extintor?: ExtintorInventario;
+}
+
+export type LoteRecolhimentoStatus = "recolhendo" | "em_oficina" | "pronto_entrega" | "concluido";
+
+export interface LoteRecolhimento {
+  id: string;
+  company_id?: string;
+  codigo: string;
+  nome: string;
+  cidade?: string | null;
+  regiao?: string | null;
+  data_recolhimento: string;
+  prazo_dias: number;
+  previsao_devolucao: string;
+  status: LoteRecolhimentoStatus;
+  observacoes?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  created_by?: string | null;
+  ordens?: OrdemRecolhimento[];
+  total_extintores?: number;
+  total_clientes?: number;
 }

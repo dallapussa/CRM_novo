@@ -23,6 +23,7 @@ import {
   DollarSign,
   ShieldCheck,
   Waves,
+  Truck,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { hasPermission, type RolePermission, type UserRole } from "@/types";
@@ -153,6 +154,13 @@ const NAV_ITEMS: NavItem[] = [
     permission: "bench",
     phase: 2,
   },
+  {
+    title: "Lotes & Rotas",
+    href: "/dashboard/lotes",
+    icon: Truck,
+    permission: "service_orders",
+    phase: 2,
+  },
 
   // ============ FINANCEIRO ============
   {
@@ -270,6 +278,7 @@ export function NavMain({ role }: NavMainProps) {
     "/dashboard/mangueiras": "Operações",
     "/dashboard/os": "Operações",
     "/dashboard/bancada": "Operações",
+    "/dashboard/lotes": "Operações",
     "/dashboard/pedidos": "Financeiro",
     "/dashboard/financeiro": "Financeiro",
     "/dashboard/relatorios": "Financeiro",

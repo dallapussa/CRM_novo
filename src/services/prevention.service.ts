@@ -10,6 +10,8 @@ import type {
   OrdemRecolhimentoStatus,
   ModalidadeRecarga,
   ItemRecolhimento,
+  LoteRecolhimento,
+  LoteRecolhimentoStatus,
 } from "@/types";
 
 // ============================================================================
@@ -366,6 +368,7 @@ export async function deleteExtintor(id: string): Promise<void> {
 
 export interface CreateOrdemRecolhimentoInput {
   clientId: string;
+  loteId?: string;
   motivo: OrdemRecolhimentoMotivo;
   deixouReserva: boolean;
   detalhesReserva?: string;
@@ -388,10 +391,17 @@ export async function createOrdemRecolhimento(
     data: { user },
   } = await supabase.auth.getUser();
 
-  // 1. Cria a Ordem de Recolhimento
-  const { data: ordem, error: ordemError } = await supabase
-    .from("ordens_recolhimento")
-    .insert({
+  // Se tiver loteId, embute tag [LOTE:id] nas observações para garantia caso a coluna lote_id ainda não exista
+  const observacaoComLote = input.loteId
+    ? `${input.observacoes ? input.observacoes + " " : ""}[LOTE:${input.loteId}]`
+    : input.observacoes || null;
+
+  // 1. Tenta criar a Ordem de Recolhimento com lote_id
+  let ordem: any = null;
+  let ordemError: any = null;
+
+  try {
+    const payload: Record<string, any> = {
       client_id: input.clientId,
       motivo: input.motivo,
       deixou_reserva: input.deixouReserva,
@@ -399,12 +409,37 @@ export async function createOrdemRecolhimento(
       tecnico_responsavel: input.tecnicoResponsavel || "Oficina Central",
       data_recolhimento: input.dataRecolhimento,
       previsao_devolucao: input.previsaoDevolucao || null,
-      observacoes: input.observacoes || null,
+      observacoes: observacaoComLote,
       status: "recolhido",
       created_by: user?.id || null,
-    })
-    .select("id, numero_ordem")
-    .single();
+    };
+    if (input.loteId) {
+      payload.lote_id = input.loteId;
+    }
+
+    const res = await supabase
+      .from("ordens_recolhimento")
+      .insert(payload)
+      .select("id, numero_ordem")
+      .single();
+
+    if (res.error && res.error.message?.includes("lote_id")) {
+      // Coluna lote_id ainda não adicionada no DB pelo usuário; retry sem lote_id
+      delete payload.lote_id;
+      const retryRes = await supabase
+        .from("ordens_recolhimento")
+        .insert(payload)
+        .select("id, numero_ordem")
+        .single();
+      ordem = retryRes.data;
+      ordemError = retryRes.error;
+    } else {
+      ordem = res.data;
+      ordemError = res.error;
+    }
+  } catch (err: any) {
+    ordemError = err;
+  }
 
   let ordemId = ordem?.id;
   let numeroOrdem = ordem?.numero_ordem || Math.floor(1000 + Math.random() * 9000);
@@ -416,7 +451,7 @@ export async function createOrdemRecolhimento(
       .insert({
         customer_id: input.clientId,
         type: `Recolhimento (${input.motivo})`,
-        description: `Recolhimento de ${input.itens.length} extintores para oficina. Reserva: ${input.deixouReserva ? "Sim - " + (input.detalhesReserva || "") : "Não"}`,
+        description: `Recolhimento de ${input.itens.length} extintores para oficina. Reserva: ${input.deixouReserva ? "Sim - " + (input.detalhesReserva || "") : "Não"} ${observacaoComLote || ""}`,
         scheduled_date: input.dataRecolhimento,
         status: "pendente",
         priority: "media",
@@ -532,11 +567,13 @@ export async function createOrdemRecolhimento(
   return { id: ordemId, numero_ordem: numeroOrdem };
 }
 
-export async function listOrdensRecolhimento(clientId?: string): Promise<OrdemRecolhimento[]> {
+export async function listOrdensRecolhimento(clientId?: string, loteId?: string): Promise<OrdemRecolhimento[]> {
   const supabase = createClient();
   let query = supabase
     .from("ordens_recolhimento")
-    .select("*, client:client_id(id, razao_social, cnpj), itens:itens_recolhimento(*, extintor:extintor_id(*))")
+    .select(
+      "*, client:client_id(id, razao_social, nome_fantasia, cnpj, telefone, whatsapp, logradouro, numero, bairro, cidade, estado, cep), itens:itens_recolhimento(*, extintor:extintor_id(*))"
+    )
     .order("created_at", { ascending: false });
 
   if (clientId) {
@@ -546,23 +583,351 @@ export async function listOrdensRecolhimento(clientId?: string): Promise<OrdemRe
   const { data, error } = await query;
   if (error) return [];
 
-  return (data || []).map((o) => ({
-    id: o.id,
-    client_id: o.client_id,
-    numero_ordem: o.numero_ordem,
-    motivo: o.motivo,
-    deixou_reserva: o.deixou_reserva,
-    detalhes_reserva: o.detalhes_reserva,
-    tecnico_responsavel: o.tecnico_responsavel,
-    data_recolhimento: o.data_recolhimento,
-    previsao_devolucao: o.previsao_devolucao,
-    observacoes: o.observacoes,
-    status: o.status,
-    created_at: o.created_at,
-    updated_at: o.updated_at,
-    client: o.client ? { id: o.client.id, name: o.client.razao_social, document: o.client.cnpj } : null,
-    itens: o.itens || [],
-  }));
+  const mapped: OrdemRecolhimento[] = (data || []).map((o: any) => {
+    // Detecta lote_id da coluna direta ou da tag [LOTE:id] em observações
+    let resolvedLoteId = o.lote_id || null;
+    if (!resolvedLoteId && o.observacoes && typeof o.observacoes === "string") {
+      const match = o.observacoes.match(/\[LOTE:([^\]]+)\]/);
+      if (match) resolvedLoteId = match[1];
+    }
+
+    const c = o.client;
+    return {
+      id: o.id,
+      lote_id: resolvedLoteId,
+      client_id: o.client_id,
+      numero_ordem: o.numero_ordem,
+      motivo: o.motivo,
+      deixou_reserva: o.deixou_reserva,
+      detalhes_reserva: o.detalhes_reserva,
+      tecnico_responsavel: o.tecnico_responsavel,
+      data_recolhimento: o.data_recolhimento,
+      previsao_devolucao: o.previsao_devolucao,
+      observacoes: o.observacoes ? o.observacoes.replace(/\[LOTE:[^\]]+\]\s*/g, "").trim() : null,
+      status: o.status,
+      created_at: o.created_at,
+      updated_at: o.updated_at,
+      created_by: o.created_by,
+      client: c
+        ? {
+            id: c.id,
+            name: c.razao_social || c.nome_fantasia || "Cliente",
+            document: c.cnpj || undefined,
+            telefone: c.whatsapp || c.telefone || null,
+            address: {
+              street: c.logradouro || null,
+              number: c.numero || null,
+              neighborhood: c.bairro || null,
+              city: c.cidade || null,
+              state: c.estado || null,
+            },
+          }
+        : null,
+      itens: (o.itens || []).map((it: any) => ({
+        id: it.id,
+        ordem_id: it.ordem_id,
+        extintor_id: it.extintor_id,
+        modalidade_recarga: it.modalidade_recarga,
+        valor_registrado: Number(it.valor_registrado || 0),
+        created_at: it.created_at,
+        extintor: it.extintor
+          ? {
+              ...it.extintor,
+              valor_servico: Number(it.extintor.valor_servico || 0),
+            }
+          : undefined,
+      })),
+    };
+  });
+
+  if (loteId) {
+    return mapped.filter((o) => o.lote_id === loteId);
+  }
+
+  return mapped;
+}
+
+// ============================================================================
+// 3.1 LOTES DE RECOLHIMENTO (MACRO LOTES POR CIDADE / DATA DE DEVOLUÇÃO)
+// ============================================================================
+
+const LOCAL_LOTES_STORAGE_KEY = "extincontrol_lotes_recolhimento_v1";
+
+function getLocalLotes(): LoteRecolhimento[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(LOCAL_LOTES_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalLotes(lotes: LoteRecolhimento[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(LOCAL_LOTES_STORAGE_KEY, JSON.stringify(lotes));
+  } catch (err) {
+    console.error("Erro ao salvar lotes no localStorage:", err);
+  }
+}
+
+export async function listLotesRecolhimento(): Promise<LoteRecolhimento[]> {
+  const supabase = createClient();
+  let lotes: LoteRecolhimento[] = [];
+
+  const { data, error } = await supabase
+    .from("lotes_recolhimento")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    // Fallback: lê da persistência local
+    lotes = getLocalLotes();
+  } else {
+    lotes = data || [];
+  }
+
+  // Carrega todas as ordens para calcular totais por lote
+  const allOrdens = await listOrdensRecolhimento();
+
+  return lotes.map((lote) => {
+    const ordensDoLote = allOrdens.filter((o) => o.lote_id === lote.id);
+    const totalExtintores = ordensDoLote.reduce((acc, o) => acc + (o.itens?.length || 0), 0);
+    const totalClientes = new Set(ordensDoLote.map((o) => o.client_id)).size;
+
+    return {
+      ...lote,
+      ordens: ordensDoLote,
+      total_extintores: totalExtintores,
+      total_clientes: totalClientes,
+    };
+  });
+}
+
+export async function getLoteRecolhimento(loteId: string): Promise<LoteRecolhimento | null> {
+  const all = await listLotesRecolhimento();
+  return all.find((l) => l.id === loteId) || null;
+}
+
+export async function saveLoteRecolhimento(
+  input: Partial<LoteRecolhimento>
+): Promise<LoteRecolhimento> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const isEditing = Boolean(input.id);
+  const loteId = input.id || crypto.randomUUID();
+
+  // Gera código amigável tipo LOTE-AAAA-MM-XX
+  const now = new Date();
+  const yearMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const codigo = input.codigo || `LOTE-${yearMonth}-${Math.floor(10 + Math.random() * 90)}`;
+
+  const prazoDias = input.prazo_dias || 7;
+  const dataRecolhimento = input.data_recolhimento || new Date().toISOString().split("T")[0];
+
+  const calcPrevisao = () => {
+    if (input.previsao_devolucao) return input.previsao_devolucao;
+    const base = new Date(dataRecolhimento + "T12:00:00");
+    base.setDate(base.getDate() + prazoDias);
+    return base.toISOString().split("T")[0];
+  };
+
+  const payload: LoteRecolhimento = {
+    id: loteId,
+    codigo,
+    nome:
+      input.nome ||
+      `${input.cidade || "Região Central"} - Devolução em ${prazoDias} dias (${calcPrevisao()})`,
+    cidade: input.cidade || null,
+    regiao: input.regiao || null,
+    data_recolhimento: dataRecolhimento,
+    prazo_dias: prazoDias,
+    previsao_devolucao: calcPrevisao(),
+    status: input.status || "em_oficina",
+    observacoes: input.observacoes || null,
+    created_at: input.created_at || new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    created_by: user?.id || null,
+  };
+
+  // Tenta salvar no Supabase
+  if (isEditing) {
+    const { data, error } = await supabase
+      .from("lotes_recolhimento")
+      .update({
+        nome: payload.nome,
+        cidade: payload.cidade,
+        regiao: payload.regiao,
+        prazo_dias: payload.prazo_dias,
+        previsao_devolucao: payload.previsao_devolucao,
+        status: payload.status,
+        observacoes: payload.observacoes,
+        updated_at: payload.updated_at,
+      })
+      .eq("id", loteId)
+      .select("*")
+      .single();
+
+    if (error) {
+      // Salva no localStorage
+      const locals = getLocalLotes();
+      const updated = locals.map((l) => (l.id === loteId ? { ...l, ...payload } : l));
+      saveLocalLotes(updated);
+      return payload;
+    }
+    return data;
+  } else {
+    const { data, error } = await supabase
+      .from("lotes_recolhimento")
+      .insert(payload)
+      .select("*")
+      .single();
+
+    if (error) {
+      // Salva no localStorage
+      const locals = getLocalLotes();
+      saveLocalLotes([payload, ...locals]);
+      return payload;
+    }
+    return data;
+  }
+}
+
+export async function updateLoteStatus(
+  loteId: string,
+  status: LoteRecolhimentoStatus
+): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("lotes_recolhimento")
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq("id", loteId);
+
+  if (error) {
+    const locals = getLocalLotes();
+    const updated = locals.map((l) => (l.id === loteId ? { ...l, status, updated_at: new Date().toISOString() } : l));
+    saveLocalLotes(updated);
+  }
+}
+
+export async function addOrdemToLote(ordemId: string, loteId: string): Promise<void> {
+  const supabase = createClient();
+
+  // Tenta atualizar coluna lote_id
+  const { error } = await supabase
+    .from("ordens_recolhimento")
+    .update({ lote_id: loteId, updated_at: new Date().toISOString() })
+    .eq("id", ordemId);
+
+  if (error) {
+    // Fallback: insere a tag [LOTE:id] nas observações
+    const { data: current } = await supabase
+      .from("ordens_recolhimento")
+      .select("observacoes")
+      .eq("id", ordemId)
+      .maybeSingle();
+
+    const obs = current?.observacoes ? `${current.observacoes} [LOTE:${loteId}]` : `[LOTE:${loteId}]`;
+    await supabase.from("ordens_recolhimento").update({ observacoes: obs }).eq("id", ordemId);
+  }
+}
+
+export async function removeOrdemFromLote(ordemId: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("ordens_recolhimento")
+    .update({ lote_id: null, updated_at: new Date().toISOString() })
+    .eq("id", ordemId);
+
+  if (error) {
+    const { data: current } = await supabase
+      .from("ordens_recolhimento")
+      .select("observacoes")
+      .eq("id", ordemId)
+      .maybeSingle();
+
+    if (current?.observacoes) {
+      const clean = current.observacoes.replace(/\[LOTE:[^\]]+\]\s*/g, "").trim();
+      await supabase.from("ordens_recolhimento").update({ observacoes: clean }).eq("id", ordemId);
+    }
+  }
+}
+
+export async function confirmClientDevolucao(ordemId: string): Promise<{ success: boolean }> {
+  const supabase = createClient();
+  const today = new Date().toISOString().split("T")[0];
+  const nextYear = new Date(Date.now() + 365 * 86400000).toISOString().split("T")[0];
+
+  // 1. Marca ordem como concluída
+  const { data: ordem, error: ordemErr } = await supabase
+    .from("ordens_recolhimento")
+    .update({ status: "concluido", updated_at: new Date().toISOString() })
+    .eq("id", ordemId)
+    .select("id, lote_id, observacoes")
+    .single();
+
+  if (ordemErr) {
+    console.error("Erro ao concluir ordem:", ordemErr);
+  }
+
+  // 2. Busca extintores desta ordem para devolver ao status 'no_cliente' e renovar validade
+  const { data: itens } = await supabase
+    .from("itens_recolhimento")
+    .select("extintor_id")
+    .eq("ordem_id", ordemId);
+
+  const extIds = (itens || []).map((i) => i.extintor_id).filter(Boolean);
+
+  if (extIds.length > 0) {
+    await supabase
+      .from("extintores")
+      .update({
+        status: "no_cliente",
+        data_ultima_recarga: today,
+        data_vencimento: nextYear,
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", extIds);
+
+    await supabase
+      .from("extinguishers")
+      .update({
+        status: "no_cliente",
+        last_recharge_at: today,
+        expires_at: nextYear,
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", extIds);
+
+    // 3. Atualiza bancada (bench_records) para saída/entregue
+    try {
+      await supabase
+        .from("bench_records")
+        .update({
+          stage: "saida",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("service_order_id", ordemId);
+    } catch {
+      // Ignora erro se registro de bancada não existir
+    }
+  }
+
+  // 4. Se esta ordem pertence a um lote, verifica se todas as outras ordens do lote foram concluídas
+  const loteId = ordem?.lote_id || (ordem?.observacoes?.match(/\[LOTE:([^\]]+)\]/)?.[1] ?? null);
+  if (loteId) {
+    const allOrdensDoLote = await listOrdensRecolhimento(undefined, loteId);
+    const pendentes = allOrdensDoLote.filter((o) => o.status !== "concluido");
+    if (pendentes.length === 0) {
+      await updateLoteStatus(loteId, "concluido");
+    }
+  }
+
+  return { success: true };
 }
 
 // ============================================================================

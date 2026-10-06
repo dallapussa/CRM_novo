@@ -173,3 +173,36 @@ create policy "client_documents_authenticated_delete" on storage.objects
 -- ----------------------------------------------------------------------------
 alter table public.bench_records drop constraint if exists bench_records_extinguisher_id_fkey;
 alter table public.bench_records drop constraint if exists bench_records_service_order_id_fkey;
+
+-- ----------------------------------------------------------------------------
+-- 9. TABELA DE LOTES DE RECOLHIMENTO (MACRO LOTES / ROTAS DE DEVOLUÇÃO)
+-- ----------------------------------------------------------------------------
+create table if not exists public.lotes_recolhimento (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid references public.companies(id) on delete cascade,
+  codigo text not null, -- ex: "LOTE-202610-01"
+  nome text not null, -- ex: "Cruz Alta - Rota Centro (Devolução 14 dias)"
+  cidade text, -- ex: "Cruz Alta"
+  regiao text, -- ex: "Centro / Bairro Bonini"
+  data_recolhimento date not null default current_date,
+  prazo_dias integer not null default 7, -- 7 ou 14 dias
+  previsao_devolucao date not null,
+  status text not null default 'em_oficina' check (status in ('recolhendo', 'em_oficina', 'pronto_entrega', 'concluido')),
+  observacoes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  created_by uuid references auth.users(id) on delete set null
+);
+
+create index if not exists idx_lotes_recolhimento_status on public.lotes_recolhimento(status);
+create index if not exists idx_lotes_recolhimento_previsao on public.lotes_recolhimento(previsao_devolucao);
+
+alter table public.ordens_recolhimento add column if not exists lote_id uuid references public.lotes_recolhimento(id) on delete set null;
+create index if not exists idx_ordens_recolhimento_lote_id on public.ordens_recolhimento(lote_id);
+
+alter table public.lotes_recolhimento enable row level security;
+drop policy if exists lotes_recolhimento_authenticated on public.lotes_recolhimento;
+create policy lotes_recolhimento_authenticated on public.lotes_recolhimento
+  for all to authenticated
+  using (true)
+  with check (true);

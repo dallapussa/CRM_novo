@@ -27,13 +27,22 @@ import {
   Loader2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type {
   Customer,
   ExtintorInventario,
   ModalidadeRecarga,
   OrdemRecolhimentoMotivo,
+  LoteRecolhimento,
 } from "@/types";
-import { createOrdemRecolhimento } from "@/services/prevention.service";
+import { createOrdemRecolhimento, listLotesRecolhimento } from "@/services/prevention.service";
+import { LoteCreateDialog } from "@/components/lotes/lote-create-dialog";
 import { formatCurrency } from "@/lib/utils";
 
 interface OrderPickupModalProps {
@@ -74,6 +83,30 @@ export function OrderPickupModal({
   const [previsaoDevolucao, setPrevisaoDevolucao] = useState<string>(nextWeek);
   const [observacoes, setObservacoes] = useState<string>("");
 
+  // Macro Lotes
+  const [lotes, setLotes] = useState<LoteRecolhimento[]>([]);
+  const [selectedLoteId, setSelectedLoteId] = useState<string>("none");
+  const [createLoteModalOpen, setCreateLoteModalOpen] = useState(false);
+
+  React.useEffect(() => {
+    if (open) {
+      listLotesRecolhimento().then((data) => {
+        const abertos = data.filter((l) => l.status !== "concluido");
+        setLotes(abertos);
+      });
+    }
+  }, [open]);
+
+  function handleSelectLote(loteId: string) {
+    setSelectedLoteId(loteId);
+    if (loteId !== "none") {
+      const found = lotes.find((l) => l.id === loteId);
+      if (found?.previsao_devolucao) {
+        setPrevisaoDevolucao(found.previsao_devolucao);
+      }
+    }
+  }
+
   function getModalidade(extId: string): ModalidadeRecarga {
     return modalidades[extId] || "Normal";
   }
@@ -107,6 +140,7 @@ export function OrderPickupModal({
     try {
       const result = await createOrdemRecolhimento({
         clientId: customer.id,
+        loteId: selectedLoteId === "none" ? undefined : selectedLoteId,
         motivo,
         deixouReserva,
         detalhesReserva,
@@ -128,6 +162,7 @@ export function OrderPickupModal({
       });
 
       queryClient.invalidateQueries({ queryKey: ["bench_records"] });
+      queryClient.invalidateQueries({ queryKey: ["lotes_recolhimento"] });
       onOpenChange(false);
       onSuccess?.();
     } catch (err: any) {
@@ -330,11 +365,47 @@ export function OrderPickupModal({
             )}
           </div>
 
-          {/* SEÇÃO 4: Dados Operacionais */}
+          {/* SEÇÃO 4: Lote Geral / Rota de Devolução */}
+          <div className="space-y-2 p-3 bg-neutral-50 dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-bold text-neutral-800 dark:text-neutral-200 flex items-center gap-1.5">
+                <Truck className="h-4 w-4 text-orange-600" />
+                Vincular a um Lote Geral / Rota de Cidade
+              </Label>
+              <button
+                type="button"
+                onClick={() => setCreateLoteModalOpen(true)}
+                className="text-[11px] text-orange-600 dark:text-orange-400 font-semibold hover:underline flex items-center gap-1"
+              >
+                + Criar Novo Lote Geral
+              </button>
+            </div>
+
+            <Select value={selectedLoteId} onValueChange={handleSelectLote}>
+              <SelectTrigger className="h-9 text-xs bg-white dark:bg-neutral-800">
+                <SelectValue placeholder="Selecione um lote ou avulso" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Nenhum / Recolhimento Avulso</SelectItem>
+                {lotes.map((l) => (
+                  <SelectItem key={l.id} value={l.id}>
+                    [{l.codigo}] {l.nome} — Retorno:{" "}
+                    {new Date(l.previsao_devolucao + "T12:00:00").toLocaleDateString("pt-BR")} (
+                    {l.prazo_dias}d)
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              Agrupa os extintores deste cliente no lote da região para cálculo de chegada, saída e romaneio de devolução.
+            </p>
+          </div>
+
+          {/* SEÇÃO 5: Dados Operacionais */}
           <div className="space-y-3">
             <Label className="text-sm font-bold text-neutral-800 dark:text-neutral-200 flex items-center gap-2">
               <FileText className="h-4 w-4 text-orange-600" />
-              4. Dados Operacionais
+              5. Dados Operacionais
             </Label>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1">
@@ -424,6 +495,16 @@ export function OrderPickupModal({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <LoteCreateDialog
+        open={createLoteModalOpen}
+        onOpenChange={setCreateLoteModalOpen}
+        initialCity={customer.address?.city || ""}
+        onSuccess={(newLote) => {
+          setLotes((prev) => [newLote, ...prev]);
+          handleSelectLote(newLote.id);
+        }}
+      />
     </Dialog>
   );
 }
