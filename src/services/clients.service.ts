@@ -232,7 +232,7 @@ export async function getClientDashboardData(id: string) {
   const [customerResult, orderResult, extinguisherResult, invoiceResult] = await Promise.all([
     supabase.from("clients").select("*").eq("company_id", companyId).eq("id", id).is("deleted_at", null).single(),
     supabase.from("service_orders").select("*").eq("company_id", companyId).eq("client_id", id).is("deleted_at", null).order("created_at", { ascending: false }),
-    supabase.from("extinguishers").select("id", { count: "exact", head: true }).eq("client_id", id).is("deleted_at", null),
+    supabase.from("extintores").select("id", { count: "exact", head: true }).eq("client_id", id),
     supabase.from("receipts").select("id,status,amount").eq("company_id", companyId).eq("client_id", id).eq("invoice_type", "receber").is("deleted_at", null),
   ]);
   if (customerResult.error) throw customerResult.error;

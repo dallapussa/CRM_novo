@@ -728,7 +728,14 @@ export interface ItemRecolhimento {
   extintor?: ExtintorInventario;
 }
 
-export type LoteRecolhimentoStatus = "recolhendo" | "em_oficina" | "pronto_entrega" | "concluido";
+export type LoteRecolhimentoStatus =
+  | "recolhendo"
+  | "aguardando_descarga"
+  | "em_oficina"
+  | "saida"
+  | "pronto_entrega"
+  | "em_devolucao"
+  | "concluido";
 
 export interface LoteRecolhimento {
   id: string;
@@ -748,4 +755,40 @@ export interface LoteRecolhimento {
   ordens?: OrdemRecolhimento[];
   total_extintores?: number;
   total_clientes?: number;
+  valor_total?: number;
+  valor_recebido?: number;
+  valor_pendente?: number;
+  modelos_agrupados?: { modelo: string; count: number }[];
+}
+
+export type PaymentMethod =
+  | "Dinheiro"
+  | "PIX"
+  | "Cartão de Débito"
+  | "Cartão de Crédito"
+  | "Boleto"
+  | "A Prazo"
+  | "Não Recebido";
+
+export interface DeliveryReceiptData {
+  numero_recibo: string | number;
+  data_emissao: string;
+  cliente_nome: string;
+  cliente_documento?: string;
+  cliente_telefone?: string;
+  cliente_endereco?: string;
+  lote_codigo: string;
+  ordem_numero: number;
+  itens: {
+    identificacao: string;
+    tipo_capacidade: string;
+    localizacao?: string;
+    modalidade: string;
+    valor: number;
+    nova_validade: string;
+  }[];
+  valor_total: number;
+  forma_pagamento: string;
+  status_pagamento: "QUITADO" | "PENDENTE";
+  observacoes?: string;
 }

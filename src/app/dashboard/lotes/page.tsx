@@ -134,8 +134,11 @@ export default function LotesPage() {
 
   const statusLabels: Record<LoteRecolhimentoStatus, { label: string; color: string }> = {
     recolhendo: { label: "Em Recolhimento", color: "bg-blue-100 text-blue-800 border-blue-200" },
+    aguardando_descarga: { label: "Chegada / Descarga", color: "bg-sky-100 text-sky-800 border-sky-200" },
     em_oficina: { label: "Na Oficina / Bancada", color: "bg-amber-100 text-amber-800 border-amber-200" },
-    pronto_entrega: { label: "Pronto p/ Entrega", color: "bg-purple-100 text-purple-800 border-purple-200" },
+    saida: { label: "Saída (Revisado)", color: "bg-purple-100 text-purple-800 border-purple-200" },
+    pronto_entrega: { label: "Pronto p/ Entrega", color: "bg-indigo-100 text-indigo-800 border-indigo-200" },
+    em_devolucao: { label: "Em Rota de Devolução", color: "bg-orange-100 text-orange-800 border-orange-200" },
     concluido: { label: "Concluído", color: "bg-emerald-100 text-emerald-800 border-emerald-200" },
   };
 

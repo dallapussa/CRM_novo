@@ -12,6 +12,8 @@ import type {
   ItemRecolhimento,
   LoteRecolhimento,
   LoteRecolhimentoStatus,
+  PaymentMethod,
+  DeliveryReceiptData,
 } from "@/types";
 
 // ============================================================================
@@ -696,11 +698,47 @@ export async function listLotesRecolhimento(): Promise<LoteRecolhimento[]> {
     const totalExtintores = ordensDoLote.reduce((acc, o) => acc + (o.itens?.length || 0), 0);
     const totalClientes = new Set(ordensDoLote.map((o) => o.client_id)).size;
 
+    // Totais financeiros e modelos agrupados
+    let valorTotal = 0;
+    let valorRecebido = 0;
+    const modeloMap = new Map<string, number>();
+
+    ordensDoLote.forEach((ordem) => {
+      const ordemValor = (ordem.itens || []).reduce(
+        (sum, it) => sum + Number(it.valor_registrado || it.extintor?.valor_servico || 45.0),
+        0
+      );
+      valorTotal += ordemValor;
+      if (ordem.status === "concluido") {
+        valorRecebido += ordemValor;
+      }
+
+      (ordem.itens || []).forEach((it) => {
+        const mod = it.extintor?.tipo_capacidade || "Pó ABC - 4kg";
+        modeloMap.set(mod, (modeloMap.get(mod) || 0) + 1);
+      });
+    });
+
+    const valorPendente = Math.max(0, valorTotal - valorRecebido);
+    const modelosAgrupados = Array.from(modeloMap.entries()).map(([modelo, count]) => ({
+      modelo,
+      count,
+    }));
+
+    // Verifica etapa informada em observações se houver tag [ETAPA:xxx]
+    const etapaMatch = lote.observacoes?.match(/\[ETAPA:([^\]]+)\]/);
+    const effectiveStatus = (etapaMatch ? etapaMatch[1] : lote.status) as LoteRecolhimentoStatus;
+
     return {
       ...lote,
+      status: effectiveStatus,
       ordens: ordensDoLote,
       total_extintores: totalExtintores,
       total_clientes: totalClientes,
+      valor_total: valorTotal,
+      valor_recebido: valorRecebido,
+      valor_pendente: valorPendente,
+      modelos_agrupados: modelosAgrupados,
     };
   });
 }
@@ -802,15 +840,62 @@ export async function updateLoteStatus(
   status: LoteRecolhimentoStatus
 ): Promise<void> {
   const supabase = createClient();
-  const { error } = await supabase
+
+  // Mapeamento compatível caso o PostgreSQL tenha restrição restrita de status
+  let dbStatus = status;
+  if (status === "aguardando_descarga") dbStatus = "recolhendo";
+  else if (status === "saida") dbStatus = "em_oficina";
+  else if (status === "em_devolucao") dbStatus = "pronto_entrega";
+
+  // Tenta gravar o status diretamente
+  let { error } = await supabase
     .from("lotes_recolhimento")
-    .update({ status, updated_at: new Date().toISOString() })
+    .update({ status: status as any, updated_at: new Date().toISOString() })
     .eq("id", loteId);
 
+  // Se der erro de constraint, grava dbStatus e a tag [ETAPA:status] nas observações
   if (error) {
-    const locals = getLocalLotes();
-    const updated = locals.map((l) => (l.id === loteId ? { ...l, status, updated_at: new Date().toISOString() } : l));
-    saveLocalLotes(updated);
+    const { data: current } = await supabase
+      .from("lotes_recolhimento")
+      .select("observacoes")
+      .eq("id", loteId)
+      .maybeSingle();
+
+    const cleanObs = (current?.observacoes || "").replace(/\[ETAPA:[^\]]+\]/g, "").trim();
+    const newObs = `${cleanObs} [ETAPA:${status}]`.trim();
+
+    const { error: err2 } = await supabase
+      .from("lotes_recolhimento")
+      .update({ status: dbStatus as any, observacoes: newObs, updated_at: new Date().toISOString() })
+      .eq("id", loteId);
+
+    if (err2) {
+      const locals = getLocalLotes();
+      const updated = locals.map((l) => (l.id === loteId ? { ...l, status, updated_at: new Date().toISOString() } : l));
+      saveLocalLotes(updated);
+    }
+  }
+}
+
+export async function listLotesForBench(): Promise<LoteRecolhimento[]> {
+  const allLotes = await listLotesRecolhimento();
+  // Retorna somente lotes que estão na oficina (recolhendo/descarga, oficina ou saída)
+  // Lotes liberados para rota de entrega (pronto_entrega / em_devolucao) ou concluídos são EXCLUÍDOS do Kanban
+  return allLotes.filter((l) => {
+    const s = l.status;
+    return s === "recolhendo" || s === "aguardando_descarga" || s === "em_oficina" || s === "saida";
+  });
+}
+
+export async function advanceLoteBenchStage(
+  loteId: string,
+  targetStage: "aguardando_descarga" | "em_oficina" | "saida" | "liberar_rota"
+): Promise<void> {
+  if (targetStage === "liberar_rota") {
+    // Ao avançar da saída, o lote é excluído do Kanban da oficina e passa a figurar em "Lotes & Rotas" na entrega
+    await updateLoteStatus(loteId, "em_devolucao");
+  } else {
+    await updateLoteStatus(loteId, targetStage as LoteRecolhimentoStatus);
   }
 }
 
@@ -857,6 +942,164 @@ export async function removeOrdemFromLote(ordemId: string): Promise<void> {
   }
 }
 
+export interface ConfirmDeliveryAndPaymentInput {
+  orderId: string;
+  loteId?: string;
+  clientId: string;
+  paymentMethod: PaymentMethod;
+  amount: number;
+  amountPaid: number;
+  isPaid: boolean;
+  notes?: string;
+  dueDate?: string;
+}
+
+export async function confirmClientDeliveryAndPayment(
+  input: ConfirmDeliveryAndPaymentInput
+): Promise<DeliveryReceiptData> {
+  const supabase = createClient();
+  const today = new Date().toISOString().split("T")[0];
+  const nextYear = new Date(Date.now() + 365 * 86400000).toISOString().split("T")[0];
+
+  // 1. Busca ordem e dados do cliente
+  const { data: ordem } = await supabase
+    .from("ordens_recolhimento")
+    .select("*, client:client_id(*)")
+    .eq("id", input.orderId)
+    .single();
+
+  const client = (ordem as any)?.client;
+  const clientName = client?.razao_social || client?.nome_fantasia || "Cliente";
+
+  // 2. Busca itens da ordem e extintores
+  const { data: itens } = await supabase
+    .from("itens_recolhimento")
+    .select("*, extintor:extintor_id(*)")
+    .eq("ordem_id", input.orderId);
+
+  const extIds = (itens || []).map((i) => i.extintor_id).filter(Boolean);
+
+  // 3. Atualiza os extintores do cliente em public.extintores: volta para 'no_cliente' e renova validade em +1 ano
+  if (extIds.length > 0) {
+    await supabase
+      .from("extintores")
+      .update({
+        status: "no_cliente",
+        data_ultima_recarga: today,
+        data_vencimento: nextYear,
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", extIds);
+  }
+
+  // 4. Conclui a ordem de recolhimento
+  await supabase
+    .from("ordens_recolhimento")
+    .update({
+      status: "concluido",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.orderId);
+
+  // 5. Identifica company_id para lançamento no Financeiro
+  let companyId = client?.company_id;
+  if (!companyId) {
+    const { data: firstComp } = await supabase.from("companies").select("id").limit(1).maybeSingle();
+    companyId = firstComp?.id;
+  }
+
+  // 6. Lança transação em public.receipts (FINANCEIRO & RELATÓRIOS)
+  let receiptNumero: number = ordem?.numero_ordem || Math.floor(1000 + Math.random() * 9000);
+  try {
+    const { data: authUser } = await supabase.auth.getUser();
+    if (companyId) {
+      const receiptPayload = {
+        company_id: companyId,
+        client_id: input.clientId,
+        invoice_type: "receber",
+        status: input.isPaid ? "Recebido" : "Pendente",
+        amount: input.amount,
+        amount_paid: input.isPaid ? input.amountPaid : 0,
+        due_at: input.dueDate || today,
+        issued_at: today,
+        received_at: input.isPaid ? new Date().toISOString() : null,
+        payment_method: input.paymentMethod,
+        description: `Recarga de ${(itens || []).length} extintor(es) - OS #${ordem?.numero_ordem || ""} - ${clientName}`,
+        notes: input.notes || `Cobrança de devolução via ${input.paymentMethod}`,
+        created_by: authUser.user?.id || null,
+      };
+
+      const { data: recData, error: recErr } = await supabase
+        .from("receipts")
+        .insert(receiptPayload)
+        .select("id, numero")
+        .single();
+
+      if (!recErr && recData?.numero) {
+        receiptNumero = Number(recData.numero);
+      }
+    }
+  } catch (recEx) {
+    console.warn("Lançamento financeiro em receipts:", recEx);
+  }
+
+  // 7. Se pertencer a um lote, verifica se todas as outras ordens do lote foram concluídas
+  const loteId = input.loteId || ordem?.lote_id;
+  let loteCodigo = "LOTE-GERAL";
+  if (loteId) {
+    const { data: loteData } = await supabase
+      .from("lotes_recolhimento")
+      .select("codigo")
+      .eq("id", loteId)
+      .maybeSingle();
+
+    if (loteData?.codigo) loteCodigo = loteData.codigo;
+
+    const allOrdensDoLote = await listOrdensRecolhimento(undefined, loteId);
+    const pendentes = allOrdensDoLote.filter((o) => o.id !== input.orderId && o.status !== "concluido");
+    if (pendentes.length === 0) {
+      await updateLoteStatus(loteId, "concluido");
+    }
+  }
+
+  // 8. Formata os dados oficiais do recibo
+  const receiptItems = (itens || []).map((it) => {
+    const ext = it.extintor;
+    return {
+      identificacao: ext?.identificacao || "Extintor",
+      tipo_capacidade: ext?.tipo_capacidade || "Pó ABC - 4kg",
+      localizacao: ext?.localizacao || "Padrão",
+      modalidade: it.modalidade_recarga || "Normal",
+      valor: Number(it.valor_registrado || ext?.valor_servico || 45.0),
+      nova_validade: nextYear,
+    };
+  });
+
+  return {
+    numero_recibo: receiptNumero,
+    data_emissao: new Date().toLocaleDateString("pt-BR"),
+    cliente_nome: clientName,
+    cliente_documento: client?.cnpj || client?.cpf || client?.documento || undefined,
+    cliente_telefone: client?.telefone || client?.telefone2 || undefined,
+    cliente_endereco: [
+      client?.address_street,
+      client?.address_number,
+      client?.address_neighborhood,
+      client?.address_city,
+      client?.address_state,
+    ]
+      .filter(Boolean)
+      .join(", "),
+    lote_codigo: loteCodigo,
+    ordem_numero: ordem?.numero_ordem || 1,
+    itens: receiptItems,
+    valor_total: input.amount,
+    forma_pagamento: input.paymentMethod,
+    status_pagamento: input.isPaid ? "QUITADO" : "PENDENTE",
+    observacoes: input.notes,
+  };
+}
+
 export async function confirmClientDevolucao(ordemId: string): Promise<{ success: boolean }> {
   const supabase = createClient();
   const today = new Date().toISOString().split("T")[0];
@@ -892,32 +1135,9 @@ export async function confirmClientDevolucao(ordemId: string): Promise<{ success
         updated_at: new Date().toISOString(),
       })
       .in("id", extIds);
-
-    await supabase
-      .from("extinguishers")
-      .update({
-        status: "no_cliente",
-        last_recharge_at: today,
-        expires_at: nextYear,
-        updated_at: new Date().toISOString(),
-      })
-      .in("id", extIds);
-
-    // 3. Atualiza bancada (bench_records) para saída/entregue
-    try {
-      await supabase
-        .from("bench_records")
-        .update({
-          stage: "saida",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("service_order_id", ordemId);
-    } catch {
-      // Ignora erro se registro de bancada não existir
-    }
   }
 
-  // 4. Se esta ordem pertence a um lote, verifica se todas as outras ordens do lote foram concluídas
+  // 3. Se esta ordem pertence a um lote, verifica se todas as outras ordens do lote foram concluídas
   const loteId = ordem?.lote_id || (ordem?.observacoes?.match(/\[LOTE:([^\]]+)\]/)?.[1] ?? null);
   if (loteId) {
     const allOrdensDoLote = await listOrdensRecolhimento(undefined, loteId);

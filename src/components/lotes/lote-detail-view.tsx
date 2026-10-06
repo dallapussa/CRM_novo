@@ -35,6 +35,8 @@ import {
   Send,
   Loader2,
   Share2,
+  DollarSign,
+  Receipt,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { LoteRecolhimento, OrdemRecolhimento, LoteRecolhimentoStatus } from "@/types";
@@ -43,6 +45,7 @@ import {
   confirmClientDevolucao,
   updateLoteStatus,
 } from "@/services/prevention.service";
+import { DeliveryReceiptDialog } from "./delivery-receipt-dialog";
 
 interface LoteDetailViewProps {
   lote: LoteRecolhimento;
@@ -62,6 +65,7 @@ export function LoteDetailView({
   const [activeTab, setActiveTab] = useState<"chegada" | "saida" | "romaneio">("chegada");
   const [confirmingOrdemId, setConfirmingOrdemId] = useState<string | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [selectedOrderForDelivery, setSelectedOrderForDelivery] = useState<OrdemRecolhimento | null>(null);
 
   const ordens = lote.ordens || [];
 
@@ -90,8 +94,11 @@ export function LoteDetailView({
   // Status badge config
   const statusLabels: Record<LoteRecolhimentoStatus, { label: string; color: string }> = {
     recolhendo: { label: "Em Recolhimento", color: "bg-blue-100 text-blue-800 border-blue-200" },
+    aguardando_descarga: { label: "Chegada / Descarga", color: "bg-sky-100 text-sky-800 border-sky-200" },
     em_oficina: { label: "Na Oficina / Bancada", color: "bg-amber-100 text-amber-800 border-amber-200" },
-    pronto_entrega: { label: "Pronto para Entrega", color: "bg-purple-100 text-purple-800 border-purple-200" },
+    saida: { label: "Saída (Revisado)", color: "bg-purple-100 text-purple-800 border-purple-200" },
+    pronto_entrega: { label: "Pronto para Entrega", color: "bg-indigo-100 text-indigo-800 border-indigo-200" },
+    em_devolucao: { label: "Em Rota de Devolução", color: "bg-orange-100 text-orange-800 border-orange-200" },
     concluido: { label: "Concluído / Entregue", color: "bg-emerald-100 text-emerald-800 border-emerald-200" },
   };
 
@@ -270,20 +277,32 @@ export function LoteDetailView({
               </div>
             </div>
 
-            {/* Resumo Numérico Rápido */}
-            <div className="grid grid-cols-3 gap-2 bg-muted/40 p-3 rounded-lg border text-center">
+            {/* Resumo Numérico Rápido & Valores */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 bg-muted/40 p-3 rounded-lg border text-center">
               <div>
-                <p className="text-[11px] text-muted-foreground font-medium uppercase">Cilindros</p>
-                <p className="text-xl font-extrabold text-foreground">{totalExtintoresLote}</p>
+                <p className="text-[10px] text-muted-foreground font-medium uppercase">Cilindros</p>
+                <p className="text-lg font-extrabold text-foreground">{totalExtintoresLote}</p>
               </div>
-              <div className="border-x px-2">
-                <p className="text-[11px] text-muted-foreground font-medium uppercase">Clientes</p>
-                <p className="text-xl font-extrabold text-foreground">{ordens.length}</p>
+              <div className="border-x px-1">
+                <p className="text-[10px] text-muted-foreground font-medium uppercase">Clientes</p>
+                <p className="text-lg font-extrabold text-foreground">{ordens.length}</p>
               </div>
               <div>
-                <p className="text-[11px] text-muted-foreground font-medium uppercase">Serviços</p>
-                <p className="text-xl font-extrabold text-emerald-600">
+                <p className="text-[10px] text-muted-foreground font-medium uppercase">Total do Lote</p>
+                <p className="text-lg font-extrabold text-foreground">
                   {formatCurrency(valorTotalServicos)}
+                </p>
+              </div>
+              <div className="border-x px-1">
+                <p className="text-[10px] text-muted-foreground font-medium uppercase text-emerald-600">Recebido</p>
+                <p className="text-lg font-extrabold text-emerald-600">
+                  {formatCurrency(lote.valor_recebido || 0)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground font-medium uppercase text-amber-600">Pendente</p>
+                <p className="text-lg font-extrabold text-amber-600">
+                  {formatCurrency(Math.max(0, valorTotalServicos - (lote.valor_recebido || 0)))}
                 </p>
               </div>
             </div>
@@ -643,26 +662,33 @@ export function LoteDetailView({
                         </div>
                       </div>
 
-                      {/* Botão de Ação: Confirmar Devolução */}
-                      <div className="print:hidden">
+                      {/* Botão de Ação: Entregar, Cobrar & Recibo */}
+                      <div className="print:hidden flex items-center gap-2">
                         {isConcluido ? (
-                          <div className="flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-100 px-3 py-1.5 rounded-lg">
-                            <CheckCircle2 className="h-4 w-4" />
-                            Entregue
+                          <div className="flex items-center gap-2">
+                            <span className="flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-lg">
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              Entregue & Cobrado
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setSelectedOrderForDelivery(ordem)}
+                              className="h-8 text-xs border-emerald-300 text-emerald-800 hover:bg-emerald-50 gap-1.5"
+                            >
+                              <Receipt className="h-3.5 w-3.5" />
+                              Ver Recibo
+                            </Button>
                           </div>
                         ) : (
                           <Button
                             size="sm"
                             disabled={confirmingOrdemId === ordem.id}
-                            onClick={() => handleConfirmClient(ordem.id, clientName)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 whitespace-nowrap shadow-sm"
+                            onClick={() => setSelectedOrderForDelivery(ordem)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 whitespace-nowrap shadow-sm font-bold text-xs"
                           >
-                            {confirmingOrdemId === ordem.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <PackageCheck className="h-4 w-4" />
-                            )}
-                            Confirmar Devolução ao Cliente
+                            <DollarSign className="h-3.5 w-3.5" />
+                            Entregar & Cobrar Cliente
                           </Button>
                         )}
                       </div>
@@ -751,6 +777,29 @@ export function LoteDetailView({
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Diálogo de Cobrança, Entrega, Renovação e Recibo Timbrado */}
+      {selectedOrderForDelivery && (
+        <DeliveryReceiptDialog
+          open={!!selectedOrderForDelivery}
+          onOpenChange={(o) => !o && setSelectedOrderForDelivery(null)}
+          ordem={selectedOrderForDelivery}
+          loteId={lote.id}
+          loteCodigo={lote.codigo}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ["lotes_recolhimento"] });
+            queryClient.invalidateQueries({ queryKey: ["client_extintores"] });
+            queryClient.invalidateQueries({ queryKey: ["receipts"] });
+            queryClient.invalidateQueries({ queryKey: ["invoices"] });
+            queryClient.invalidateQueries({ queryKey: ["extinguishers"] });
+            queryClient.invalidateQueries({ queryKey: ["extintores"] });
+            queryClient.invalidateQueries({ queryKey: ["service_orders"] });
+            queryClient.invalidateQueries({ queryKey: ["bench"] });
+            queryClient.invalidateQueries({ queryKey: ["bench_lotes"] });
+            onRefresh?.();
+          }}
+        />
+      )}
     </div>
   );
 }

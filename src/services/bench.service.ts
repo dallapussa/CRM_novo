@@ -161,7 +161,6 @@ export async function updateBenchStage(id: string, stage: string): Promise<void>
       nextStatus = "testado";
     }
     await supabase.from("extintores").update({ status: nextStatus }).eq("id", record.extinguisher_id);
-    await supabase.from("extinguishers").update({ status: nextStatus }).eq("id", record.extinguisher_id);
   }
 }
 

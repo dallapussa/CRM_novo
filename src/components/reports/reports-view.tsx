@@ -13,6 +13,10 @@ import {
   FireExtinguisher,
   Waves,
   MessageCircle,
+  DollarSign,
+  CreditCard,
+  Wallet,
+  Receipt,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +33,7 @@ import { useExtinguishers } from "@/hooks/useExtinguishers";
 import { useHoses } from "@/hooks/useHoses";
 import { useServiceOrders } from "@/hooks/useServiceOrders";
 import { useOrders } from "@/hooks/useOrders";
+import { useInvoices } from "@/hooks/useInvoices";
 import { formatDate, formatCurrency } from "@/lib/utils";
 
 export function ReportsView() {
@@ -36,6 +41,7 @@ export function ReportsView() {
   const { data: hoses = [] } = useHoses();
   const { data: orders = [] } = useOrders();
   const { data: serviceOrders = [] } = useServiceOrders();
+  const { data: invoices = [] } = useInvoices();
 
   const [activeTab, setActiveTab] = useState<"vencimentos" | "operacional" | "financeiro">("vencimentos");
 
@@ -127,6 +133,63 @@ export function ReportsView() {
 
     return { expired, next30, next60, ok, list };
   }, [extinguishers, hoses]);
+
+  // Análise Financeira Integrada (Recibos + Pedidos)
+  const financeAnalysis = useMemo(() => {
+    const invoicesPaid = invoices.filter(
+      (i) => i.status === "paga" || (i.status as string) === "Recebido" || Number(i.amount_paid || 0) > 0
+    );
+    const totalInvoicesPaid = invoicesPaid.reduce(
+      (acc, cur) => acc + Number(cur.amount_paid || cur.amount || 0),
+      0
+    );
+
+    const invoicesPending = invoices.filter(
+      (i) =>
+        i.status !== "paga" &&
+        (i.status as string) !== "Recebido" &&
+        i.status !== "cancelada" &&
+        (i.status as string) !== "Cancelado"
+    );
+    const totalInvoicesPending = invoicesPending.reduce(
+      (acc, cur) => acc + (Number(cur.amount || 0) - Number(cur.amount_paid || 0)),
+      0
+    );
+
+    const ordersPaid = orders.filter((o) => o.status === "faturado" || o.status === "entregue");
+    const totalOrdersPaid = ordersPaid.reduce((acc, cur) => acc + Number(cur.total || 0), 0);
+
+    const ordersPending = orders.filter((o) => o.status === "pendente");
+    const totalOrdersPending = ordersPending.reduce((acc, cur) => acc + Number(cur.total || 0), 0);
+
+    const totalRealizado = totalInvoicesPaid + totalOrdersPaid;
+    const totalPendente = totalInvoicesPending + totalOrdersPending;
+
+    // Totais por forma de pagamento dos recibos recebidos
+    const paymentMethods: Record<string, { count: number; total: number }> = {};
+    invoicesPaid.forEach((i) => {
+      const raw = i.payment_method || "OUTROS";
+      const method = raw.toUpperCase().replace(/_/g, " ");
+      if (!paymentMethods[method]) paymentMethods[method] = { count: 0, total: 0 };
+      paymentMethods[method].count += 1;
+      paymentMethods[method].total += Number(cur_amount(i));
+    });
+
+    function cur_amount(item: any) {
+      return item.amount_paid && Number(item.amount_paid) > 0
+        ? Number(item.amount_paid)
+        : Number(item.amount || 0);
+    }
+
+    return {
+      totalRealizado,
+      totalPendente,
+      totalInvoicesPaid,
+      totalInvoicesPending,
+      paymentMethods,
+      recentInvoices: invoices.slice(0, 10),
+    };
+  }, [invoices, orders]);
 
   // Exportar para CSV
   function handleExportCSV() {
@@ -343,36 +406,162 @@ export function ReportsView() {
 
       {/* Relatório Financeiro */}
       {activeTab === "financeiro" && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Faturamento de Pedidos e Recargas</CardTitle>
-            <CardDescription>Resumo dos valores comercializados</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="p-4 border rounded-lg">
-                <p className="text-xs text-muted-foreground uppercase font-medium">Total Faturado</p>
-                <p className="text-2xl font-bold text-emerald-700 font-mono mt-1">
-                  {formatCurrency(
-                    orders
-                      .filter((o) => o.status === "faturado" || o.status === "entregue")
-                      .reduce((acc, cur) => acc + Number(cur.total || 0), 0)
-                  )}
+        <div className="space-y-6">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <Card className="border-emerald-200 bg-emerald-50/30">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-xs font-semibold text-emerald-800 uppercase">
+                  Total Recebido / Faturado
+                </CardTitle>
+                <DollarSign className="h-4 w-4 text-emerald-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-emerald-700 font-mono">
+                  {formatCurrency(financeAnalysis.totalRealizado)}
+                </div>
+                <p className="text-xs text-emerald-600/80 mt-1">
+                  Recibos liquidados e pedidos entregues
                 </p>
-              </div>
-              <div className="p-4 border rounded-lg">
-                <p className="text-xs text-muted-foreground uppercase font-medium">Pendente de Faturamento</p>
-                <p className="text-2xl font-bold text-amber-700 font-mono mt-1">
-                  {formatCurrency(
-                    orders
-                      .filter((o) => o.status === "pendente")
-                      .reduce((acc, cur) => acc + Number(cur.total || 0), 0)
-                  )}
+              </CardContent>
+            </Card>
+
+            <Card className="border-amber-200 bg-amber-50/30">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-xs font-semibold text-amber-800 uppercase">
+                  Pendente de Cobrança / A Receber
+                </CardTitle>
+                <Clock className="h-4 w-4 text-amber-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-amber-700 font-mono">
+                  {formatCurrency(financeAnalysis.totalPendente)}
+                </div>
+                <p className="text-xs text-amber-600/80 mt-1">
+                  Recibos a prazo e faturamentos em aberto
                 </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+
+            <Card className="border-blue-200 bg-blue-50/30 sm:col-span-2 lg:col-span-1">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-xs font-semibold text-blue-800 uppercase">
+                  Volume Geral Previsto
+                </CardTitle>
+                <Wallet className="h-4 w-4 text-blue-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-blue-700 font-mono">
+                  {formatCurrency(financeAnalysis.totalRealizado + financeAnalysis.totalPendente)}
+                </div>
+                <p className="text-xs text-blue-600/80 mt-1">
+                  Total consolidado da operação
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Formas de Pagamento Recebidas */}
+          {Object.keys(financeAnalysis.paymentMethods).length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <CreditCard className="h-4 w-4 text-primary" />
+                  Entradas por Forma de Pagamento
+                </CardTitle>
+                <CardDescription>Distribuição dos valores recebidos por método</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
+                  {Object.entries(financeAnalysis.paymentMethods).map(([method, data]) => (
+                    <div key={method} className="p-3 border rounded-lg bg-card flex flex-col justify-between">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold uppercase text-muted-foreground">{method}</span>
+                        <Badge variant="secondary" className="text-[10px]">{data.count} pagto(s)</Badge>
+                      </div>
+                      <div className="text-lg font-bold font-mono text-foreground mt-2">
+                        {formatCurrency(data.total)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Últimos Recibos e Cobranças Registradas */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Receipt className="h-4 w-4 text-primary" />
+                Últimos Recibos e Cobranças Geradas
+              </CardTitle>
+              <CardDescription>
+                Histórico recente gerado nas entregas de lotes e no financeiro
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              {financeAnalysis.recentInvoices.length === 0 ? (
+                <div className="p-8 text-center text-muted-foreground text-sm">
+                  Nenhum recibo ou cobrança lançada no financeiro ainda.
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nº</TableHead>
+                      <TableHead>Cliente</TableHead>
+                      <TableHead>Descrição / Lote</TableHead>
+                      <TableHead>Forma Pagto</TableHead>
+                      <TableHead>Vencimento</TableHead>
+                      <TableHead>Valor</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {financeAnalysis.recentInvoices.map((inv) => (
+                      <TableRow key={inv.id}>
+                        <TableCell className="font-mono text-xs font-semibold">
+                          #{inv.number || inv.id.slice(0, 6)}
+                        </TableCell>
+                        <TableCell className="text-sm font-medium">
+                          {inv.customer?.name || "Cliente"}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground truncate max-w-[200px]">
+                          {inv.description || "Recarga de Extintores"}
+                        </TableCell>
+                        <TableCell className="text-xs font-semibold uppercase">
+                          <Badge variant="outline" className="text-[10px]">
+                            {inv.payment_method || "—"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {inv.due_date ? formatDate(inv.due_date) : "—"}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs font-bold text-foreground">
+                          {formatCurrency(inv.amount || 0)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={
+                              inv.status === "paga" || (inv.status as string) === "Recebido"
+                                ? "bg-green-50 text-green-700 border-green-200"
+                                : inv.status === "atrasada" || (inv.status as string) === "Atrasado"
+                                ? "bg-red-50 text-red-700 border-red-200"
+                                : "bg-amber-50 text-amber-700 border-amber-200"
+                            }
+                          >
+                            {inv.status === "paga" ? "Recebido" : inv.status}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       )}
     </div>
   );

@@ -17,11 +17,18 @@ import {
   Sparkles,
   Trash2,
   Edit2,
-  Package,
-  Layers,
   Check,
   Printer,
+  Truck,
+  MapPin,
+  PackageCheck,
+  Loader2,
+  Layers,
+  Package,
 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { listLotesForBench, advanceLoteBenchStage } from "@/services/prevention.service";
+import type { LoteRecolhimento } from "@/types";
 import { LabelPrinterDialog, type LabelTarget } from "@/components/labels/label-printer-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -185,9 +192,22 @@ const EQUIP_PRESETS = [
 
 export function BenchBoard() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const { data: records = [], isLoading } = useBenchRecords();
   const { data: clients = [] } = useClients();
   const { data: users = [] } = useUsers();
+
+  const [viewMode, setViewMode] = useState<"lotes" | "extintores">("lotes");
+  const [advancingLoteId, setAdvancingLoteId] = useState<string | null>(null);
+
+  const {
+    data: benchLotes = [],
+    isLoading: isLoadingLotes,
+    refetch: refetchLotes,
+  } = useQuery({
+    queryKey: ["bench_lotes"],
+    queryFn: listLotesForBench,
+  });
 
   const saveMutation = useSaveBenchRecord();
   const updateStageMutation = useUpdateBenchStage();
@@ -338,7 +358,57 @@ export function BenchBoard() {
     });
 
     return map;
-  }, [records, activeStagesList, enabledStages, search, priorityFilter]);
+  }, [activeStagesList, records, search, priorityFilter, enabledStages]);
+
+  // Lotes filtrados por etapa da oficina
+  const chegadaLotes = useMemo(() => {
+    return benchLotes.filter(
+      (l) => l.status === "recolhendo" || l.status === "aguardando_descarga"
+    );
+  }, [benchLotes]);
+
+  const oficinaLotes = useMemo(() => {
+    return benchLotes.filter((l) => l.status === "em_oficina");
+  }, [benchLotes]);
+
+  const saidaLotes = useMemo(() => {
+    return benchLotes.filter((l) => l.status === "saida");
+  }, [benchLotes]);
+
+  async function handleAdvanceLote(
+    loteId: string,
+    targetStage: "aguardando_descarga" | "em_oficina" | "saida" | "liberar_rota"
+  ) {
+    setAdvancingLoteId(loteId);
+    try {
+      await advanceLoteBenchStage(loteId, targetStage);
+      if (targetStage === "liberar_rota") {
+        toast({
+          variant: "success",
+          title: "Lote Liberado da Oficina!",
+          description:
+            "O lote saiu do Kanban da bancada e já está disponível em 'Lotes & Rotas' para entrega aos clientes.",
+        });
+      } else {
+        toast({
+          variant: "success",
+          title: "Etapa do Lote atualizada!",
+          description: "O lote avançou no fluxo da bancada.",
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ["bench_lotes"] });
+      queryClient.invalidateQueries({ queryKey: ["lotes_recolhimento"] });
+      refetchLotes();
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao avançar lote",
+        description: err?.message || "Tente novamente.",
+      });
+    } finally {
+      setAdvancingLoteId(null);
+    }
+  }
 
   // Abrir modal de criação
   function handleOpenCreate(stage: BenchStage = "entrada") {
@@ -539,216 +609,587 @@ export function BenchBoard() {
         </div>
       )}
 
-      {/* Barra de Filtros e Busca */}
-      <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
-        <div className="relative flex-1 w-full sm:max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por equipamento, cliente, selo ou patrimônio..."
-            className="pl-9 h-10"
-          />
+      {/* SELETOR DE VISÃO: LOTES DA OFICINA (PADRÃO) vs EXTINTORES INDIVIDUAIS */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-neutral-100 dark:bg-neutral-800/60 rounded-2xl border">
+        <div className="flex items-center gap-1.5 p-1 bg-white dark:bg-neutral-900 rounded-xl shadow-sm border">
+          <button
+            type="button"
+            onClick={() => setViewMode("lotes")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              viewMode === "lotes"
+                ? "bg-orange-600 text-white shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Layers className="h-4 w-4" />
+            Lotes da Oficina (Kanban Principal)
+            {benchLotes.length > 0 && (
+              <Badge className="bg-white text-orange-600 font-bold text-[10px] h-4 px-1.5 ml-1">
+                {benchLotes.length}
+              </Badge>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setViewMode("extintores")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              viewMode === "extintores"
+                ? "bg-blue-600 text-white shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Package className="h-4 w-4" />
+            Extintores Detalhados
+            <Badge variant="outline" className="text-[10px] h-4 px-1 ml-1">
+              {records.length}
+            </Badge>
+          </button>
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-            <SelectTrigger className="w-full sm:w-[160px] h-10">
-              <SelectValue placeholder="Prioridade" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas Prioridades</SelectItem>
-              <SelectItem value="urgente">Urgente</SelectItem>
-              <SelectItem value="alta">Alta</SelectItem>
-              <SelectItem value="media">Média</SelectItem>
-              <SelectItem value="baixa">Baixa</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Truck className="h-4 w-4 text-orange-600" />
+          <span>
+            {viewMode === "lotes"
+              ? "Ao avançar da Saída, o lote vai para 'Lotes & Rotas' para devolução."
+              : "Visão analítica de cilindros individuais na bancada."}
+          </span>
         </div>
       </div>
 
-      {/* Kanban Board */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4 items-start">
-        {activeStagesList.map((stage) => {
-          const items = recordsByStage.get(stage.id) || [];
-          return (
-            <div
-              key={stage.id}
-              className={`flex flex-col rounded-xl border bg-card shadow-sm border-t-4 ${stage.headerBorder} min-h-[500px]`}
-            >
-              {/* Header da Coluna */}
-              <div className={`p-3.5 border-b flex items-center justify-between ${stage.headerBg}`}>
-                <div className="flex items-center gap-2">
-                  <h3 className="font-semibold text-sm tracking-tight">{stage.title}</h3>
-                  <Badge variant="secondary" className="h-5 px-1.5 text-xs font-mono">
-                    {items.length}
-                  </Badge>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                  onClick={() => handleOpenCreate(stage.id)}
-                  title={`Adicionar item diretamente em ${stage.title}`}
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </Button>
+      {/* KANBAN POR LOTES (FLUXO PRINCIPAL) */}
+      {viewMode === "lotes" ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-start">
+          {/* COLUNA 1: Chegada / Descarga */}
+          <div className="flex flex-col rounded-2xl border bg-card shadow-sm border-t-4 border-t-blue-500 min-h-[500px]">
+            <div className="p-4 border-b flex items-center justify-between bg-blue-50/50 dark:bg-blue-950/20">
+              <div className="flex items-center gap-2">
+                <PackageCheck className="h-4 w-4 text-blue-600" />
+                <h3 className="font-bold text-sm tracking-tight">1. Chegada / Descarga</h3>
               </div>
+              <Badge className="bg-blue-600 text-white font-mono text-xs">
+                {chegadaLotes.length}
+              </Badge>
+            </div>
 
-              {/* Corpo da Coluna */}
-              <div className="p-3 space-y-3 flex-1 overflow-y-auto max-h-[700px]">
-                {items.length === 0 ? (
-                  <div className="py-12 text-center text-xs text-muted-foreground border-2 border-dashed rounded-lg p-4">
-                    Nenhum equipamento nesta etapa
-                  </div>
-                ) : (
-                  items.map((item) => {
-                    const currentIndex = activeStagesList.findIndex((s) => s.id === stage.id);
-                    const canGoPrev = currentIndex > 0;
-                    const canGoNext = currentIndex < activeStagesList.length - 1;
-
-                    return (
-                      <Card
-                        key={item.id}
-                        className="p-3.5 hover:shadow-md transition-shadow border-muted relative group space-y-2.5 bg-background"
-                      >
-                        {/* Topo do Card: Tipo do Equipamento e Prioridade */}
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="font-semibold text-sm leading-tight text-foreground">
-                              {item.equip_type}
-                            </p>
-                            {item.equip_capacity && (
-                              <span className="text-[11px] text-muted-foreground">
-                                Capacidade: {item.equip_capacity}
-                              </span>
-                            )}
-                          </div>
-                          <Badge
-                            variant="outline"
-                            className={`text-[10px] px-1.5 py-0 uppercase tracking-wide shrink-0 ${
-                              BENCH_PRIORITY_COLORS[item.priority]
-                            }`}
-                          >
-                            {BENCH_PRIORITY_LABELS[item.priority]}
-                          </Badge>
-                        </div>
-
-                        {/* Cliente e Patrimônio */}
-                        <div className="space-y-1 text-xs text-muted-foreground">
-                          {item.customer_name && (
-                            <div className="flex items-center gap-1.5 truncate">
-                              <Building2 className="h-3 w-3 shrink-0 text-primary" />
-                              <span className="font-medium text-foreground truncate">
-                                {item.customer_name}
-                              </span>
-                            </div>
-                          )}
-                          {item.equip_serial && (
-                            <div className="flex items-center gap-1.5 font-mono text-[11px]">
-                              <Package className="h-3 w-3 shrink-0" />
-                              <span>Selo/Patrimônio: {item.equip_serial}</span>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Observações / Defeito */}
-                        {item.notes && (
-                          <p className="text-xs bg-muted/50 p-2 rounded text-muted-foreground line-clamp-2">
-                            {item.notes}
+            <div className="p-3 space-y-3 flex-1 overflow-y-auto max-h-[720px]">
+              {isLoadingLotes ? (
+                <div className="p-8 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Carregando lotes...
+                </div>
+              ) : chegadaLotes.length === 0 ? (
+                <div className="p-8 text-center border-2 border-dashed rounded-xl text-muted-foreground text-xs">
+                  Nenhum lote aguardando descarregamento na oficina.
+                </div>
+              ) : (
+                chegadaLotes.map((lote) => (
+                  <Card
+                    key={lote.id}
+                    className="p-4 rounded-xl border shadow-sm hover:shadow-md transition-all space-y-3 bg-white dark:bg-neutral-900"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <Badge
+                          variant="outline"
+                          className="font-mono text-xs font-bold bg-neutral-100 dark:bg-neutral-800"
+                        >
+                          {lote.codigo}
+                        </Badge>
+                        <h4 className="font-bold text-sm text-foreground mt-1.5">{lote.nome}</h4>
+                        {lote.cidade && (
+                          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                            <MapPin className="h-3 w-3 text-red-500" /> {lote.cidade}{" "}
+                            {lote.regiao ? `• ${lote.regiao}` : ""}
                           </p>
                         )}
+                      </div>
+                      <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-[10px]">
+                        Aguardando Descarga
+                      </Badge>
+                    </div>
 
-                        {/* Data / Prazo */}
-                        {item.due_at && (
-                          <div className="flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-300">
-                            <Clock className="h-3 w-3 shrink-0" />
-                            <span>Entrega: {formatDate(item.due_at)}</span>
-                          </div>
-                        )}
+                    {/* Resumo de Cilindros & Clientes */}
+                    <div className="grid grid-cols-2 gap-2 bg-neutral-50 dark:bg-neutral-800/50 p-2.5 rounded-lg text-xs">
+                      <div>
+                        <span className="text-muted-foreground block text-[10px] uppercase font-semibold">
+                          Cilindros
+                        </span>
+                        <strong className="text-sm font-extrabold text-foreground">
+                          {lote.total_extintores || 0} un
+                        </strong>
+                      </div>
+                      <div className="border-l pl-2">
+                        <span className="text-muted-foreground block text-[10px] uppercase font-semibold">
+                          Clientes
+                        </span>
+                        <strong className="text-sm font-extrabold text-foreground">
+                          {lote.total_clientes || 0}
+                        </strong>
+                      </div>
+                    </div>
 
-                        {/* Ações Rápidas: Mover Etapas */}
-                        <div className="pt-2 border-t flex items-center justify-between gap-1 text-xs">
-                          <div className="flex items-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100"
-                              onClick={() => {
-                                setPrintTarget({
-                                  kind: "custom",
-                                  title: item.equip_type || "Equipamento",
-                                  serialNumber: item.equip_serial || `BC-${item.id.substring(0, 6).toUpperCase()}`,
-                                  customerName: item.customer_name || "Cliente",
-                                  type: item.equip_type || "Extintor / Mangueira",
-                                  capacityOrLength: item.equip_capacity || "—",
-                                });
-                              }}
-                              title="Imprimir Etiqueta"
+                    {/* Resumo de Modelos */}
+                    {lote.modelos_agrupados && lote.modelos_agrupados.length > 0 && (
+                      <div className="text-[11px] text-muted-foreground space-y-1 border-t pt-2">
+                        <span className="font-semibold text-[10px] uppercase text-neutral-500 block">
+                          Composição do Lote:
+                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {lote.modelos_agrupados.map((m, idx) => (
+                            <span
+                              key={idx}
+                              className="bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 rounded text-[10px] text-foreground font-medium"
                             >
-                              <Printer className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                              onClick={() => handleOpenEdit(item)}
-                              title="Editar detalhes"
-                            >
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-red-600 hover:text-red-700 hover:bg-red-50"
-                              onClick={() => handleDelete(item)}
-                              title="Remover da bancada"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-
-                          <div className="flex items-center gap-1">
-                            {canGoPrev && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 px-2 text-xs gap-1"
-                                onClick={() => handleMoveStage(item, "prev")}
-                                title={`Voltar para ${activeStagesList[currentIndex - 1]?.title}`}
-                              >
-                                <ArrowLeft className="h-3 w-3" />
-                                Voltar
-                              </Button>
-                            )}
-                            {canGoNext && (
-                              <Button
-                                variant="default"
-                                size="sm"
-                                className="h-7 px-2 text-xs gap-1"
-                                onClick={() => handleMoveStage(item, "next")}
-                                title={`Avançar para ${activeStagesList[currentIndex + 1]?.title}`}
-                              >
-                                Avançar
-                                <ArrowRight className="h-3 w-3" />
-                              </Button>
-                            )}
-                            {!canGoNext && (
-                              <span className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1">
-                                <CheckCircle2 className="h-3.5 w-3.5" /> Pronto
-                              </span>
-                            )}
-                          </div>
+                              {m.count}x {m.modelo}
+                            </span>
+                          ))}
                         </div>
-                      </Card>
-                    );
-                  })
-                )}
-              </div>
+                      </div>
+                    )}
+
+                    {/* Botão de Avanço */}
+                    <Button
+                      size="sm"
+                      onClick={() => handleAdvanceLote(lote.id, "em_oficina")}
+                      disabled={advancingLoteId === lote.id}
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs gap-1.5 shadow-sm"
+                    >
+                      {advancingLoteId === lote.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <PackageCheck className="h-3.5 w-3.5" />
+                      )}
+                      Descarregar Lote ➔ Na Oficina
+                    </Button>
+                  </Card>
+                ))
+              )}
             </div>
-          );
-        })}
-      </div>
+          </div>
+
+          {/* COLUNA 2: Na Oficina */}
+          <div className="flex flex-col rounded-2xl border bg-card shadow-sm border-t-4 border-t-amber-500 min-h-[500px]">
+            <div className="p-4 border-b flex items-center justify-between bg-amber-50/50 dark:bg-amber-950/20">
+              <div className="flex items-center gap-2">
+                <Wrench className="h-4 w-4 text-amber-600" />
+                <h3 className="font-bold text-sm tracking-tight">2. Na Oficina (Bancada)</h3>
+              </div>
+              <Badge className="bg-amber-600 text-white font-mono text-xs">
+                {oficinaLotes.length}
+              </Badge>
+            </div>
+
+            <div className="p-3 space-y-3 flex-1 overflow-y-auto max-h-[720px]">
+              {isLoadingLotes ? (
+                <div className="p-8 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Carregando lotes...
+                </div>
+              ) : oficinaLotes.length === 0 ? (
+                <div className="p-8 text-center border-2 border-dashed rounded-xl text-muted-foreground text-xs">
+                  Nenhum lote em manutenção na bancada no momento.
+                </div>
+              ) : (
+                oficinaLotes.map((lote) => (
+                  <Card
+                    key={lote.id}
+                    className="p-4 rounded-xl border shadow-sm hover:shadow-md transition-all space-y-3 bg-white dark:bg-neutral-900"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <Badge
+                          variant="outline"
+                          className="font-mono text-xs font-bold bg-neutral-100 dark:bg-neutral-800"
+                        >
+                          {lote.codigo}
+                        </Badge>
+                        <h4 className="font-bold text-sm text-foreground mt-1.5">{lote.nome}</h4>
+                        {lote.cidade && (
+                          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                            <MapPin className="h-3 w-3 text-red-500" /> {lote.cidade}{" "}
+                            {lote.regiao ? `• ${lote.regiao}` : ""}
+                          </p>
+                        )}
+                      </div>
+                      <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px]">
+                        Em Manutenção
+                      </Badge>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 bg-neutral-50 dark:bg-neutral-800/50 p-2.5 rounded-lg text-xs">
+                      <div>
+                        <span className="text-muted-foreground block text-[10px] uppercase font-semibold">
+                          Cilindros
+                        </span>
+                        <strong className="text-sm font-extrabold text-foreground">
+                          {lote.total_extintores || 0} un
+                        </strong>
+                      </div>
+                      <div className="border-l pl-2">
+                        <span className="text-muted-foreground block text-[10px] uppercase font-semibold">
+                          Clientes
+                        </span>
+                        <strong className="text-sm font-extrabold text-foreground">
+                          {lote.total_clientes || 0}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {lote.modelos_agrupados && lote.modelos_agrupados.length > 0 && (
+                      <div className="text-[11px] text-muted-foreground space-y-1 border-t pt-2">
+                        <span className="font-semibold text-[10px] uppercase text-neutral-500 block">
+                          Em Recarga / Bancada:
+                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {lote.modelos_agrupados.map((m, idx) => (
+                            <span
+                              key={idx}
+                              className="bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 rounded text-[10px] text-foreground font-medium"
+                            >
+                              {m.count}x {m.modelo}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleAdvanceLote(lote.id, "aguardando_descarga")}
+                        disabled={advancingLoteId === lote.id}
+                        className="text-xs h-8 px-2"
+                        title="Voltar para Chegada/Descarga"
+                      >
+                        <ArrowLeft className="h-3.5 w-3.5" />
+                      </Button>
+
+                      <Button
+                        size="sm"
+                        onClick={() => handleAdvanceLote(lote.id, "saida")}
+                        disabled={advancingLoteId === lote.id}
+                        className="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs gap-1.5 shadow-sm"
+                      >
+                        {advancingLoteId === lote.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Wrench className="h-3.5 w-3.5" />
+                        )}
+                        Concluir Oficina ➔ Enviar p/ Saída
+                      </Button>
+                    </div>
+                  </Card>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* COLUNA 3: Saída */}
+          <div className="flex flex-col rounded-2xl border bg-card shadow-sm border-t-4 border-t-purple-500 min-h-[500px]">
+            <div className="p-4 border-b flex items-center justify-between bg-purple-50/50 dark:bg-purple-950/20">
+              <div className="flex items-center gap-2">
+                <Truck className="h-4 w-4 text-purple-600" />
+                <h3 className="font-bold text-sm tracking-tight">3. Saída (Pronto p/ Rota)</h3>
+              </div>
+              <Badge className="bg-purple-600 text-white font-mono text-xs">
+                {saidaLotes.length}
+              </Badge>
+            </div>
+
+            <div className="p-3 space-y-3 flex-1 overflow-y-auto max-h-[720px]">
+              {isLoadingLotes ? (
+                <div className="p-8 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Carregando lotes...
+                </div>
+              ) : saidaLotes.length === 0 ? (
+                <div className="p-8 text-center border-2 border-dashed rounded-xl text-muted-foreground text-xs">
+                  Nenhum lote pronto para saída.
+                </div>
+              ) : (
+                saidaLotes.map((lote) => (
+                  <Card
+                    key={lote.id}
+                    className="p-4 rounded-xl border shadow-sm hover:shadow-md transition-all space-y-3 bg-white dark:bg-neutral-900 border-purple-200"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <Badge
+                          variant="outline"
+                          className="font-mono text-xs font-bold bg-neutral-100 dark:bg-neutral-800"
+                        >
+                          {lote.codigo}
+                        </Badge>
+                        <h4 className="font-bold text-sm text-foreground mt-1.5">{lote.nome}</h4>
+                        {lote.cidade && (
+                          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                            <MapPin className="h-3 w-3 text-red-500" /> {lote.cidade}{" "}
+                            {lote.regiao ? `• ${lote.regiao}` : ""}
+                          </p>
+                        )}
+                      </div>
+                      <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[10px]">
+                        Revisado & Aprovado
+                      </Badge>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 bg-neutral-50 dark:bg-neutral-800/50 p-2.5 rounded-lg text-xs">
+                      <div>
+                        <span className="text-muted-foreground block text-[10px] uppercase font-semibold">
+                          Cilindros
+                        </span>
+                        <strong className="text-sm font-extrabold text-foreground">
+                          {lote.total_extintores || 0} un
+                        </strong>
+                      </div>
+                      <div className="border-l pl-2">
+                        <span className="text-muted-foreground block text-[10px] uppercase font-semibold">
+                          Clientes
+                        </span>
+                        <strong className="text-sm font-extrabold text-foreground">
+                          {lote.total_clientes || 0}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/30 rounded-lg border border-emerald-200 text-[11px] text-emerald-800 dark:text-emerald-300">
+                      Cilindros prontos para carregar no veículo e entregar nos clientes.
+                    </div>
+
+                    <Button
+                      size="sm"
+                      onClick={() => handleAdvanceLote(lote.id, "liberar_rota")}
+                      disabled={advancingLoteId === lote.id}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1.5 shadow-sm"
+                    >
+                      {advancingLoteId === lote.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Truck className="h-3.5 w-3.5" />
+                      )}
+                      Liberar para Rota de Entrega (Sai da Oficina)
+                    </Button>
+                  </Card>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* ========================================================================= */
+        /* VISÃO SECUNDÁRIA: EXTINTORES INDIVIDUAIS NA BANCADA */
+        /* ========================================================================= */
+        <div className="space-y-4">
+          {/* Barra de Filtros e Busca */}
+          <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
+            <div className="relative flex-1 w-full sm:max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar por equipamento, cliente, selo ou patrimônio..."
+                className="pl-9 h-10"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                <SelectTrigger className="w-full sm:w-[160px] h-10">
+                  <SelectValue placeholder="Prioridade" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas Prioridades</SelectItem>
+                  <SelectItem value="urgente">Urgente</SelectItem>
+                  <SelectItem value="alta">Alta</SelectItem>
+                  <SelectItem value="media">Média</SelectItem>
+                  <SelectItem value="baixa">Baixa</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4 items-start">
+            {activeStagesList.map((stage) => {
+              const items = recordsByStage.get(stage.id) || [];
+              return (
+                <div
+                  key={stage.id}
+                  className={`flex flex-col rounded-xl border bg-card shadow-sm border-t-4 ${stage.headerBorder} min-h-[500px]`}
+                >
+                  {/* Header da Coluna */}
+                  <div className={`p-3.5 border-b flex items-center justify-between ${stage.headerBg}`}>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-sm tracking-tight">{stage.title}</h3>
+                      <Badge variant="secondary" className="h-5 px-1.5 text-xs font-mono">
+                        {items.length}
+                      </Badge>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                      onClick={() => handleOpenCreate(stage.id)}
+                      title={`Adicionar item diretamente em ${stage.title}`}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+
+                  {/* Corpo da Coluna */}
+                  <div className="p-3 space-y-3 flex-1 overflow-y-auto max-h-[700px]">
+                    {items.length === 0 ? (
+                      <div className="py-12 text-center text-xs text-muted-foreground border-2 border-dashed rounded-lg p-4">
+                        Nenhum equipamento nesta etapa
+                      </div>
+                    ) : (
+                      items.map((item) => {
+                        const currentIndex = activeStagesList.findIndex((s) => s.id === stage.id);
+                        const canGoPrev = currentIndex > 0;
+                        const canGoNext = currentIndex < activeStagesList.length - 1;
+
+                        return (
+                          <Card
+                            key={item.id}
+                            className="p-3.5 hover:shadow-md transition-shadow border-muted relative group space-y-2.5 bg-background"
+                          >
+                            {/* Topo do Card: Tipo do Equipamento e Prioridade */}
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <p className="font-semibold text-sm leading-tight text-foreground">
+                                  {item.equip_type}
+                                </p>
+                                {item.equip_capacity && (
+                                  <span className="text-[11px] text-muted-foreground">
+                                    Capacidade: {item.equip_capacity}
+                                  </span>
+                                )}
+                              </div>
+                              <Badge
+                                variant="outline"
+                                className={`text-[10px] px-1.5 py-0 uppercase tracking-wide shrink-0 ${
+                                  BENCH_PRIORITY_COLORS[item.priority]
+                                }`}
+                              >
+                                {BENCH_PRIORITY_LABELS[item.priority]}
+                              </Badge>
+                            </div>
+
+                            {/* Cliente e Patrimônio */}
+                            <div className="space-y-1 text-xs text-muted-foreground">
+                              {item.customer_name && (
+                                <div className="flex items-center gap-1.5 truncate">
+                                  <Building2 className="h-3 w-3 shrink-0 text-primary" />
+                                  <span className="font-medium text-foreground truncate">
+                                    {item.customer_name}
+                                  </span>
+                                </div>
+                              )}
+                              {item.equip_serial && (
+                                <div className="flex items-center gap-1.5 font-mono text-[11px]">
+                                  <Package className="h-3 w-3 shrink-0" />
+                                  <span>Selo/Patrimônio: {item.equip_serial}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Observações / Defeito */}
+                            {item.notes && (
+                              <p className="text-xs bg-muted/50 p-2 rounded text-muted-foreground line-clamp-2">
+                                {item.notes}
+                              </p>
+                            )}
+
+                            {/* Data / Prazo */}
+                            {item.due_at && (
+                              <div className="flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-300">
+                                <Clock className="h-3 w-3 shrink-0" />
+                                <span>Entrega: {formatDate(item.due_at)}</span>
+                              </div>
+                            )}
+
+                            {/* Ações Rápidas: Mover Etapas */}
+                            <div className="pt-2 border-t flex items-center justify-between gap-1 text-xs">
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100"
+                                  onClick={() => {
+                                    setPrintTarget({
+                                      kind: "custom",
+                                      title: item.equip_type || "Equipamento",
+                                      serialNumber: item.equip_serial || `BC-${item.id.substring(0, 6).toUpperCase()}`,
+                                      customerName: item.customer_name || "Cliente",
+                                      type: item.equip_type || "Extintor / Mangueira",
+                                      capacityOrLength: item.equip_capacity || "—",
+                                    });
+                                  }}
+                                  title="Imprimir Etiqueta"
+                                >
+                                  <Printer className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                  onClick={() => handleOpenEdit(item)}
+                                  title="Editar detalhes"
+                                >
+                                  <Edit2 className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  onClick={() => handleDelete(item)}
+                                  title="Remover da bancada"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+
+                              <div className="flex items-center gap-1">
+                                {canGoPrev && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs gap-1"
+                                    onClick={() => handleMoveStage(item, "prev")}
+                                    title={`Voltar para ${activeStagesList[currentIndex - 1]?.title}`}
+                                  >
+                                    <ArrowLeft className="h-3 w-3" />
+                                    Voltar
+                                  </Button>
+                                )}
+                                {canGoNext && (
+                                  <Button
+                                    variant="default"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs gap-1"
+                                    onClick={() => handleMoveStage(item, "next")}
+                                    title={`Avançar para ${activeStagesList[currentIndex + 1]?.title}`}
+                                  >
+                                    Avançar
+                                    <ArrowRight className="h-3 w-3" />
+                                  </Button>
+                                )}
+                                {!canGoNext && (
+                                  <span className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1">
+                                    <CheckCircle2 className="h-3.5 w-3.5" /> Pronto
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </Card>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Modal de Configuração de Etapas */}
       <Dialog open={isConfigOpen} onOpenChange={setIsConfigOpen}>
