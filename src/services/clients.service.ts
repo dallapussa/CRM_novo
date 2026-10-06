@@ -178,10 +178,23 @@ export async function listClients(): Promise<Customer[]> {
   return (data || []).map((row) => mapClient(row));
 }
 
-export async function getClient(id: string): Promise<Customer> {
+export async function getClient(id: string): Promise<Customer | null> {
   const { supabase, companyId } = await getTenantContext();
-  const { data, error } = await supabase.from("clients").select("*").eq("company_id", companyId).eq("id", id).is("deleted_at", null).single();
-  if (error) throw error;
+  let query = supabase.from("clients").select("*").eq("id", id);
+  if (companyId) {
+    query = query.eq("company_id", companyId);
+  }
+  const { data, error } = await query.is("deleted_at", null).maybeSingle();
+  if (error) {
+    console.error("Erro ao buscar cliente:", error);
+    return null;
+  }
+  if (!data) {
+    // Fallback para permitir carregar dados do cliente mesmo se histórico/recuperação
+    const { data: fallbackData } = await query.maybeSingle();
+    if (fallbackData) return mapClient(fallbackData);
+    return null;
+  }
   return mapClient(data);
 }
 
@@ -309,5 +322,7 @@ export async function saveClientPpci(
     clientId
   );
 
-  return getClient(clientId);
+  const updated = await getClient(clientId);
+  if (!updated) throw new Error("Cliente não encontrado após atualização de PPCI");
+  return updated;
 }

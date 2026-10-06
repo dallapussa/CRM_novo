@@ -1404,11 +1404,12 @@ export async function getExpiringItems(): Promise<{
   // 1. Busca Extintores
   const { data: extintores } = await supabase
     .from("extintores")
-    .select("id, client_id, identificacao, tipo_capacidade, localizacao, data_vencimento, status, client:client_id(id, razao_social, nome_fantasia, cnpj, document, address_street, address_number, address_neighborhood, address_city, telefone, telefone2, observacoes)");
+    .select("id, client_id, identificacao, tipo_capacidade, localizacao, data_vencimento, status, client:client_id(id, razao_social, nome_fantasia, cnpj, document, address_street, address_number, address_neighborhood, address_city, telefone, telefone2, observacoes, deleted_at)");
 
   if (extintores && extintores.length > 0) {
     for (const e of extintores) {
       if (!e.data_vencimento) continue;
+      if (!e.client || (e.client as any).deleted_at) continue;
       const [vYearStr, vMonthStr] = e.data_vencimento.split("-");
       const dueYear = parseInt(vYearStr, 10);
       const dueMonth = parseInt(vMonthStr, 10) - 1; // 0-indexed: 0..11
