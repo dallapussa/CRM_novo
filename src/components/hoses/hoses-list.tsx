@@ -15,7 +15,9 @@ import {
   Trash2,
   FileText,
   Clock,
+  Printer,
 } from "lucide-react";
+import { LabelPrinterDialog, type LabelTarget } from "@/components/labels/label-printer-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -71,6 +73,7 @@ export function HosesList() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingHose, setEditingHose] = useState<Hose | null>(null);
+  const [printTarget, setPrintTarget] = useState<LabelTarget | null>(null);
 
   const [formValues, setFormValues] = useState({
     client_id: "",
@@ -468,6 +471,15 @@ export function HosesList() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              className="h-8 w-8 text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100"
+                              onClick={() => setPrintTarget({ kind: "hose", data: hose })}
+                              title="Imprimir Etiqueta"
+                            >
+                              <Printer className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
                               className="h-8 w-8 text-sky-600 hover:text-sky-700 hover:bg-sky-50"
                               onClick={() => handleSendToBench(hose)}
                               title="Enviar mangueira para Bancada / Oficina"
@@ -703,6 +715,12 @@ export function HosesList() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <LabelPrinterDialog
+        open={!!printTarget}
+        onOpenChange={(o) => !o && setPrintTarget(null)}
+        target={printTarget}
+      />
     </div>
   );
 }

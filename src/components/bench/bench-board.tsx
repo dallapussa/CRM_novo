@@ -20,7 +20,9 @@ import {
   Package,
   Layers,
   Check,
+  Printer,
 } from "lucide-react";
+import { LabelPrinterDialog, type LabelTarget } from "@/components/labels/label-printer-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -210,6 +212,7 @@ export function BenchBoard() {
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<BenchRecord | null>(null);
+  const [printTarget, setPrintTarget] = useState<LabelTarget | null>(null);
 
   // Formulário de novo item / edição
   const [formValues, setFormValues] = useState({
@@ -670,6 +673,24 @@ export function BenchBoard() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              className="h-7 w-7 text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100"
+                              onClick={() => {
+                                setPrintTarget({
+                                  kind: "custom",
+                                  title: item.equip_type || "Equipamento",
+                                  serialNumber: item.equip_serial || `BC-${item.id.substring(0, 6).toUpperCase()}`,
+                                  customerName: item.customer_name || "Cliente",
+                                  type: item.equip_type || "Extintor / Mangueira",
+                                  capacityOrLength: item.equip_capacity || "—",
+                                });
+                              }}
+                              title="Imprimir Etiqueta"
+                            >
+                              <Printer className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
                               className="h-7 w-7 text-muted-foreground hover:text-foreground"
                               onClick={() => handleOpenEdit(item)}
                               title="Editar detalhes"
@@ -991,6 +1012,12 @@ export function BenchBoard() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <LabelPrinterDialog
+        open={!!printTarget}
+        onOpenChange={(o) => !o && setPrintTarget(null)}
+        target={printTarget}
+      />
     </div>
   );
 }

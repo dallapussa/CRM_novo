@@ -14,7 +14,9 @@ import {
   CheckCircle2,
   Clock,
   Wrench,
+  Printer,
 } from "lucide-react";
+import { LabelPrinterDialog, type LabelTarget } from "@/components/labels/label-printer-dialog";
 import {
   Table,
   TableBody,
@@ -100,6 +102,7 @@ export function ExtinguishersList({ initialExtinguishers }: ExtinguishersListPro
   const deleteMutation = useDeleteExtinguisher();
   const isDeleting = deleteMutation.isPending;
   const saveBenchMutation = useSaveBenchRecord();
+  const [printTarget, setPrintTarget] = useState<LabelTarget | null>(null);
 
   async function handleSendToBench(extinguisher: Extinguisher) {
     try {
@@ -382,6 +385,15 @@ export function ExtinguishersList({ initialExtinguishers }: ExtinguishersListPro
                           <Button
                             variant="ghost"
                             size="icon"
+                            className="h-8 w-8 text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100"
+                            title="Imprimir Etiqueta"
+                            onClick={() => setPrintTarget({ kind: "extinguisher", data: e })}
+                          >
+                            <Printer className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
                             className="h-8 w-8 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
                             title="Enviar para Bancada / Oficina"
                             onClick={() => handleSendToBench(e)}
@@ -439,6 +451,12 @@ export function ExtinguishersList({ initialExtinguishers }: ExtinguishersListPro
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <LabelPrinterDialog
+        open={!!printTarget}
+        onOpenChange={(o) => !o && setPrintTarget(null)}
+        target={printTarget}
+      />
     </div>
   );
 }
