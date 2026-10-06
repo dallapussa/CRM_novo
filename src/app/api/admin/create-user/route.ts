@@ -10,6 +10,8 @@ function generateTemporaryPassword() {
   return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("");
 }
 
+export const dynamic = "force-dynamic";
+
 export async function POST(request: Request) {
   try {
     // 1. Verificar se quem está chamando é um Administrador logado

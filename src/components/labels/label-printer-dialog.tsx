@@ -333,6 +333,7 @@ export function LabelPrinterDialog({ open, onOpenChange, target }: LabelPrinterD
                 {/* QR Code */}
                 <div className="col-span-1 flex flex-col items-center justify-center border-l border-neutral-300 pl-2">
                   {qrCodeDataUrl ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
                     <img
                       src={qrCodeDataUrl}
                       alt="QR Code"
@@ -453,6 +454,7 @@ export function LabelPrinterDialog({ open, onOpenChange, target }: LabelPrinterD
                 {/* QR Code de Autenticidade */}
                 <div className="col-span-1 flex flex-col items-center justify-center border-l border-neutral-300 pl-2">
                   {qrCodeDataUrl ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
                     <img
                       src={qrCodeDataUrl}
                       alt="QR Code"
