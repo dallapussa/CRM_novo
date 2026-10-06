@@ -46,7 +46,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Customer, Extinguisher } from "@/types";
 import { EXTINGUISHER_TYPES } from "@/types";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatMonthYear } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useDeleteExtinguisher, useExtinguishers } from "@/hooks/useExtinguishers";
 import { useClients } from "@/hooks/useClients";
@@ -371,8 +371,8 @@ export function ExtinguishersList({ initialExtinguishers }: ExtinguishersListPro
                       <TableCell className="text-sm text-muted-foreground max-w-[180px] truncate">
                         {e.location || "—"}
                       </TableCell>
-                      <TableCell className="text-sm">
-                        {formatDate(e.expiration_date)}
+                      <TableCell className="text-sm font-semibold">
+                        {formatMonthYear(e.expiration_date)}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className={expCfg.className}>

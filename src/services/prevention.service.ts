@@ -401,7 +401,19 @@ export async function createOrdemRecolhimento(
       .select("id, identificacao, status")
       .in("id", extintorIds);
 
-    const jaNaBancada = (extsDb || []).filter((e) => e.status === "em_bancada");
+    let jaNaBancada = (extsDb || []).filter((e) => e.status === "em_bancada");
+    if (jaNaBancada.length === 0) {
+      const { data: legDb } = await supabase
+        .from("extinguishers")
+        .select("id, patrimonio, status")
+        .in("id", extintorIds);
+      jaNaBancada = (legDb || []).filter((e) => e.status === "em_bancada").map((e) => ({
+        id: e.id,
+        identificacao: e.patrimonio || "Extintor",
+        status: e.status,
+      }));
+    }
+
     if (jaNaBancada.length > 0) {
       const nomes = jaNaBancada.map((e) => e.identificacao).join(", ");
       throw new Error(
@@ -1276,13 +1288,8 @@ export function groupExpiringExtintoresByClient(items: VencimentoItem[]): Client
     group.tem_mes_atual = group.status_geral === "mes_atual";
 
     const countMap: Record<string, number> = {};
-    const relevantList =
-      group.extintores_disponiveis.length > 0
-        ? group.extintores_disponiveis
-        : group.extintores_em_bancada;
-
-    for (const ext of relevantList) {
-      const model = ext.item_nome.replace(/^[^()]*\((.*)\)$/, "$1") || ext.item_nome;
+    for (const ext of group.extintores) {
+      const model = ext.subtipo || ext.item_nome.replace(/^[^()]*\((.*)\)$/, "$1") || ext.item_nome;
       countMap[model] = (countMap[model] || 0) + 1;
     }
     group.modelos_agrupados = Object.entries(countMap).map(([modelo, count]) => ({
@@ -1349,6 +1356,9 @@ export async function getExpiringItems(): Promise<{
         status = "proximo_mes";
       }
 
+      // Vencimentos foca estritamente em itens vencidos ou a vencer no ciclo atual/próximo
+      if (status === "em_dia") continue;
+
       allItems.push({
         id: e.id,
         extintor_id: e.id,
@@ -1391,6 +1401,8 @@ export async function getExpiringItems(): Promise<{
           status = "proximo_mes";
         }
 
+        if (status === "em_dia") continue;
+
         allItems.push({
           id: e.id,
           extintor_id: e.id,
@@ -1430,6 +1442,8 @@ export async function getExpiringItems(): Promise<{
       } else if (dueDate <= endOfNextMonth) {
         status = "proximo_mes";
       }
+
+      if (status === "em_dia") continue;
 
       allItems.push({
         id: h.id,
@@ -1484,6 +1498,8 @@ export async function getExpiringItems(): Promise<{
       } else if (dueDate <= endOfNextMonth) {
         status = "proximo_mes";
       }
+
+      if (status === "em_dia") continue;
 
       allItems.push({
         id: c.id,

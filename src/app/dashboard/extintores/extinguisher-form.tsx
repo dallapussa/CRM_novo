@@ -39,6 +39,7 @@ import { EXTINGUISHER_TYPES } from "@/types";
 import { useToast } from "@/hooks/use-toast";
 import { useSaveExtinguisher, useExtinguishers } from "@/hooks/useExtinguishers";
 import { useClients } from "@/hooks/useClients";
+import { toMonthInput, monthInputToDate } from "@/lib/utils";
 
 const extinguisherSchema = z.object({
   customer_id: z.string().min(1, { message: "Selecione o cliente" }),
@@ -646,7 +647,7 @@ export function ExtinguisherForm({ initialData, customers: providedCustomers, mo
               {/* Renovação / Validade (Ajuste automático para +1 ano) */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <Label>Validade / Renovação *</Label>
+                  <Label>Validade / Renovação (Mês/Ano) *</Label>
                   <button
                     type="button"
                     onClick={handleSyncExpirationOneYear}
@@ -658,14 +659,14 @@ export function ExtinguisherForm({ initialData, customers: providedCustomers, mo
                   </button>
                 </div>
                 <Input
-                  type="date"
-                  value={values.expiration_date}
-                  onChange={(e) => setField("expiration_date", e.target.value)}
+                  type="month"
+                  value={toMonthInput(values.expiration_date)}
+                  onChange={(e) => setField("expiration_date", monthInputToDate(e.target.value))}
                   className="font-medium"
                 />
                 <div className="flex items-center gap-1 text-[11px] text-emerald-600 font-medium">
                   <Check className="h-3 w-3" />
-                  <span>Ajuste automático (+1 ano)</span>
+                  <span>Apenas mês/ano (Padrão Inmetro)</span>
                 </div>
                 {errors.expiration_date && (
                   <p className="text-xs text-red-600">{errors.expiration_date}</p>
