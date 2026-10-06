@@ -10,8 +10,33 @@ export async function GET(request: Request) {
 
   if (code) {
     const supabase = createClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) {
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    if (!error && data?.user) {
+      try {
+        const { data: profile } = await supabase
+          .from("user_profiles")
+          .select("id")
+          .eq("id", data.user.id)
+          .maybeSingle();
+
+        if (!profile && data.user.email) {
+          const fullName =
+            data.user.user_metadata?.full_name ||
+            data.user.user_metadata?.name ||
+            data.user.email.split("@")[0];
+
+          await supabase.from("user_profiles").insert({
+            id: data.user.id,
+            email: data.user.email,
+            nome: fullName,
+            role: "Cliente",
+            ativo: true,
+          });
+        }
+      } catch (profileErr) {
+        console.error("Erro ao verificar/criar perfil do usuário OAuth:", profileErr);
+      }
+
       const forwardedHost = request.headers.get("x-forwarded-host");
       const isLocalEnv = process.env.NODE_ENV === "development";
       if (isLocalEnv) {
