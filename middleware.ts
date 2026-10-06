@@ -6,6 +6,8 @@ const PUBLIC_ROUTES = [
   "/recuperar-senha",
   "/redefinir-senha",
   "/auth/callback",
+  "/privacidade",
+  "/termos",
 ];
 
 type UserRole = "admin" | "comercial" | "tecnico" | "financeiro" | "cliente" | "terceiro";
