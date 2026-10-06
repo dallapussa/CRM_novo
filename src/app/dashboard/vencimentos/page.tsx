@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
   CalendarDays,
@@ -60,15 +61,28 @@ import { useToast } from "@/hooks/use-toast";
 import { formatMonthYear } from "@/lib/utils";
 import type { Customer, ExtintorInventario } from "@/types";
 
-export default function VencimentosPage() {
+function VencimentosContent() {
   const { toast } = useToast();
+  const searchParams = useSearchParams();
+  const queryStatus = searchParams?.get("status");
+  const initialPeriod =
+    queryStatus && ["vencidos", "mes_atual", "proximo_mes", "all"].includes(queryStatus)
+      ? queryStatus
+      : "mes_atual"; // Abre diretamente na aba "Vencendo este mês"
+
   const [viewMode, setViewMode] = useState<"lotes" | "detalhado">("lotes");
   const [search, setSearch] = useState("");
-  const [periodFilter, setPeriodFilter] = useState<string>("all");
+  const [periodFilter, setPeriodFilter] = useState<string>(initialPeriod);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [techSheetTab, setTechSheetTab] = useState<"extintores" | "ppci">("extintores");
   const [expandedClients, setExpandedClients] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (queryStatus && ["vencidos", "mes_atual", "proximo_mes", "all"].includes(queryStatus)) {
+      setPeriodFilter(queryStatus);
+    }
+  }, [queryStatus]);
 
   // Estados da Ordem de Recolhimento
   const [isPickupOpen, setIsPickupOpen] = useState(false);
@@ -1023,5 +1037,19 @@ export default function VencimentosPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function VencimentosPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">
+          Carregando Vencimentos...
+        </div>
+      }
+    >
+      <VencimentosContent />
+    </Suspense>
   );
 }

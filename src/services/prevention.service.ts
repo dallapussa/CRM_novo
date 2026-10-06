@@ -1302,6 +1302,8 @@ export function groupExpiringExtintoresByClient(items: VencimentoItem[]): Client
   return result.sort((a, b) => {
     if (a.status_geral === "vencido" && b.status_geral !== "vencido") return -1;
     if (b.status_geral === "vencido" && a.status_geral !== "vencido") return 1;
+    if (a.status_geral === "mes_atual" && b.status_geral !== "mes_atual") return -1;
+    if (b.status_geral === "mes_atual" && a.status_geral !== "mes_atual") return 1;
     return b.extintores_disponiveis.length - a.extintores_disponiveis.length;
   });
 }
@@ -1316,10 +1318,14 @@ export async function getExpiringItems(): Promise<{
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-  const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-  const startOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-  const endOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+  const curYear = today.getFullYear();
+  const curMonth = today.getMonth(); // 0-indexed: 0..11
+
+  const endOfMonth = new Date(curYear, curMonth + 1, 0, 23, 59, 59);
+  const nextMonthDate = new Date(curYear, curMonth + 1, 1);
+  const nextYear = nextMonthDate.getFullYear();
+  const nextMonth = nextMonthDate.getMonth();
+  const endOfNextMonth = new Date(curYear, curMonth + 2, 0, 23, 59, 59);
 
   const allItems: VencimentoItem[] = [];
 
@@ -1343,17 +1349,23 @@ export async function getExpiringItems(): Promise<{
   if (extintores && extintores.length > 0) {
     for (const e of extintores) {
       if (!e.data_vencimento) continue;
-      const dueDate = new Date(e.data_vencimento + "T00:00:00");
-      const diffTime = dueDate.getTime() - today.getTime();
+      const [vYearStr, vMonthStr] = e.data_vencimento.split("-");
+      const dueYear = parseInt(vYearStr, 10);
+      const dueMonth = parseInt(vMonthStr, 10) - 1; // 0-indexed: 0..11
+      if (isNaN(dueYear) || isNaN(dueMonth)) continue;
+
+      // Validade de extintor é estritamente mensal (Inmetro): válido até o último segundo do mês
+      const endOfDueMonth = new Date(dueYear, dueMonth + 1, 0, 23, 59, 59);
+      const diffTime = endOfDueMonth.getTime() - today.getTime();
       const diasRestantes = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
       let status: "vencido" | "mes_atual" | "proximo_mes" | "em_dia" = "em_dia";
-      if (diasRestantes <= 0) {
-        status = "vencido"; // Vence hoje (0) ou já venceu (< 0)
-      } else if (dueDate <= endOfMonth) {
-        status = "mes_atual";
-      } else if (dueDate <= endOfNextMonth) {
-        status = "proximo_mes";
+      if (dueYear < curYear || (dueYear === curYear && dueMonth < curMonth)) {
+        status = "vencido"; // Mês expirado no passado
+      } else if (dueYear === curYear && dueMonth === curMonth) {
+        status = "mes_atual"; // Vence no mês atual
+      } else if (dueYear === nextYear && dueMonth === nextMonth) {
+        status = "proximo_mes"; // Vence no próximo mês
       }
 
       // Vencimentos foca estritamente em itens vencidos ou a vencer no ciclo atual/próximo
@@ -1396,16 +1408,21 @@ export async function getExpiringItems(): Promise<{
     if (legExt) {
       for (const e of legExt) {
         if (!e.expires_at) continue;
-        const dueDate = new Date(e.expires_at + "T00:00:00");
-        const diffTime = dueDate.getTime() - today.getTime();
+        const [vYearStr, vMonthStr] = e.expires_at.split("-");
+        const dueYear = parseInt(vYearStr, 10);
+        const dueMonth = parseInt(vMonthStr, 10) - 1;
+        if (isNaN(dueYear) || isNaN(dueMonth)) continue;
+
+        const endOfDueMonth = new Date(dueYear, dueMonth + 1, 0, 23, 59, 59);
+        const diffTime = endOfDueMonth.getTime() - today.getTime();
         const diasRestantes = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
         let status: "vencido" | "mes_atual" | "proximo_mes" | "em_dia" = "em_dia";
-        if (diasRestantes <= 0) {
+        if (dueYear < curYear || (dueYear === curYear && dueMonth < curMonth)) {
           status = "vencido";
-        } else if (dueDate <= endOfMonth) {
+        } else if (dueYear === curYear && dueMonth === curMonth) {
           status = "mes_atual";
-        } else if (dueDate <= endOfNextMonth) {
+        } else if (dueYear === nextYear && dueMonth === nextMonth) {
           status = "proximo_mes";
         }
 
@@ -1438,12 +1455,12 @@ export async function getExpiringItems(): Promise<{
   if (hoses) {
     for (const h of hoses) {
       if (!h.next_test_at) continue;
-      const dueDate = new Date(h.next_test_at + "T00:00:00");
+      const dueDate = new Date(h.next_test_at + "T23:59:59");
       const diffTime = dueDate.getTime() - today.getTime();
       const diasRestantes = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
       let status: "vencido" | "mes_atual" | "proximo_mes" | "em_dia" = "em_dia";
-      if (diasRestantes <= 0) {
+      if (dueDate < today) {
         status = "vencido";
       } else if (dueDate <= endOfMonth) {
         status = "mes_atual";
@@ -1494,12 +1511,12 @@ export async function getExpiringItems(): Promise<{
 
       if (isIsento || !dueDateStr) continue;
 
-      const dueDate = new Date(dueDateStr + "T00:00:00");
+      const dueDate = new Date(dueDateStr + "T23:59:59");
       const diffTime = dueDate.getTime() - today.getTime();
       const diasRestantes = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
       let status: "vencido" | "mes_atual" | "proximo_mes" | "em_dia" = "em_dia";
-      if (diasRestantes <= 0) {
+      if (dueDate < today) {
         status = "vencido";
       } else if (dueDate <= endOfMonth) {
         status = "mes_atual";

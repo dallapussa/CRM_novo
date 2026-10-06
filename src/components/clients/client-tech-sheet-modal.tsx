@@ -675,8 +675,12 @@ export function ClientTechSheetModal({
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {extintores.map((ext) => {
                       const isSelected = selectedIds.has(ext.id);
-                      const isExpired =
-                        new Date(ext.data_vencimento + "T23:59:59") < new Date();
+                      const [dueY, dueM] = (ext.data_vencimento || "").split("-").map(Number);
+                      const now = new Date();
+                      const curY = now.getFullYear();
+                      const curM = now.getMonth() + 1; // 1-12
+                      const isExpired = dueY && dueM ? (dueY < curY || (dueY === curY && dueM < curM)) : false;
+                      const isCurrentMonth = dueY && dueM ? (dueY === curY && dueM === curM) : false;
 
                       return (
                         <div
@@ -726,10 +730,12 @@ export function ClientTechSheetModal({
                                 className={`text-[10px] font-bold ${
                                   isExpired
                                     ? "bg-red-600 text-white hover:bg-red-600"
+                                    : isCurrentMonth
+                                    ? "bg-amber-500 text-white hover:bg-amber-500"
                                     : "bg-emerald-600 text-white hover:bg-emerald-600"
                                 }`}
                               >
-                                {isExpired ? "VENCIDO" : "EM DIA"}
+                                {isExpired ? "VENCIDO" : isCurrentMonth ? "VENCE ESTE MÊS" : "EM DIA"}
                               </Badge>
 
                               {ext.status === "em_bancada" && (
@@ -755,7 +761,11 @@ export function ClientTechSheetModal({
                                 Vencimento:{" "}
                                 <span
                                   className={`font-bold ${
-                                    isExpired ? "text-red-600" : "text-foreground"
+                                    isExpired
+                                      ? "text-red-600"
+                                      : isCurrentMonth
+                                      ? "text-amber-600"
+                                      : "text-foreground"
                                   }`}
                                 >
                                   {formatMonthYear(ext.data_vencimento)}

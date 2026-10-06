@@ -150,7 +150,7 @@ export default function DashboardPage() {
       {/* 3 CARDS DE CONTADORES DE VENCIMENTO NO TOPO */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {/* CARD 1: Vencidos */}
-        <Link href="/dashboard/vencimentos" className="block group">
+        <Link href="/dashboard/vencimentos?status=vencidos" className="block group">
           <Card className="hover:border-red-400 transition-all border-red-200/80 bg-red-50/20 dark:bg-red-950/10 shadow-sm cursor-pointer group-hover:shadow-md">
             <CardContent className="p-5 flex items-center justify-between">
               <div className="space-y-1">
@@ -170,7 +170,7 @@ export default function DashboardPage() {
         </Link>
 
         {/* CARD 2: Vencendo Este Mês */}
-        <Link href="/dashboard/vencimentos" className="block group">
+        <Link href="/dashboard/vencimentos?status=mes_atual" className="block group">
           <Card className="hover:border-amber-400 transition-all border-amber-200/80 bg-amber-50/20 dark:bg-amber-950/10 shadow-sm cursor-pointer group-hover:shadow-md">
             <CardContent className="p-5 flex items-center justify-between">
               <div className="space-y-1">
@@ -190,7 +190,7 @@ export default function DashboardPage() {
         </Link>
 
         {/* CARD 3: Próximo Mês */}
-        <Link href="/dashboard/vencimentos" className="block group">
+        <Link href="/dashboard/vencimentos?status=proximo_mes" className="block group">
           <Card className="hover:border-neutral-400 transition-all border-neutral-200 dark:border-neutral-800 shadow-sm cursor-pointer group-hover:shadow-md">
             <CardContent className="p-5 flex items-center justify-between">
               <div className="space-y-1">
