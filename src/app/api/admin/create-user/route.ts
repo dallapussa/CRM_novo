@@ -16,7 +16,7 @@ export async function POST(request: Request) {
   try {
     // 1. Verificar se quem está chamando é um Administrador logado
     const adminClient = createAdminClient();
-    const supabase = createClient();
+    const supabase = await createClient();
     const authHeader = request.headers.get("Authorization");
     const token = authHeader?.replace(/^Bearer\s+/i, "");
 
