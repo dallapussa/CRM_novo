@@ -15,11 +15,8 @@ import {
   ArrowRight,
   Package,
   Users,
-  Database,
-  Copy,
-  ChevronDown,
-  ChevronUp,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
 import {
   Card,
@@ -40,40 +37,9 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import type { LoteRecolhimento, LoteRecolhimentoStatus } from "@/types";
-import { listLotesRecolhimento } from "@/services/prevention.service";
+import { listLotesRecolhimento, deleteLoteRecolhimento } from "@/services/prevention.service";
 import { LoteCreateDialog } from "@/components/lotes/lote-create-dialog";
 import { LoteDetailView } from "@/components/lotes/lote-detail-view";
-
-const SQL_MIGRATION_SNIPPET = `-- 9. TABELA DE LOTES DE RECOLHIMENTO
-create table if not exists public.lotes_recolhimento (
-  id uuid primary key default gen_random_uuid(),
-  company_id uuid references public.companies(id) on delete cascade,
-  codigo text not null,
-  nome text not null,
-  cidade text,
-  regiao text,
-  data_recolhimento date not null default current_date,
-  prazo_dias integer not null default 7,
-  previsao_devolucao date not null,
-  status text not null default 'em_oficina' check (status in ('recolhendo', 'em_oficina', 'pronto_entrega', 'concluido')),
-  observacoes text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  created_by uuid references auth.users(id) on delete set null
-);
-
-create index if not exists idx_lotes_recolhimento_status on public.lotes_recolhimento(status);
-create index if not exists idx_lotes_recolhimento_previsao on public.lotes_recolhimento(previsao_devolucao);
-
-alter table public.ordens_recolhimento add column if not exists lote_id uuid references public.lotes_recolhimento(id) on delete set null;
-create index if not exists idx_ordens_recolhimento_lote_id on public.ordens_recolhimento(lote_id);
-
-alter table public.lotes_recolhimento enable row level security;
-drop policy if exists lotes_recolhimento_authenticated on public.lotes_recolhimento;
-create policy lotes_recolhimento_authenticated on public.lotes_recolhimento
-  for all to authenticated
-  using (true)
-  with check (true);`;
 
 export default function LotesPage() {
   const { toast } = useToast();
@@ -82,7 +48,6 @@ export default function LotesPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [loteToEdit, setLoteToEdit] = useState<LoteRecolhimento | null>(null);
   const [selectedLoteId, setSelectedLoteId] = useState<string | null>(null);
-  const [showSqlGuide, setShowSqlGuide] = useState(false);
 
   const {
     data: lotes = [],
@@ -142,12 +107,33 @@ export default function LotesPage() {
     concluido: { label: "Concluído", color: "bg-emerald-100 text-emerald-800 border-emerald-200" },
   };
 
-  function copySqlToClipboard() {
-    navigator.clipboard.writeText(SQL_MIGRATION_SNIPPET);
-    toast({
-      title: "SQL copiado!",
-      description: "Cole no Editor SQL do seu Supabase para criar a tabela de Lotes no banco remoto.",
-    });
+  async function handleDeleteLote(lote: LoteRecolhimento) {
+    const extCount = lote.total_extintores || 0;
+    const msg =
+      extCount > 0
+        ? `Tem certeza que deseja excluir o lote "${lote.nome}"?\n\nOs ${extCount} extintores vinculados serão devolvidos ao status "No Cliente", permitindo novo recolhimento.`
+        : `Tem certeza que deseja excluir o lote "${lote.nome}"?`;
+
+    if (!confirm(msg)) return;
+
+    try {
+      await deleteLoteRecolhimento(lote.id);
+      toast({
+        variant: "success",
+        title: "Lote excluído com sucesso",
+        description: `O lote "${lote.nome}" foi removido do sistema.`,
+      });
+      if (selectedLoteId === lote.id) {
+        setSelectedLoteId(null);
+      }
+      refetch();
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao excluir lote",
+        description: err?.message || "Tente novamente.",
+      });
+    }
   }
 
   // Se o usuário selecionou um lote para abrir detalhes, exibe o LoteDetailView
@@ -162,6 +148,7 @@ export default function LotesPage() {
             setLoteToEdit(selectedLote);
             setCreateDialogOpen(true);
           }}
+          onDelete={() => handleDeleteLote(selectedLote)}
         />
 
         <LoteCreateDialog
@@ -275,38 +262,6 @@ export default function LotesPage() {
             <p className="text-xs text-muted-foreground mt-1">Rotas entregues e finalizadas</p>
           </CardContent>
         </Card>
-      </div>
-
-      {/* Caixa de Ajuda / Migration SQL (colapsável) */}
-      <div className="border rounded-lg bg-card overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setShowSqlGuide(!showSqlGuide)}
-          className="w-full px-4 py-3 bg-muted/30 hover:bg-muted/50 transition-colors flex items-center justify-between text-xs font-medium text-foreground"
-        >
-          <span className="flex items-center gap-2">
-            <Database className="h-4 w-4 text-blue-600" />
-            Configuração do Banco no Supabase (SQL da Migração de Lotes)
-          </span>
-          {showSqlGuide ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-        </button>
-
-        {showSqlGuide && (
-          <div className="p-4 bg-muted/10 border-t space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-muted-foreground">
-                O sistema já suporta armazenamento de lotes localmente e sincronização com o Supabase. Para criar a tabela <code>public.lotes_recolhimento</code> no seu banco de dados, execute o script abaixo no Supabase SQL Editor:
-              </p>
-              <Button size="sm" variant="outline" onClick={copySqlToClipboard} className="gap-1.5 text-xs">
-                <Copy className="h-3.5 w-3.5" />
-                Copiar SQL
-              </Button>
-            </div>
-            <pre className="p-3 bg-slate-950 text-slate-100 rounded text-xs font-mono overflow-x-auto max-h-48">
-              {SQL_MIGRATION_SNIPPET}
-            </pre>
-          </div>
-        )}
       </div>
 
       {/* Filtros e Busca */}
@@ -475,12 +430,21 @@ export default function LotesPage() {
                   {/* Botões de Ação */}
                   <div className="pt-2 flex items-center gap-2">
                     <Button
-                      className="w-full bg-red-600 hover:bg-red-700 text-white gap-2 font-medium"
+                      className="flex-1 bg-red-600 hover:bg-red-700 text-white gap-2 font-medium"
                       size="sm"
                       onClick={() => setSelectedLoteId(lote.id)}
                     >
                       <span>Abrir Lote & Romaneio</span>
                       <ArrowRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 px-2.5"
+                      title="Excluir Lote"
+                      onClick={() => handleDeleteLote(lote)}
+                    >
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                 </CardContent>

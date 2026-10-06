@@ -603,7 +603,7 @@ export async function listOrdensRecolhimento(clientId?: string, loteId?: string)
   let query = supabase
     .from("ordens_recolhimento")
     .select(
-      "*, client:client_id(id, razao_social, nome_fantasia, cnpj, telefone, whatsapp, logradouro, numero, bairro, cidade, estado, cep), itens:itens_recolhimento(*, extintor:extintor_id(*))"
+      "*, client:client_id(id, razao_social, nome_fantasia, cnpj, document, telefone, telefone1, telefone2, address_street, address_number, address_neighborhood, address_city, address_state, address_zip_code, observacoes), itens:itens_recolhimento(*, extintor:extintor_id(*))"
     )
     .order("created_at", { ascending: false });
 
@@ -612,7 +612,10 @@ export async function listOrdensRecolhimento(clientId?: string, loteId?: string)
   }
 
   const { data, error } = await query;
-  if (error) return [];
+  if (error) {
+    console.error("Erro ao listar ordens_recolhimento:", error);
+    return [];
+  }
 
   const mapped: OrdemRecolhimento[] = (data || []).map((o: any) => {
     // Detecta lote_id da coluna direta ou da tag [LOTE:id] em observações
@@ -643,14 +646,14 @@ export async function listOrdensRecolhimento(clientId?: string, loteId?: string)
         ? {
             id: c.id,
             name: c.razao_social || c.nome_fantasia || "Cliente",
-            document: c.cnpj || undefined,
-            telefone: c.whatsapp || c.telefone || null,
+            document: c.cnpj || c.document || undefined,
+            telefone: c.telefone || c.telefone1 || c.telefone2 || null,
             address: {
-              street: c.logradouro || null,
-              number: c.numero || null,
-              neighborhood: c.bairro || null,
-              city: c.cidade || null,
-              state: c.estado || null,
+              street: c.address_street || null,
+              number: c.address_number || null,
+              neighborhood: c.address_neighborhood || null,
+              city: c.address_city || null,
+              state: c.address_state || null,
             },
           }
         : null,
@@ -862,6 +865,63 @@ export async function saveLoteRecolhimento(
     }
     return data;
   }
+}
+
+export async function deleteLoteRecolhimento(loteId: string): Promise<void> {
+  const supabase = createClient();
+
+  // 1. Busca ordens vinculadas ao lote
+  const { data: ordens } = await supabase
+    .from("ordens_recolhimento")
+    .select("id, observacoes")
+    .or(`lote_id.eq.${loteId},observacoes.ilike.%[LOTE:${loteId}]%`);
+
+  const ordemIds = (ordens || []).map((o) => o.id);
+
+  if (ordemIds.length > 0) {
+    // 2. Busca extintores associados para devolvê-los ao status no_cliente
+    const { data: itens } = await supabase
+      .from("itens_recolhimento")
+      .select("extintor_id")
+      .in("ordem_id", ordemIds);
+
+    const extIds = (itens || []).map((i) => i.extintor_id).filter(Boolean);
+
+    if (extIds.length > 0) {
+      await supabase
+        .from("extintores")
+        .update({ status: "no_cliente", updated_at: new Date().toISOString() })
+        .in("id", extIds);
+
+      await supabase
+        .from("extinguishers")
+        .update({ status: "Em uso", updated_at: new Date().toISOString() })
+        .in("id", extIds);
+    }
+
+    // 3. Remove bench_records (bancada)
+    await supabase.from("bench_records").delete().in("order_id", ordemIds);
+    await supabase.from("bench_records").delete().eq("lote_id", loteId);
+
+    // 4. Remove itens_recolhimento
+    await supabase.from("itens_recolhimento").delete().in("ordem_id", ordemIds);
+
+    // 5. Remove ordens_recolhimento
+    await supabase.from("ordens_recolhimento").delete().in("id", ordemIds);
+  }
+
+  // 6. Remove da tabela lotes_recolhimento
+  const { error } = await supabase.from("lotes_recolhimento").delete().eq("id", loteId);
+  if (error) {
+    console.error("Erro ao deletar lote_recolhimento no banco:", error);
+  }
+
+  // 7. Remove da persistência local se houver
+  try {
+    const locals = getLocalLotes();
+    const updated = locals.filter((l) => l.id !== loteId);
+    saveLocalLotes(updated);
+  } catch {}
 }
 
 export async function updateLoteStatus(

@@ -37,6 +37,7 @@ import {
   Share2,
   DollarSign,
   Receipt,
+  Trash2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { LoteRecolhimento, OrdemRecolhimento, LoteRecolhimentoStatus } from "@/types";
@@ -52,6 +53,7 @@ interface LoteDetailViewProps {
   onBack: () => void;
   onRefresh?: () => void;
   onEdit?: () => void;
+  onDelete?: () => void;
 }
 
 export function LoteDetailView({
@@ -59,6 +61,7 @@ export function LoteDetailView({
   onBack,
   onRefresh,
   onEdit,
+  onDelete,
 }: LoteDetailViewProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -213,6 +216,19 @@ export function LoteDetailView({
           {onEdit && (
             <Button variant="secondary" size="sm" onClick={onEdit}>
               Editar Lote
+            </Button>
+          )}
+
+          {onDelete && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onDelete}
+              className="gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+              title="Excluir Lote e Devolver Extintores ao Cliente"
+            >
+              <Trash2 className="h-4 w-4" />
+              Excluir Lote
             </Button>
           )}
         </div>
