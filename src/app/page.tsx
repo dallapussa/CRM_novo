@@ -11,7 +11,7 @@ function HomeRedirect() {
     const code = searchParams.get("code");
     if (code) {
       const next = searchParams.get("next") || "/dashboard";
-      router.replace(`/auth/callback?code=${encodeURIComponent(code)}&next=${encodeURIComponent(next)}`);
+      window.location.href = `/auth/callback?code=${encodeURIComponent(code)}&next=${encodeURIComponent(next)}`;
       return;
     }
     router.replace("/login");

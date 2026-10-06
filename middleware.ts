@@ -67,6 +67,16 @@ function isPublicRoute(pathname: string): boolean {
 
 export async function middleware(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;
+
+  // Se a autenticação OAuth retornar na raiz com ?code=, redireciona imediatamente para o handler de callback
+  if (pathname === "/" && searchParams.has("code")) {
+    const callbackUrl = new URL("/auth/callback", request.url);
+    searchParams.forEach((value, key) => {
+      callbackUrl.searchParams.set(key, value);
+    });
+    return NextResponse.redirect(callbackUrl);
+  }
+
   let response = NextResponse.next({ request: { headers: request.headers } });
 
   const supabase = createServerClient(
