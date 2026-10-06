@@ -1338,7 +1338,7 @@ export async function getExpiringItems(): Promise<{
   // 1. Busca Extintores
   const { data: extintores } = await supabase
     .from("extintores")
-    .select("id, client_id, identificacao, tipo_capacidade, localizacao, data_vencimento, status, client:client_id(id, razao_social, nome_fantasia, cpf_cnpj, endereco, telefone, telefone2, observacoes)");
+    .select("id, client_id, identificacao, tipo_capacidade, localizacao, data_vencimento, status, client:client_id(id, razao_social, nome_fantasia, cnpj, document, address_street, address_number, address_neighborhood, address_city, telefone, telefone2, observacoes)");
 
   if (extintores && extintores.length > 0) {
     for (const e of extintores) {
@@ -1366,8 +1366,16 @@ export async function getExpiringItems(): Promise<{
         cliente_nome: (e.client as any)?.razao_social || "Cliente",
         cliente_fantasia: (e.client as any)?.nome_fantasia || undefined,
         cliente_telefone: extractPhone(e.client),
-        cliente_documento: (e.client as any)?.cpf_cnpj || undefined,
-        cliente_endereco: (e.client as any)?.endereco || undefined,
+        cliente_documento: (e.client as any)?.cnpj || (e.client as any)?.document || undefined,
+        cliente_endereco:
+          [
+            (e.client as any)?.address_street,
+            (e.client as any)?.address_number,
+            (e.client as any)?.address_neighborhood,
+            (e.client as any)?.address_city,
+          ]
+            .filter(Boolean)
+            .join(", ") || undefined,
         categoria: "Extintores",
         item_nome: `${e.identificacao} (${e.tipo_capacidade})`,
         subtipo: e.tipo_capacidade || "Extintor",
