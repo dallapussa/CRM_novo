@@ -18,6 +18,7 @@ import {
   ArrowUpDown,
   RefreshCw,
   Loader2,
+  Truck,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,16 +39,26 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getExpiringItems, VencimentoItem } from "@/services/prevention.service";
+import { getExpiringItems, listClientExtintores, VencimentoItem } from "@/services/prevention.service";
 import { ClientTechSheetModal } from "@/components/clients/client-tech-sheet-modal";
+import { OrderPickupModal } from "@/components/clients/order-pickup-modal";
 import { getClient } from "@/services/clients.service";
-import type { Customer } from "@/types";
+import { useToast } from "@/hooks/use-toast";
+import type { Customer, ExtintorInventario } from "@/types";
 
 export default function VencimentosPage() {
+  const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [periodFilter, setPeriodFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [techSheetTab, setTechSheetTab] = useState<"extintores" | "ppci">("extintores");
+
+  // Estados da Ordem de Recolhimento
+  const [isPickupOpen, setIsPickupOpen] = useState(false);
+  const [pickupCustomer, setPickupCustomer] = useState<Customer | null>(null);
+  const [pickupExtintores, setPickupExtintores] = useState<ExtintorInventario[]>([]);
+  const [loadingPickupId, setLoadingPickupId] = useState<string | null>(null);
 
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ["expiring-items"],
@@ -77,12 +88,64 @@ export default function VencimentosPage() {
     return true;
   });
 
-  async function handleOpenClientTechSheet(clientId: string) {
+  async function handleOpenClientTechSheet(clientId: string, tab: "extintores" | "ppci" = "extintores") {
     try {
       const client = await getClient(clientId);
-      if (client) setSelectedCustomer(client);
+      if (client) {
+        setTechSheetTab(tab);
+        setSelectedCustomer(client);
+      }
     } catch {
       //
+    }
+  }
+
+  async function handleRecolherExtintor(item: VencimentoItem) {
+    setLoadingPickupId(item.id);
+    try {
+      const client = await getClient(item.cliente_id);
+      if (!client) {
+        toast({
+          variant: "destructive",
+          title: "Cliente não localizado",
+          description: "Não foi possível carregar os dados deste cliente.",
+        });
+        return;
+      }
+
+      const clientExtintores = await listClientExtintores(item.cliente_id);
+      if (!clientExtintores || clientExtintores.length === 0) {
+        toast({
+          variant: "destructive",
+          title: "Nenhum extintor no inventário",
+          description: "Cadastre extintores para este cliente na Ficha Técnica antes de recolher.",
+        });
+        return;
+      }
+
+      // Procura o extintor específico vencido
+      let target = clientExtintores.find(
+        (e) => e.id === item.extintor_id || e.id === item.id
+      );
+
+      if (!target) {
+        const cleanName = item.item_nome.split(" (")[0].trim().toLowerCase();
+        target = clientExtintores.find(
+          (e) => e.identificacao.toLowerCase() === cleanName
+        );
+      }
+
+      setPickupCustomer(client);
+      setPickupExtintores(target ? [target] : [clientExtintores[0]]);
+      setIsPickupOpen(true);
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao iniciar recolhimento",
+        description: err?.message || "Tente novamente.",
+      });
+    } finally {
+      setLoadingPickupId(null);
     }
   }
 
@@ -313,7 +376,12 @@ export default function VencimentosPage() {
                         <TableCell>
                           <button
                             type="button"
-                            onClick={() => handleOpenClientTechSheet(item.cliente_id)}
+                            onClick={() =>
+                              handleOpenClientTechSheet(
+                                item.cliente_id,
+                                item.categoria === "PPCI" ? "ppci" : "extintores"
+                              )
+                            }
                             className="text-left font-bold text-neutral-900 dark:text-neutral-100 hover:text-red-600 transition-colors"
                           >
                             {item.cliente_nome}
@@ -380,29 +448,64 @@ export default function VencimentosPage() {
                           )}
                         </TableCell>
 
-                        {/* Botão Enviar WhatsApp */}
+                        {/* Ações: Recolher Extintor, Editar PPCI, Enviar WhatsApp */}
                         <TableCell className="text-right">
-                          {item.cliente_telefone ? (
-                            <Button
-                              asChild
-                              size="sm"
-                              className="h-8 px-2.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold gap-1.5 shadow-sm"
-                              title="Enviar aviso pré-configurado no WhatsApp"
-                            >
-                              <a
-                                href={generateWhatsAppUrl(item)}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                          <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                            {item.categoria === "Extintores" && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => handleRecolherExtintor(item)}
+                                disabled={loadingPickupId === item.id}
+                                className="h-8 px-2.5 text-xs bg-orange-600 hover:bg-orange-700 text-white font-semibold gap-1.5 shadow-sm"
+                                title="Abrir Ordem de Recolhimento para Oficina / Bancada"
                               >
-                                <MessageCircle className="h-3.5 w-3.5" />
-                                Enviar WhatsApp
-                              </a>
-                            </Button>
-                          ) : (
-                            <span className="text-xs text-muted-foreground italic">
-                              Sem telefone
-                            </span>
-                          )}
+                                {loadingPickupId === item.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Truck className="h-3.5 w-3.5" />
+                                )}
+                                Recolher
+                              </Button>
+                            )}
+
+                            {item.categoria === "PPCI" && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleOpenClientTechSheet(item.cliente_id, "ppci")}
+                                className="h-8 px-2.5 text-xs border-amber-300 text-amber-800 hover:bg-amber-50 dark:hover:bg-amber-950/30 font-semibold gap-1.5 shadow-sm"
+                                title="Editar PPCI e Alvará do Cliente"
+                              >
+                                <ShieldCheck className="h-3.5 w-3.5 text-amber-600" />
+                                Editar PPCI
+                              </Button>
+                            )}
+
+                            {item.cliente_telefone ? (
+                              <Button
+                                asChild
+                                size="sm"
+                                variant="outline"
+                                className="h-8 px-2.5 text-xs text-emerald-700 border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 font-semibold gap-1.5 shadow-sm"
+                                title="Enviar aviso pré-configurado no WhatsApp"
+                              >
+                                <a
+                                  href={generateWhatsAppUrl(item)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <MessageCircle className="h-3.5 w-3.5 text-emerald-600" />
+                                  WhatsApp
+                                </a>
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-muted-foreground italic px-1">
+                                Sem telefone
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
@@ -414,12 +517,28 @@ export default function VencimentosPage() {
         </CardContent>
       </Card>
 
-      {/* Modal Ficha Técnica acionado ao clicar no cliente */}
+      {/* Modal Ficha Técnica acionado ao clicar no cliente ou Editar PPCI */}
       {selectedCustomer && (
         <ClientTechSheetModal
           open={!!selectedCustomer}
           onOpenChange={(o) => !o && setSelectedCustomer(null)}
           customer={selectedCustomer}
+          initialTab={techSheetTab}
+          onCustomerUpdated={() => refetch()}
+        />
+      )}
+
+      {/* Modal de Ordem de Recolhimento acionado pelo botão Recolher */}
+      {isPickupOpen && pickupCustomer && (
+        <OrderPickupModal
+          open={isPickupOpen}
+          onOpenChange={setIsPickupOpen}
+          customer={pickupCustomer}
+          selectedExtintores={pickupExtintores}
+          onSuccess={() => {
+            refetch();
+            setIsPickupOpen(false);
+          }}
         />
       )}
     </div>

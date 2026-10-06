@@ -936,6 +936,7 @@ export async function confirmClientDevolucao(ordemId: string): Promise<{ success
 
 export interface VencimentoItem {
   id: string;
+  extintor_id?: string;
   cliente_id: string;
   cliente_nome: string;
   cliente_telefone?: string | null;
@@ -964,10 +965,22 @@ export async function getExpiringItems(): Promise<{
 
   const allItems: VencimentoItem[] = [];
 
+  function extractPhone(clientObj: any): string | null {
+    if (!clientObj) return null;
+    let phone = clientObj.telefone || clientObj.telefone2 || null;
+    if (clientObj.observacoes && clientObj.observacoes.includes("[EXTIN_META]")) {
+      try {
+        const meta = JSON.parse(clientObj.observacoes.match(/\[EXTIN_META\]([\s\S]*?)\[\/EXTIN_META\]/)?.[1] || "{}");
+        if (meta.whatsapp) phone = meta.whatsapp;
+      } catch {}
+    }
+    return phone;
+  }
+
   // 1. Busca Extintores
   const { data: extintores } = await supabase
     .from("extintores")
-    .select("id, client_id, identificacao, tipo_capacidade, localizacao, data_vencimento, client:client_id(id, razao_social, telefone, telefone2, whatsapp)");
+    .select("id, client_id, identificacao, tipo_capacidade, localizacao, data_vencimento, status, client:client_id(id, razao_social, telefone, telefone2, observacoes)");
 
   if (extintores && extintores.length > 0) {
     for (const e of extintores) {
@@ -977,8 +990,8 @@ export async function getExpiringItems(): Promise<{
       const diasRestantes = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
       let status: "vencido" | "mes_atual" | "proximo_mes" | "em_dia" = "em_dia";
-      if (dueDate < today) {
-        status = "vencido";
+      if (diasRestantes <= 0) {
+        status = "vencido"; // Vence hoje (0) ou já venceu (< 0)
       } else if (dueDate <= endOfMonth) {
         status = "mes_atual";
       } else if (dueDate <= endOfNextMonth) {
@@ -987,9 +1000,10 @@ export async function getExpiringItems(): Promise<{
 
       allItems.push({
         id: e.id,
+        extintor_id: e.id,
         cliente_id: e.client_id,
         cliente_nome: (e.client as any)?.razao_social || "Cliente",
-        cliente_telefone: (e.client as any)?.whatsapp || (e.client as any)?.telefone || (e.client as any)?.telefone2,
+        cliente_telefone: extractPhone(e.client),
         categoria: "Extintores",
         item_nome: `${e.identificacao} (${e.tipo_capacidade})`,
         localizacao: e.localizacao,
@@ -1002,7 +1016,7 @@ export async function getExpiringItems(): Promise<{
     // Fallback: extinguishers legado
     const { data: legExt } = await supabase
       .from("extinguishers")
-      .select("id, client_id, patrimonio, tipo, capacidade, localizacao, expires_at, client:client_id(id, razao_social, telefone, telefone2, whatsapp)")
+      .select("id, client_id, patrimonio, tipo, capacidade, localizacao, expires_at, status, client:client_id(id, razao_social, telefone, telefone2, observacoes)")
       .is("deleted_at", null);
 
     if (legExt) {
@@ -1013,7 +1027,7 @@ export async function getExpiringItems(): Promise<{
         const diasRestantes = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
         let status: "vencido" | "mes_atual" | "proximo_mes" | "em_dia" = "em_dia";
-        if (dueDate < today) {
+        if (diasRestantes <= 0) {
           status = "vencido";
         } else if (dueDate <= endOfMonth) {
           status = "mes_atual";
@@ -1023,9 +1037,10 @@ export async function getExpiringItems(): Promise<{
 
         allItems.push({
           id: e.id,
+          extintor_id: e.id,
           cliente_id: e.client_id,
           cliente_nome: (e.client as any)?.razao_social || "Cliente",
-          cliente_telefone: (e.client as any)?.whatsapp || (e.client as any)?.telefone || (e.client as any)?.telefone2,
+          cliente_telefone: extractPhone(e.client),
           categoria: "Extintores",
           item_nome: `${e.patrimonio || "Extintor"} (${e.tipo} ${e.capacidade})`,
           localizacao: e.localizacao,
@@ -1040,7 +1055,7 @@ export async function getExpiringItems(): Promise<{
   // 2. Busca Mangueiras
   const { data: hoses } = await supabase
     .from("hoses")
-    .select("id, client_id, tipo, comprimento, localizacao, next_test_at, client:client_id(id, razao_social, telefone, telefone2, whatsapp)")
+    .select("id, client_id, tipo, comprimento, localizacao, next_test_at, client:client_id(id, razao_social, telefone, telefone2, observacoes)")
     .is("deleted_at", null);
 
   if (hoses) {
@@ -1051,7 +1066,7 @@ export async function getExpiringItems(): Promise<{
       const diasRestantes = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
       let status: "vencido" | "mes_atual" | "proximo_mes" | "em_dia" = "em_dia";
-      if (dueDate < today) {
+      if (diasRestantes <= 0) {
         status = "vencido";
       } else if (dueDate <= endOfMonth) {
         status = "mes_atual";
@@ -1063,7 +1078,7 @@ export async function getExpiringItems(): Promise<{
         id: h.id,
         cliente_id: h.client_id,
         cliente_nome: (h.client as any)?.razao_social || "Cliente",
-        cliente_telefone: (h.client as any)?.whatsapp || (h.client as any)?.telefone || (h.client as any)?.telefone2,
+        cliente_telefone: extractPhone(h.client),
         categoria: "Mangueiras",
         item_nome: `Mangueira ${h.tipo} (${h.comprimento}m)`,
         localizacao: h.localizacao,
@@ -1077,19 +1092,35 @@ export async function getExpiringItems(): Promise<{
   // 3. Busca PPCI dos clientes
   const { data: clientsWithPpci } = await supabase
     .from("clients")
-    .select("id, razao_social, telefone, telefone2, whatsapp, ppci_expires_at, ppci_number, ppci_isento")
-    .is("deleted_at", null)
-    .eq("ppci_isento", false);
+    .select("id, razao_social, telefone, telefone2, observacoes, ppci_expires_at, ppci_number, ppci_isento")
+    .is("deleted_at", null);
 
   if (clientsWithPpci) {
     for (const c of clientsWithPpci) {
-      if (!c.ppci_expires_at) continue;
-      const dueDate = new Date(c.ppci_expires_at + "T00:00:00");
+      // Extrai data e enquadramento de colunas ou de observações [EXTIN_META]
+      let dueDateStr = c.ppci_expires_at || null;
+      let enquadramento = "PPCI";
+      let ppciNumber = c.ppci_number || null;
+      let isIsento = Boolean(c.ppci_isento);
+
+      if (c.observacoes && c.observacoes.includes("[EXTIN_META]")) {
+        try {
+          const meta = JSON.parse(c.observacoes.match(/\[EXTIN_META\]([\s\S]*?)\[\/EXTIN_META\]/)?.[1] || "{}");
+          if (!dueDateStr && meta.ppci_expires_at) dueDateStr = meta.ppci_expires_at;
+          if (meta.ppci_enquadramento) enquadramento = meta.ppci_enquadramento;
+          if (!ppciNumber && meta.ppci_number) ppciNumber = meta.ppci_number;
+          if (meta.ppci_isento !== undefined) isIsento = meta.ppci_isento;
+        } catch {}
+      }
+
+      if (isIsento || !dueDateStr) continue;
+
+      const dueDate = new Date(dueDateStr + "T00:00:00");
       const diffTime = dueDate.getTime() - today.getTime();
       const diasRestantes = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
       let status: "vencido" | "mes_atual" | "proximo_mes" | "em_dia" = "em_dia";
-      if (dueDate < today) {
+      if (diasRestantes <= 0) {
         status = "vencido";
       } else if (dueDate <= endOfMonth) {
         status = "mes_atual";
@@ -1101,11 +1132,11 @@ export async function getExpiringItems(): Promise<{
         id: c.id,
         cliente_id: c.id,
         cliente_nome: c.razao_social,
-        cliente_telefone: c.whatsapp || c.telefone || c.telefone2,
+        cliente_telefone: extractPhone(c),
         categoria: "PPCI",
-        item_nome: `Alvará / PPCI nº ${c.ppci_number || "S/N"}`,
-        localizacao: "Edifício",
-        data_vencimento: c.ppci_expires_at,
+        item_nome: `Alvará / ${enquadramento} nº ${ppciNumber || "S/N"}`,
+        localizacao: "Edificação",
+        data_vencimento: dueDateStr,
         status_alerta: status,
         dias_restantes: diasRestantes,
       });

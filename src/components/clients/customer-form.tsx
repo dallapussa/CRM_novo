@@ -43,7 +43,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import type { Customer } from "@/types";
+import { type Customer, PPCI_ENQUADRAMENTO_OPTIONS } from "@/types";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useSaveClient } from "@/hooks/useClients";
@@ -62,6 +62,9 @@ const customerSchema = z.object({
   whatsapp: z.string().optional(),
   gov_password: z.string().optional(),
   ppci_isento: z.boolean().default(false),
+  ppci_enquadramento: z.string().optional(),
+  ppci_expires_at: z.string().optional(),
+  ppci_number: z.string().optional(),
   metragem: z.string().optional(),
   cpf_responsavel: z.string().optional(),
   contato_responsavel: z.string().optional(),
@@ -114,6 +117,9 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
     whatsapp: formatPhone(initialData?.whatsapp || ""),
     gov_password: initialData?.gov_password || initialData?.senha_gov || "",
     ppci_isento: initialData?.ppci_isento ?? false,
+    ppci_enquadramento: initialData?.ppci_enquadramento || "PSPCI (Plano Simplificado)",
+    ppci_expires_at: initialData?.ppci_expires_at ? initialData.ppci_expires_at.split("T")[0] : "",
+    ppci_number: initialData?.ppci_number || "",
     metragem: initialData?.metragem ? String(initialData.metragem) : "",
     cpf_responsavel: formatCPF(initialData?.cpf_responsavel || ""),
     contato_responsavel: formatPhone(initialData?.contato_responsavel || ""),
@@ -242,6 +248,9 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
         gov_password: values.senha_gov?.trim() || values.gov_password?.trim() || null,
         senha_gov: values.senha_gov?.trim() || values.gov_password?.trim() || null,
         ppci_isento: values.ppci_isento,
+        ppci_enquadramento: values.ppci_enquadramento?.trim() || null,
+        ppci_expires_at: values.ppci_expires_at ? values.ppci_expires_at : null,
+        ppci_number: values.ppci_number?.trim() || null,
         metragem: values.metragem ? parseFloat(values.metragem.replace(",", ".")) : null,
         cpf_responsavel: values.cpf_responsavel ? values.cpf_responsavel.replace(/\D/g, "") : null,
         contato_responsavel: values.contato_responsavel ? values.contato_responsavel.replace(/\D/g, "") : null,
@@ -715,6 +724,50 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
               </div>
             ) : (
               <div className="space-y-4 pt-1">
+                {/* Enquadramento, Vencimento e Nº Alvará */}
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ppci_enquadramento">Tipo de Enquadramento</Label>
+                    <Select
+                      value={values.ppci_enquadramento || "PSPCI (Plano Simplificado)"}
+                      onValueChange={(val) => setField("ppci_enquadramento", val)}
+                    >
+                      <SelectTrigger id="ppci_enquadramento" className="bg-white dark:bg-neutral-900">
+                        <SelectValue placeholder="Selecione o enquadramento" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PPCI_ENQUADRAMENTO_OPTIONS.map((opt) => (
+                          <SelectItem key={opt} value={opt}>
+                            {opt}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ppci_expires_at">Data de Vencimento do Alvará</Label>
+                    <Input
+                      id="ppci_expires_at"
+                      type="date"
+                      value={values.ppci_expires_at || ""}
+                      onChange={(e) => setField("ppci_expires_at", e.target.value)}
+                      className="bg-white dark:bg-neutral-900"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ppci_number">Nº Alvará / Protocolo</Label>
+                    <Input
+                      id="ppci_number"
+                      value={values.ppci_number || ""}
+                      onChange={(e) => setField("ppci_number", e.target.value)}
+                      placeholder="Ex: CBMRS-2024-9988"
+                      className="bg-white dark:bg-neutral-900"
+                    />
+                  </div>
+                </div>
+
                 <div className="grid gap-4 md:grid-cols-3">
                   <div className="space-y-1.5">
                     <Label htmlFor="metragem">Metragem da Edificação</Label>

@@ -11,6 +11,9 @@ interface ClientMeta {
   cpf_responsavel?: string | null;
   contato_responsavel?: string | null;
   senha_gov?: string | null;
+  ppci_expires_at?: string | null;
+  ppci_enquadramento?: string | null;
+  ppci_number?: string | null;
 }
 
 function parseClientMeta(observacoes?: string | null): { cleanNotes: string | null; meta: ClientMeta } {
@@ -43,6 +46,9 @@ function packClientObservacoes(
   if (ppciData?.cpf_responsavel !== undefined) metaObj.cpf_responsavel = ppciData.cpf_responsavel;
   if (ppciData?.contato_responsavel !== undefined) metaObj.contato_responsavel = ppciData.contato_responsavel;
   if (ppciData?.senha_gov !== undefined) metaObj.senha_gov = ppciData.senha_gov;
+  if (ppciData?.ppci_expires_at !== undefined) metaObj.ppci_expires_at = ppciData.ppci_expires_at;
+  if (ppciData?.ppci_enquadramento !== undefined) metaObj.ppci_enquadramento = ppciData.ppci_enquadramento;
+  if (ppciData?.ppci_number !== undefined) metaObj.ppci_number = ppciData.ppci_number;
 
   if (Object.keys(metaObj).length === 0) {
     return baseNotes || null;
@@ -69,6 +75,9 @@ function mapClient(row: Record<string, any>): Customer {
   const cpf_responsavel = row.cpf_responsavel || meta.cpf_responsavel || null;
   const contato_responsavel = row.contato_responsavel || meta.contato_responsavel || null;
   const senha_gov = row.senha_gov || meta.senha_gov || gov_password;
+  const ppci_expires_at = row.ppci_expires_at || meta.ppci_expires_at || null;
+  const ppci_enquadramento = row.ppci_enquadramento || meta.ppci_enquadramento || (ppci_isento ? "Isento de PPCI" : "PSPCI (Plano Simplificado)");
+  const ppci_number = row.ppci_number || meta.ppci_number || null;
 
   return {
     id: row.id,
@@ -89,6 +98,9 @@ function mapClient(row: Record<string, any>): Customer {
     cpf_responsavel,
     contato_responsavel,
     senha_gov,
+    ppci_expires_at,
+    ppci_enquadramento,
+    ppci_number,
     created_by: row.created_by ?? "",
     owner_id: row.owner_id,
     created_at: row.created_at,
@@ -124,14 +136,20 @@ function clientRow(input: Partial<ClientInput>) {
     row.senha_gov = input.senha_gov || input.gov_password;
     row.gov_password = input.senha_gov || input.gov_password;
   }
+  if (input.ppci_expires_at !== undefined) row.ppci_expires_at = input.ppci_expires_at;
+  if (input.ppci_enquadramento !== undefined) row.ppci_enquadramento = input.ppci_enquadramento;
+  if (input.ppci_number !== undefined) row.ppci_number = input.ppci_number;
 
   // Notas com metadados estruturados (PPCI, WhatsApp e Senha GOV.BR)
-  const ppciMeta = {
+  const ppciMeta: Partial<ClientMeta> = {
     ppci_isento: input.ppci_isento,
     metragem: input.metragem,
     cpf_responsavel: input.cpf_responsavel,
     contato_responsavel: input.contato_responsavel,
     senha_gov: input.senha_gov || input.gov_password,
+    ppci_expires_at: input.ppci_expires_at,
+    ppci_enquadramento: input.ppci_enquadramento,
+    ppci_number: input.ppci_number,
   };
   row.observacoes = packClientObservacoes(
     input.notes,
@@ -263,4 +281,34 @@ export async function getClientDashboardData(id: string) {
     openInvoicesCount: invoices.filter((invoice) => ["Pendente", "Parcial", "Atrasado"].includes(invoice.status)).length,
     totalRevenue: (orderResult.data || []).reduce((total, order) => total + Number(order.total || 0), 0),
   };
+}
+
+export async function saveClientPpci(
+  clientId: string,
+  data: {
+    ppci_isento?: boolean;
+    ppci_expires_at?: string | null;
+    ppci_enquadramento?: string | null;
+    ppci_number?: string | null;
+    metragem?: number | null;
+    cpf_responsavel?: string | null;
+    contato_responsavel?: string | null;
+    senha_gov?: string | null;
+  }
+): Promise<Customer> {
+  await saveClient(
+    {
+      ppci_isento: data.ppci_isento,
+      ppci_expires_at: data.ppci_expires_at,
+      ppci_enquadramento: data.ppci_enquadramento,
+      ppci_number: data.ppci_number,
+      metragem: data.metragem,
+      cpf_responsavel: data.cpf_responsavel,
+      contato_responsavel: data.contato_responsavel,
+      senha_gov: data.senha_gov,
+    },
+    clientId
+  );
+
+  return getClient(clientId);
 }

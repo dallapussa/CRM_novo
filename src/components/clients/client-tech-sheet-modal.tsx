@@ -50,15 +50,27 @@ import {
 } from "@/services/prevention.service";
 import { formatCurrency, formatDocument, formatPhone } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { OrderPickupModal } from "./order-pickup-modal";
 import { ClientDragDropUploader } from "./client-drag-drop-uploader";
 import { LabelPrinterDialog, LabelTarget } from "@/components/labels/label-printer-dialog";
+import { saveClientPpci } from "@/services/clients.service";
+import { PPCI_ENQUADRAMENTO_OPTIONS } from "@/types";
 
 interface ClientTechSheetModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   customer: Customer | null;
   onCustomerUpdated?: () => void;
+  initialTab?: TabKey;
 }
 
 type TabKey =
@@ -74,12 +86,83 @@ export function ClientTechSheetModal({
   onOpenChange,
   customer,
   onCustomerUpdated,
+  initialTab = "extintores",
 }: ClientTechSheetModalProps) {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<TabKey>("extintores");
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
+
+  useEffect(() => {
+    if (open && initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [open, initialTab]);
   const [extintores, setExtintores] = useState<ExtintorInventario[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(false);
+
+  // Estados de Edição do PPCI
+  const [ppciIsento, setPpciIsento] = useState<boolean>(customer?.ppci_isento ?? false);
+  const [ppciEnquadramento, setPpciEnquadramento] = useState<string>(
+    customer?.ppci_enquadramento || (customer?.ppci_isento ? "Isento de PPCI" : "PSPCI (Plano Simplificado)")
+  );
+  const [ppciExpiresAt, setPpciExpiresAt] = useState<string>(customer?.ppci_expires_at || "");
+  const [ppciNumber, setPpciNumber] = useState<string>(customer?.ppci_number || "");
+  const [ppciMetragem, setPpciMetragem] = useState<string>(customer?.metragem ? String(customer.metragem) : "");
+  const [ppciCpf, setPpciCpf] = useState<string>(customer?.cpf_responsavel || "");
+  const [ppciContato, setPpciContato] = useState<string>(customer?.contato_responsavel || "");
+  const [ppciSenhaGov, setPpciSenhaGov] = useState<string>(customer?.senha_gov || "");
+  const [isSavingPpci, setIsSavingPpci] = useState(false);
+
+  useEffect(() => {
+    if (customer) {
+      setPpciIsento(customer.ppci_isento ?? false);
+      setPpciEnquadramento(
+        customer.ppci_enquadramento || (customer.ppci_isento ? "Isento de PPCI" : "PSPCI (Plano Simplificado)")
+      );
+      setPpciExpiresAt(customer.ppci_expires_at || "");
+      setPpciNumber(customer.ppci_number || "");
+      setPpciMetragem(customer.metragem ? String(customer.metragem) : "");
+      setPpciCpf(customer.cpf_responsavel || "");
+      setPpciContato(customer.contato_responsavel || "");
+      setPpciSenhaGov(customer.senha_gov || "");
+    }
+  }, [customer]);
+
+  async function handleSavePpci() {
+    if (!customer) return;
+    setIsSavingPpci(true);
+    try {
+      await saveClientPpci(customer.id, {
+        ppci_isento: ppciIsento,
+        ppci_enquadramento: ppciEnquadramento,
+        ppci_expires_at: ppciExpiresAt || null,
+        ppci_number: ppciNumber.trim() || null,
+        metragem: ppciMetragem ? Number(ppciMetragem) : null,
+        cpf_responsavel: ppciCpf.trim() || null,
+        contato_responsavel: ppciContato.trim() || null,
+        senha_gov: ppciSenhaGov.trim() || null,
+      });
+
+      toast({
+        variant: "success",
+        title: "Dados do PPCI atualizados!",
+        description: `Enquadramento: ${ppciEnquadramento}. Vencimento: ${ppciExpiresAt ? new Date(ppciExpiresAt + "T12:00:00").toLocaleDateString("pt-BR") : "Não definido"}.`,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ["expiring-items"] });
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      onCustomerUpdated?.();
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao salvar PPCI",
+        description: err.message || "Tente novamente.",
+      });
+    } finally {
+      setIsSavingPpci(false);
+    }
+  }
 
   // Modais Secundários
   const [isPickupOpen, setIsPickupOpen] = useState(false);
@@ -733,72 +816,222 @@ export function ClientTechSheetModal({
             )}
 
             {/* ========================================================================= */}
-            {/* TAB 2: PPCI & ALVARÁ */}
+            {/* TAB 2: PPCI & ALVARÁ (EDITÁVEL) */}
             {/* ========================================================================= */}
             {activeTab === "ppci" && (
               <div className="space-y-4">
-                <div className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm space-y-4">
-                  <div className="flex items-center justify-between border-b pb-4">
+                <div className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm space-y-5">
+                  {/* Cabeçalho do PPCI com Status Dinâmico */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4">
                     <div>
-                      <h3 className="text-base font-bold text-neutral-900 dark:text-neutral-100">
-                        Status do PPCI (Plano de Prevenção Contra Incêndio)
+                      <h3 className="text-base font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
+                        <ShieldCheck className="h-5 w-5 text-amber-600" />
+                        Gestão do PPCI & Alvará do Corpo de Bombeiros
                       </h3>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        Informações técnicas perante o Corpo de Bombeiros Militar
+                        Edite o tipo de enquadramento, data de validade e credenciais técnicas deste cliente.
                       </p>
                     </div>
-                    {customer.ppci_isento ? (
-                      <Badge className="bg-emerald-600 text-white font-bold px-3 py-1">
-                        Isento de PPCI
-                      </Badge>
-                    ) : (
-                      <Badge className="bg-amber-500 text-white font-bold px-3 py-1">
-                        PPCI Obrigatório
-                      </Badge>
-                    )}
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {ppciIsento ? (
+                        <Badge className="bg-emerald-600 text-white font-bold px-3 py-1">
+                          Isento de PPCI
+                        </Badge>
+                      ) : (
+                        <>
+                          <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 font-semibold px-2.5 py-1 text-xs">
+                            {ppciEnquadramento || "PPCI Obrigatório"}
+                          </Badge>
+                          {ppciExpiresAt ? (
+                            (() => {
+                              const today = new Date();
+                              today.setHours(0, 0, 0, 0);
+                              const expDate = new Date(ppciExpiresAt + "T00:00:00");
+                              const diff = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                              if (diff < 0) {
+                                return (
+                                  <Badge className="bg-red-600 text-white font-bold px-2.5 py-1 text-xs">
+                                    Vencido há {Math.abs(diff)} dias
+                                  </Badge>
+                                );
+                              } else if (diff === 0) {
+                                return (
+                                  <Badge className="bg-red-600 text-white font-bold px-2.5 py-1 text-xs animate-pulse">
+                                    Vence HOJE!
+                                  </Badge>
+                                );
+                              } else if (diff <= 30) {
+                                return (
+                                  <Badge className="bg-amber-500 text-white font-bold px-2.5 py-1 text-xs">
+                                    Vence em {diff} dias
+                                  </Badge>
+                                );
+                              }
+                              return (
+                                <Badge className="bg-emerald-600 text-white font-bold px-2.5 py-1 text-xs">
+                                  Em dia ({diff} dias)
+                                </Badge>
+                              );
+                            })()
+                          ) : (
+                            <Badge variant="outline" className="text-xs text-muted-foreground">
+                              Sem vencimento definido
+                            </Badge>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
 
-                  {customer.ppci_isento ? (
-                    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-sm">
-                      ✅ Este cliente está classificado como <strong>Isento</strong> de elaboração de PPCI.
+                  {/* Toggle de Isenção */}
+                  <div className="flex items-center justify-between p-3.5 bg-neutral-50 dark:bg-neutral-800/50 rounded-xl border">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="ppci_isento_toggle" className="text-xs font-bold text-foreground cursor-pointer">
+                        Cliente classificado como ISENTO de elaboração de PPCI?
+                      </Label>
+                      <p className="text-[11px] text-muted-foreground">
+                        Marque se o imóvel possui dispensa perante o Corpo de Bombeiros.
+                      </p>
                     </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="p-4 bg-neutral-50 dark:bg-neutral-800/50 rounded-xl space-y-1">
-                        <span className="text-xs text-muted-foreground font-semibold">Metragem da Edificação</span>
-                        <p className="text-lg font-extrabold text-neutral-900 dark:text-neutral-100">
-                          {customer.metragem ? `${customer.metragem} m²` : "Não informada"}
-                        </p>
+                    <Switch
+                      id="ppci_isento_toggle"
+                      checked={ppciIsento}
+                      onCheckedChange={(checked) => {
+                        setPpciIsento(checked);
+                        if (checked) {
+                          setPpciEnquadramento("Isento de PPCI");
+                        } else if (ppciEnquadramento === "Isento de PPCI") {
+                          setPpciEnquadramento("PSPCI (Plano Simplificado)");
+                        }
+                      }}
+                    />
+                  </div>
+
+                  {/* Grid de Campos Técnicos Editáveis */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Tipo de Enquadramento */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold text-foreground">
+                        Tipo de Enquadramento do PPCI
+                      </Label>
+                      <Select
+                        value={ppciEnquadramento}
+                        onValueChange={(val) => setPpciEnquadramento(val)}
+                        disabled={ppciIsento}
+                      >
+                        <SelectTrigger className="h-9 text-xs">
+                          <SelectValue placeholder="Selecione o enquadramento" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PPCI_ENQUADRAMENTO_OPTIONS.map((opt) => (
+                            <SelectItem key={opt} value={opt}>
+                              {opt}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-[10px] text-muted-foreground">
+                        Classificação técnica do Corpo de Bombeiros
+                      </p>
+                    </div>
+
+                    {/* Data de Vencimento do Alvará / PPCI */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold text-foreground flex items-center justify-between">
+                        <span>Data de Vencimento do Alvará</span>
+                        {ppciExpiresAt && (
+                          <span className="text-[11px] font-mono text-red-600">
+                            {new Date(ppciExpiresAt + "T12:00:00").toLocaleDateString("pt-BR")}
+                          </span>
+                        )}
+                      </Label>
+                      <Input
+                        type="date"
+                        value={ppciExpiresAt}
+                        onChange={(e) => setPpciExpiresAt(e.target.value)}
+                        disabled={ppciIsento}
+                        className="h-9 text-xs"
+                      />
+                      <p className="text-[10px] text-muted-foreground">
+                        Alimentará os alertas do Dashboard de Vencimentos
+                      </p>
+                    </div>
+
+                    {/* Número do Alvará / Protocolo */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold text-foreground">
+                        Nº Alvará / Protocolo CBMRS
+                      </Label>
+                      <Input
+                        value={ppciNumber}
+                        onChange={(e) => setPpciNumber(e.target.value)}
+                        placeholder="Ex: 12345/2026"
+                        disabled={ppciIsento}
+                        className="h-9 text-xs"
+                      />
+                      <p className="text-[10px] text-muted-foreground">
+                        Identificador oficial do processo
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Campos Complementares se Não For Isento */}
+                  {!ppciIsento && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold">Metragem da Edificação</Label>
+                        <div className="relative">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={ppciMetragem}
+                            onChange={(e) => setPpciMetragem(e.target.value)}
+                            placeholder="Ex: 350.50"
+                            className="h-9 text-xs pr-10"
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-muted-foreground">
+                            m²
+                          </span>
+                        </div>
                       </div>
 
-                      <div className="p-4 bg-neutral-50 dark:bg-neutral-800/50 rounded-xl space-y-1">
-                        <span className="text-xs text-muted-foreground font-semibold">Responsável pelo PPCI</span>
-                        <p className="text-base font-bold text-neutral-900 dark:text-neutral-100">
-                          {customer.cpf_responsavel ? `CPF: ${customer.cpf_responsavel}` : "Não informado"}
-                        </p>
-                        {customer.contato_responsavel && (
-                          <p className="text-xs text-muted-foreground">
-                            Contato: {customer.contato_responsavel}
-                          </p>
-                        )}
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold">CPF do Responsável</Label>
+                        <Input
+                          value={ppciCpf}
+                          onChange={(e) => setPpciCpf(e.target.value)}
+                          placeholder="000.000.000-00"
+                          className="h-9 text-xs"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold">Contato do Responsável</Label>
+                        <Input
+                          value={ppciContato}
+                          onChange={(e) => setPpciContato(e.target.value)}
+                          placeholder="(00) 00000-0000"
+                          className="h-9 text-xs"
+                        />
                       </div>
                     </div>
                   )}
 
                   {/* Senha GOV.BR */}
-                  {customer.senha_gov && (
-                    <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
-                          <ShieldCheck className="h-4 w-4 text-amber-600" />
-                          Senha de Acesso ao Portal GOV.BR
-                        </Label>
+                  <div className="p-3.5 bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                        <ShieldCheck className="h-4 w-4 text-amber-600" />
+                        Senha de Acesso ao Portal GOV.BR (Bombeiros / SISBOM)
+                      </Label>
+                      {ppciSenhaGov && (
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
                           onClick={() => {
-                            navigator.clipboard.writeText(customer.senha_gov || "");
+                            navigator.clipboard.writeText(ppciSenhaGov);
                             setCopiedGov(true);
                             toast({ variant: "success", title: "Senha copiada!" });
                             setTimeout(() => setCopiedGov(false), 2000);
@@ -808,19 +1041,44 @@ export function ClientTechSheetModal({
                           {copiedGov ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
                           Copiar Senha
                         </Button>
-                      </div>
-                      <div className="flex items-center gap-2 font-mono text-sm bg-white dark:bg-neutral-900 p-2.5 rounded-lg border border-amber-200">
-                        <span>{showGovPassword ? customer.senha_gov : "••••••••••••"}</span>
-                        <button
-                          type="button"
-                          onClick={() => setShowGovPassword(!showGovPassword)}
-                          className="ml-auto text-muted-foreground hover:text-foreground p-1"
-                        >
-                          {showGovPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
+                      )}
                     </div>
-                  )}
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type={showGovPassword ? "text" : "password"}
+                        value={ppciSenhaGov}
+                        onChange={(e) => setPpciSenhaGov(e.target.value)}
+                        placeholder="Insira a senha do portal GOV para tramitação..."
+                        className="h-9 text-xs font-mono bg-white dark:bg-neutral-900"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowGovPassword(!showGovPassword)}
+                        className="h-9 px-3 shrink-0"
+                      >
+                        {showGovPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Botão de Salvar Alterações do PPCI */}
+                  <div className="pt-2 border-t flex justify-end">
+                    <Button
+                      type="button"
+                      onClick={handleSavePpci}
+                      disabled={isSavingPpci}
+                      className="bg-amber-600 hover:bg-amber-700 text-white font-bold gap-2 shadow-sm"
+                    >
+                      {isSavingPpci ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Save className="h-4 w-4" />
+                      )}
+                      Salvar Dados do PPCI
+                    </Button>
+                  </div>
                 </div>
               </div>
             )}

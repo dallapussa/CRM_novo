@@ -125,11 +125,23 @@ export interface Customer {
   cpf_responsavel?: string | null;
   contato_responsavel?: string | null;
   senha_gov?: string | null;
+  ppci_expires_at?: string | null;
+  ppci_enquadramento?: string | null;
+  ppci_number?: string | null;
   created_by: string;
   owner_id?: string | null;
   created_at?: string;
   updated_at?: string;
 }
+
+export const PPCI_ENQUADRAMENTO_OPTIONS = [
+  "PSPCI (Plano Simplificado)",
+  "CLCB (Certificado de Licença do Corpo de Bombeiros)",
+  "PPCI Completo",
+  "Alvará de Prevenção e Proteção",
+  "Isento de PPCI",
+  "Outro",
+] as const;
 
 export type OSStatus = "pendente" | "andamento" | "atrasada" | "concluida" | "cancelada";
 export interface ServiceOrder {

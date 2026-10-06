@@ -11,12 +11,18 @@ alter table public.clients add column if not exists metragem numeric(10,2);
 alter table public.clients add column if not exists cpf_responsavel varchar(20);
 alter table public.clients add column if not exists contato_responsavel varchar(30);
 alter table public.clients add column if not exists senha_gov varchar(100);
+alter table public.clients add column if not exists ppci_enquadramento text;
+alter table public.clients add column if not exists ppci_expires_at date;
+alter table public.clients add column if not exists ppci_number text;
 
 -- Tabela cliente_ppci (para gestão isolada ou integração)
 create table if not exists public.cliente_ppci (
   id uuid primary key default gen_random_uuid(),
   client_id uuid not null references public.clients(id) on delete cascade unique,
   ppci_isento boolean not null default false,
+  ppci_enquadramento text,
+  ppci_expires_at date,
+  ppci_number text,
   metragem numeric(10,2),
   cpf_responsavel varchar(20),
   contato_responsavel varchar(30),
