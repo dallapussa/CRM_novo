@@ -278,11 +278,13 @@ export async function batchAddExtintores(
   count: number,
   tipoCapacidade: string,
   valorServico: number,
-  localizacao?: string
+  localizacao?: string,
+  dataVencimento?: string,
+  dataUltimaRecarga?: string
 ): Promise<void> {
   const supabase = createClient();
-  const today = new Date().toISOString().split("T")[0];
-  const nextYear = new Date(Date.now() + 365 * 86400000).toISOString().split("T")[0];
+  const today = dataUltimaRecarga || new Date().toISOString().split("T")[0];
+  const nextYear = dataVencimento || new Date(Date.now() + 365 * 86400000).toISOString().split("T")[0];
 
   // Pega extintores existentes para continuar a numeração
   const existing = await listClientExtintores(clientId);
@@ -453,6 +455,78 @@ export async function createOrdemRecolhimento(
       .from("extinguishers")
       .update({ status: "em_bancada", updated_at: new Date().toISOString() })
       .in("id", extintorIds);
+
+    // 4. Cria os registros na tabela bench_records para o fluxo de Bancada (Kanban da oficina)
+    try {
+      const { data: clientData } = await supabase
+        .from("clients")
+        .select("id, razao_social, nome_fantasia, company_id")
+        .eq("id", input.clientId)
+        .maybeSingle();
+
+      let companyId = clientData?.company_id;
+      if (!companyId && user?.id) {
+        const { data: profile } = await supabase
+          .from("user_profiles")
+          .select("company_id")
+          .eq("id", user.id)
+          .maybeSingle();
+        companyId = profile?.company_id;
+      }
+      if (!companyId) {
+        const { data: firstComp } = await supabase.from("companies").select("id").limit(1).maybeSingle();
+        companyId = firstComp?.id;
+      }
+
+      const { data: extintoresData } = await supabase
+        .from("extintores")
+        .select("id, identificacao, tipo_capacidade, localizacao, valor_servico")
+        .in("id", extintorIds);
+
+      const extMap = new Map((extintoresData || []).map((e) => [e.id, e]));
+      const customerName = clientData?.razao_social || clientData?.nome_fantasia || "Cliente";
+
+      if (companyId) {
+        const benchRows = input.itens.map((it) => {
+          const ext = extMap.get(it.extintorId);
+          return {
+            company_id: companyId,
+            client_id: input.clientId,
+            extinguisher_id: it.extintorId,
+            service_order_id: ordemId,
+            stage: "entrada",
+            priority: "media",
+            arrived_at: input.dataRecolhimento
+              ? new Date(input.dataRecolhimento + "T12:00:00").toISOString()
+              : new Date().toISOString(),
+            due_at: input.previsaoDevolucao
+              ? new Date(input.previsaoDevolucao + "T12:00:00").toISOString()
+              : null,
+            equip_type: ext?.tipo_capacidade?.split("-")[0]?.trim() || "Extintor",
+            equip_capacity: ext?.tipo_capacidade?.split("-")[1]?.trim() || ext?.tipo_capacidade || "4kg",
+            equip_serial: ext?.identificacao || "S/N",
+            customer_name: customerName,
+            notes: `OS de Recolhimento nº ${numeroOrdem}. Motivo: ${input.motivo}. Modalidade: ${it.modalidade}.${
+              input.deixouReserva ? ` Deixou reserva: ${input.detalhesReserva || "Sim"}.` : ""
+            } ${input.observacoes || ""}`.trim(),
+            created_by: user?.id || null,
+          };
+        });
+
+        const { error: insertErr } = await supabase.from("bench_records").insert(benchRows);
+        if (insertErr) {
+          // Fallback se houver constraint FK apontando para tabelas legadas
+          const fallbackRows = benchRows.map((r) => ({
+            ...r,
+            extinguisher_id: null,
+            service_order_id: null,
+          }));
+          await supabase.from("bench_records").insert(fallbackRows);
+        }
+      }
+    } catch (benchErr) {
+      console.warn("Falha ao registrar itens na bench_records:", benchErr);
+    }
   }
 
   return { id: ordemId, numero_ordem: numeroOrdem };

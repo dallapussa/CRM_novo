@@ -37,6 +37,8 @@ import {
   MapPin,
   Loader2,
   ExternalLink,
+  DollarSign,
+  Save,
 } from "lucide-react";
 import type { Customer, ExtintorInventario } from "@/types";
 import {
@@ -92,11 +94,33 @@ export function ClientTechSheetModal({
   const [identificacao, setIdentificacao] = useState<string>("");
   const [localizacao, setLocalizacao] = useState<string>("Recepção");
   const [valorServico, setValorServico] = useState<number>(45.0);
+  const [dataVencimento, setDataVencimento] = useState<string>("");
+  const [dataUltimaRecarga, setDataUltimaRecarga] = useState<string>("");
   const [isSubmittingExtintor, setIsSubmittingExtintor] = useState(false);
+
+  // Estados da Aba de Preços Bidirecional
+  const [priceInputs, setPriceInputs] = useState<Record<string, number>>({});
+  const [savingPriceId, setSavingPriceId] = useState<string | null>(null);
+  const [savedPriceIds, setSavedPriceIds] = useState<Set<string>>(new Set());
+  const [typePriceInputs, setTypePriceInputs] = useState<Record<string, number>>({});
 
   // Senha GOV toggle
   const [showGovPassword, setShowGovPassword] = useState(false);
   const [copiedGov, setCopiedGov] = useState(false);
+
+  useEffect(() => {
+    // Sincroniza priceInputs com os valores atuais dos extintores
+    const map: Record<string, number> = {};
+    const typeMap: Record<string, number> = {};
+    for (const ext of extintores) {
+      map[ext.id] = Number(ext.valor_servico) || 0;
+      if (typeMap[ext.tipo_capacidade] === undefined) {
+        typeMap[ext.tipo_capacidade] = Number(ext.valor_servico) || 0;
+      }
+    }
+    setPriceInputs(map);
+    setTypePriceInputs((prev) => ({ ...typeMap, ...prev }));
+  }, [extintores]);
 
   useEffect(() => {
     if (open && customer) {
@@ -209,7 +233,8 @@ export function ClientTechSheetModal({
           tipo_capacidade: tipoCapacidade,
           localizacao,
           valor_servico: valorServico,
-          data_vencimento: editingExtintor.data_vencimento,
+          data_ultima_recarga: dataUltimaRecarga || undefined,
+          data_vencimento: dataVencimento || editingExtintor.data_vencimento,
           status: editingExtintor.status,
         });
         toast({ variant: "success", title: "Extintor atualizado com sucesso." });
@@ -220,7 +245,9 @@ export function ClientTechSheetModal({
             batchCount,
             tipoCapacidade,
             valorServico,
-            localizacao
+            localizacao,
+            dataVencimento || undefined,
+            dataUltimaRecarga || undefined
           );
           toast({
             variant: "success",
@@ -233,6 +260,8 @@ export function ClientTechSheetModal({
             tipo_capacidade: tipoCapacidade,
             localizacao,
             valor_servico: valorServico,
+            data_ultima_recarga: dataUltimaRecarga || undefined,
+            data_vencimento: dataVencimento || undefined,
             status: "no_cliente",
           });
           toast({ variant: "success", title: "Extintor cadastrado com sucesso." });
@@ -241,6 +270,7 @@ export function ClientTechSheetModal({
       setIsAddExtintorOpen(false);
       setEditingExtintor(null);
       loadExtintores();
+      onCustomerUpdated?.();
     } catch (err: any) {
       toast({
         variant: "destructive",
@@ -258,18 +288,120 @@ export function ClientTechSheetModal({
     setTipoCapacidade(ext.tipo_capacidade);
     setLocalizacao(ext.localizacao || "");
     setValorServico(ext.valor_servico);
+    setDataUltimaRecarga(ext.data_ultima_recarga ? ext.data_ultima_recarga.split("T")[0] : "");
+    setDataVencimento(ext.data_vencimento ? ext.data_vencimento.split("T")[0] : "");
     setBatchCount(1);
     setIsAddExtintorOpen(true);
   }
 
   function openAddModal() {
+    const today = new Date().toISOString().split("T")[0];
+    const nextYear = new Date(Date.now() + 365 * 86400000).toISOString().split("T")[0];
     setEditingExtintor(null);
     setIdentificacao(`Extintor ${extintores.length + 1}`);
     setTipoCapacidade("PÓ ABC - 4kg");
     setLocalizacao("Recepção");
     setValorServico(45.0);
+    setDataUltimaRecarga(today);
+    setDataVencimento(nextYear);
     setBatchCount(1);
     setIsAddExtintorOpen(true);
+  }
+
+  // Preços Agrupados por Modelo
+  const groupedByType = useMemo(() => {
+    const map = new Map<string, { count: number; total: number; samplePrice: number }>();
+    for (const ext of extintores) {
+      const key = ext.tipo_capacidade || "Padrão";
+      const cur = map.get(key) || { count: 0, total: 0, samplePrice: Number(ext.valor_servico) || 0 };
+      cur.count += 1;
+      cur.total += Number(ext.valor_servico) || 0;
+      map.set(key, cur);
+    }
+    return Array.from(map.entries()).map(([tipo, data]) => ({
+      tipo,
+      count: data.count,
+      samplePrice: data.count > 0 ? data.total / data.count : 0,
+    }));
+  }, [extintores]);
+
+  // Salvar Preço Individual
+  async function handleSaveSinglePrice(extintorId: string) {
+    if (!customer) return;
+    const novoPreco = Number(priceInputs[extintorId]);
+    if (isNaN(novoPreco) || novoPreco < 0) {
+      toast({ variant: "destructive", title: "Valor inválido", description: "Informe um valor positivo." });
+      return;
+    }
+    setSavingPriceId(extintorId);
+    try {
+      await saveExtintor({
+        id: extintorId,
+        client_id: customer.id,
+        valor_servico: novoPreco,
+      });
+      setExtintores((prev) =>
+        prev.map((e) => (e.id === extintorId ? { ...e, valor_servico: novoPreco } : e))
+      );
+      setSavedPriceIds((prev) => new Set(prev).add(extintorId));
+      setTimeout(() => {
+        setSavedPriceIds((prev) => {
+          const next = new Set(prev);
+          next.delete(extintorId);
+          return next;
+        });
+      }, 2500);
+      toast({
+        variant: "success",
+        title: "Preço atualizado!",
+        description: `Novo valor: ${formatCurrency(novoPreco)}`,
+      });
+      onCustomerUpdated?.();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Erro ao salvar preço", description: err?.message });
+    } finally {
+      setSavingPriceId(null);
+    }
+  }
+
+  // Aplicar Preço a Todos de um Modelo
+  async function handleApplyPriceToType(tipo: string) {
+    if (!customer) return;
+    const preco = Number(typePriceInputs[tipo]);
+    if (isNaN(preco) || preco < 0) {
+      toast({ variant: "destructive", title: "Valor inválido", description: "Informe um valor positivo." });
+      return;
+    }
+    const targetExts = extintores.filter((e) => e.tipo_capacidade === tipo);
+    if (targetExts.length === 0) return;
+
+    try {
+      for (const ext of targetExts) {
+        await saveExtintor({
+          id: ext.id,
+          client_id: customer.id,
+          valor_servico: preco,
+        });
+      }
+      setExtintores((prev) =>
+        prev.map((e) => (e.tipo_capacidade === tipo ? { ...e, valor_servico: preco } : e))
+      );
+      setPriceInputs((prev) => {
+        const next = { ...prev };
+        for (const ext of targetExts) {
+          next[ext.id] = preco;
+        }
+        return next;
+      });
+      toast({
+        variant: "success",
+        title: "Preços do modelo atualizados!",
+        description: `Aplicado ${formatCurrency(preco)} para ${targetExts.length} extintor(es) do tipo ${tipo}.`,
+      });
+      onCustomerUpdated?.();
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Erro ao aplicar preços", description: err?.message });
+    }
   }
 
   if (!customer) return null;
@@ -696,25 +828,199 @@ export function ClientTechSheetModal({
             {/* ========================================================================= */}
             {/* TAB 3: PREÇOS */}
             {/* ========================================================================= */}
+            {/* TAB 3: PREÇOS (GESTÃO BIDIRECIONAL) */}
+            {/* ========================================================================= */}
             {activeTab === "precos" && (
-              <div className="p-6 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm space-y-4">
-                <h3 className="text-base font-bold text-neutral-900 dark:text-neutral-100">
-                  Tabela de Serviços & Recargas Acordadas
-                </h3>
-                <div className="divide-y divide-neutral-100 dark:divide-neutral-800 border rounded-xl overflow-hidden text-sm">
-                  {[
-                    { item: "Recarga Extintor Pó ABC 4kg", preco: 45.0 },
-                    { item: "Recarga Extintor Pó ABC 6kg", preco: 60.0 },
-                    { item: "Recarga Extintor CO2 6kg", preco: 85.0 },
-                    { item: "Recarga Extintor Água Pressurizada 10L", preco: 40.0 },
-                    { item: "Teste Hidrostático de Mangueira (Tipo 1 / 2)", preco: 55.0 },
-                    { item: "Vistoria Técnica & Emissão de ART", preco: 350.0 },
-                  ].map((srv, idx) => (
-                    <div key={idx} className="p-3 flex items-center justify-between">
-                      <span className="font-medium text-neutral-800 dark:text-neutral-200">{srv.item}</span>
-                      <span className="font-extrabold text-emerald-600">{formatCurrency(srv.preco)}</span>
+              <div className="space-y-4">
+                {/* Cabeçalho da Aba Preços */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm">
+                  <div>
+                    <h3 className="text-base font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
+                      <DollarSign className="h-5 w-5 text-emerald-600" />
+                      Tabela de Preços & Valores Acordados
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Edite os valores abaixo para atualizar o inventário do cliente em tempo real.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-xs font-semibold px-3 py-1 bg-emerald-50 text-emerald-700 border-emerald-200">
+                      Total Lote: {formatCurrency(totalLote)}
+                    </Badge>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={openAddModal}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1 text-xs"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> + Novo Extintor
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Resumo por Modelo / Tipo de Extintor */}
+                {groupedByType.length > 0 && (
+                  <div className="p-4 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm space-y-3">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                      Preço Padrão por Modelo (Aplicação em Lote)
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {groupedByType.map((grp) => {
+                        const currentInputPrice = typePriceInputs[grp.tipo] ?? grp.samplePrice;
+                        return (
+                          <div
+                            key={grp.tipo}
+                            className="p-3 bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700/60 rounded-xl space-y-2"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-neutral-900 dark:text-neutral-100">
+                                {grp.tipo}
+                              </span>
+                              <Badge variant="secondary" className="text-[10px]">
+                                {grp.count} un.
+                              </Badge>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <div className="relative flex-1">
+                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                                  R$
+                                </span>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  value={currentInputPrice}
+                                  onChange={(e) =>
+                                    setTypePriceInputs((prev) => ({
+                                      ...prev,
+                                      [grp.tipo]: parseFloat(e.target.value) || 0,
+                                    }))
+                                  }
+                                  className="h-8 pl-8 text-xs font-semibold"
+                                />
+                              </div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleApplyPriceToType(grp.tipo)}
+                                className="h-8 px-2.5 text-xs text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 border-emerald-300"
+                                title="Aplicar este valor a todos os extintores deste modelo"
+                              >
+                                Aplicar a todos
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  ))}
+                  </div>
+                )}
+
+                {/* Tabela Detalhada Item-a-Item */}
+                <div className="p-4 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                      Valores Individuais por Extintor
+                    </h4>
+                    <span className="text-xs text-muted-foreground">
+                      {extintores.length} extintor(es) cadastrado(s)
+                    </span>
+                  </div>
+
+                  {extintores.length === 0 ? (
+                    <div className="p-8 text-center border border-dashed rounded-xl text-muted-foreground">
+                      <Flame className="h-8 w-8 mx-auto text-neutral-400 mb-2" />
+                      <p className="text-sm font-semibold">Nenhum extintor cadastrado</p>
+                      <p className="text-xs mt-1">Cadastre extintores para definir valores personalizados.</p>
+                    </div>
+                  ) : (
+                    <div className="border rounded-xl overflow-hidden divide-y divide-neutral-100 dark:divide-neutral-800">
+                      <div className="bg-neutral-50 dark:bg-neutral-800/60 grid grid-cols-12 px-3 py-2 text-[11px] font-bold text-muted-foreground uppercase">
+                        <div className="col-span-3">Identificação</div>
+                        <div className="col-span-3">Modelo / Tipo</div>
+                        <div className="col-span-3">Localização</div>
+                        <div className="col-span-3 text-right">Valor do Serviço</div>
+                      </div>
+
+                      {extintores.map((ext) => {
+                        const isSaving = savingPriceId === ext.id;
+                        const isSaved = savedPriceIds.has(ext.id);
+                        const currentVal = priceInputs[ext.id] !== undefined ? priceInputs[ext.id] : ext.valor_servico;
+
+                        return (
+                          <div
+                            key={ext.id}
+                            className="grid grid-cols-12 px-3 py-2.5 items-center text-xs hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors"
+                          >
+                            <div className="col-span-3 font-bold text-neutral-900 dark:text-neutral-100">
+                              {ext.identificacao}
+                            </div>
+                            <div className="col-span-3 text-muted-foreground">
+                              {ext.tipo_capacidade}
+                            </div>
+                            <div className="col-span-3 text-muted-foreground truncate">
+                              {ext.localizacao || "—"}
+                            </div>
+                            <div className="col-span-3 flex items-center justify-end gap-2">
+                              <div className="relative w-28">
+                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                                  R$
+                                </span>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  value={currentVal}
+                                  onChange={(e) =>
+                                    setPriceInputs((prev) => ({
+                                      ...prev,
+                                      [ext.id]: parseFloat(e.target.value) || 0,
+                                    }))
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      handleSaveSinglePrice(ext.id);
+                                    }
+                                  }}
+                                  className="h-8 pl-8 pr-2 text-xs font-bold text-right"
+                                />
+                              </div>
+
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                disabled={isSaving}
+                                onClick={() => handleSaveSinglePrice(ext.id)}
+                                className={`h-8 px-2 gap-1 text-xs transition-colors ${
+                                  isSaved
+                                    ? "text-emerald-600 bg-emerald-50"
+                                    : "text-neutral-700 hover:text-emerald-700 hover:bg-neutral-100"
+                                }`}
+                                title="Salvar alteração de preço"
+                              >
+                                {isSaving ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : isSaved ? (
+                                  <>
+                                    <Check className="h-3.5 w-3.5 text-emerald-600" />
+                                    <span className="hidden sm:inline text-[11px] font-bold text-emerald-600">Salvo</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Check className="h-3.5 w-3.5" />
+                                    <span className="hidden sm:inline text-[11px]">Salvar</span>
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -895,6 +1201,33 @@ export function ClientTechSheetModal({
                 value={valorServico}
                 onChange={(e) => setValorServico(parseFloat(e.target.value) || 0)}
               />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="ext-venc" className="text-xs font-semibold">
+                  Data de Vencimento *
+                </Label>
+                <Input
+                  id="ext-venc"
+                  type="date"
+                  value={dataVencimento}
+                  onChange={(e) => setDataVencimento(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="ext-recarga" className="text-xs font-semibold">
+                  Data da Última Recarga
+                </Label>
+                <Input
+                  id="ext-recarga"
+                  type="date"
+                  value={dataUltimaRecarga}
+                  onChange={(e) => setDataUltimaRecarga(e.target.value)}
+                />
+              </div>
             </div>
 
             <div className="flex justify-end gap-2 pt-2">

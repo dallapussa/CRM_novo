@@ -167,3 +167,9 @@ drop policy if exists "client_documents_authenticated_delete" on storage.objects
 create policy "client_documents_authenticated_delete" on storage.objects
   for delete to authenticated
   using (bucket_id = 'client-documents');
+
+-- ----------------------------------------------------------------------------
+-- 8. FLEXIBILIZAÇÃO DAS CONSTRAINTS DE BANCADA (BENCH_RECORDS)
+-- ----------------------------------------------------------------------------
+alter table public.bench_records drop constraint if exists bench_records_extinguisher_id_fkey;
+alter table public.bench_records drop constraint if exists bench_records_service_order_id_fkey;

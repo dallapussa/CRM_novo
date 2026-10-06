@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -51,6 +52,7 @@ export function OrderPickupModal({
   onSuccess,
 }: OrderPickupModalProps) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Modalidades individuais por extintor
@@ -125,6 +127,7 @@ export function OrderPickupModal({
         description: `${selectedExtintores.length} extintor(es) foram enviados para a oficina (em bancada).`,
       });
 
+      queryClient.invalidateQueries({ queryKey: ["bench_records"] });
       onOpenChange(false);
       onSuccess?.();
     } catch (err: any) {
