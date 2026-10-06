@@ -134,7 +134,6 @@ function clientRow(input: Partial<ClientInput>) {
   if (input.contato_responsavel !== undefined) row.contato_responsavel = input.contato_responsavel;
   if (input.senha_gov !== undefined || input.gov_password !== undefined) {
     row.senha_gov = input.senha_gov || input.gov_password;
-    row.gov_password = input.senha_gov || input.gov_password;
   }
   if (input.ppci_expires_at !== undefined) row.ppci_expires_at = input.ppci_expires_at;
   if (input.ppci_enquadramento !== undefined) row.ppci_enquadramento = input.ppci_enquadramento;
