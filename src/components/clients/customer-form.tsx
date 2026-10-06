@@ -48,6 +48,9 @@ import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useSaveClient } from "@/hooks/useClients";
 import { applyMask, formatCEP, formatCNPJ, formatCPF, formatPhone, fetchAddressByCep } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
+import { ClientDragDropUploader } from "@/components/clients/client-drag-drop-uploader";
+import { CheckCircle2, Paperclip } from "lucide-react";
 
 const customerSchema = z.object({
   type: z.enum(["pf", "pj"], { message: "Selecione o tipo de cliente" }),
@@ -58,6 +61,11 @@ const customerSchema = z.object({
   phone2: z.string().optional(),
   whatsapp: z.string().optional(),
   gov_password: z.string().optional(),
+  ppci_isento: z.boolean().default(false),
+  metragem: z.string().optional(),
+  cpf_responsavel: z.string().optional(),
+  contato_responsavel: z.string().optional(),
+  senha_gov: z.string().optional(),
   email: z.union([z.literal(""), z.string().email({ message: "E-mail inválido" })]).optional(),
   is_active: z.boolean().default(true),
   notes: z.string().optional(),
@@ -104,7 +112,12 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
     phone1: formatPhone(initialData?.phone1 || ""),
     phone2: formatPhone(initialData?.phone2 || ""),
     whatsapp: formatPhone(initialData?.whatsapp || ""),
-    gov_password: initialData?.gov_password || "",
+    gov_password: initialData?.gov_password || initialData?.senha_gov || "",
+    ppci_isento: initialData?.ppci_isento ?? false,
+    metragem: initialData?.metragem ? String(initialData.metragem) : "",
+    cpf_responsavel: formatCPF(initialData?.cpf_responsavel || ""),
+    contato_responsavel: formatPhone(initialData?.contato_responsavel || ""),
+    senha_gov: initialData?.senha_gov || initialData?.gov_password || "",
     email: initialData?.email || "",
     is_active: initialData?.is_active ?? true,
     notes: initialData?.notes || "",
@@ -226,7 +239,12 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
         phone1: values.phone1.replace(/\D/g, ""),
         phone2: values.phone2 ? values.phone2.replace(/\D/g, "") : null,
         whatsapp: values.whatsapp ? values.whatsapp.replace(/\D/g, "") : null,
-        gov_password: values.gov_password?.trim() || null,
+        gov_password: values.senha_gov?.trim() || values.gov_password?.trim() || null,
+        senha_gov: values.senha_gov?.trim() || values.gov_password?.trim() || null,
+        ppci_isento: values.ppci_isento,
+        metragem: values.metragem ? parseFloat(values.metragem.replace(",", ".")) : null,
+        cpf_responsavel: values.cpf_responsavel ? values.cpf_responsavel.replace(/\D/g, "") : null,
+        contato_responsavel: values.contato_responsavel ? values.contato_responsavel.replace(/\D/g, "") : null,
         email: values.email?.trim() || null,
         address,
         notes: values.notes?.trim() || null,
@@ -636,80 +654,191 @@ export function CustomerForm({ initialData, mode }: CustomerFormProps) {
           </CardContent>
         </Card>
 
-        {/* Campo de Senha do GOV.BR */}
+        {/* Seção Dados do PPCI */}
         <Card className="border-amber-200/80 bg-amber-50/20 dark:bg-amber-950/10">
           <CardHeader>
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="h-5 w-5 text-amber-600" />
-                <CardTitle className="text-base">Acesso GOV.BR (PPCI / Bombeiros)</CardTitle>
+                <CardTitle className="text-base">Dados do PPCI</CardTitle>
               </div>
-              <Badge variant="outline" className="bg-amber-100/70 text-amber-800 border-amber-300 text-xs font-normal">
-                Uso Restrito & Confidencial
-              </Badge>
+              {values.ppci_isento ? (
+                <Badge variant="outline" className="bg-emerald-100 text-emerald-800 border-emerald-300 font-bold px-3 py-1">
+                  Isento de PPCI
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="bg-amber-100/70 text-amber-800 border-amber-300 text-xs font-normal">
+                  PPCI Obrigatório
+                </Badge>
+              )}
             </div>
             <CardDescription>
-              Senha utilizada para consulta de processos, emissão de alvarás e tramitação do PPCI junto ao Corpo de Bombeiros.
+              Gestão de requisitos de Plano de Prevenção Contra Incêndio, alvará, metragem e credenciais oficiais.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950/30 dark:border-amber-900/50 dark:text-amber-300">
-              <p className="font-semibold flex items-center gap-1.5">
-                <ShieldCheck className="h-4 w-4 shrink-0 text-amber-600" />
-                Recomendação de segurança:
-              </p>
-              <p className="mt-0.5 text-amber-800/90 dark:text-amber-300/80">
-                Esta senha é mantida com acesso restrito e serve exclusivamente para que a equipe técnica e engenharia realizem os trâmites do PPCI e vistorias nos órgãos oficiais.
-              </p>
+          <CardContent className="space-y-4">
+            {/* Toggle Isento */}
+            <div className="flex items-center justify-between p-4 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl shadow-sm">
+              <div className="space-y-0.5">
+                <Label htmlFor="ppci_isento" className="font-semibold text-sm cursor-pointer">
+                  Cliente isento de PPCI?
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Marque caso o cliente possua isenção legal perante o Corpo de Bombeiros.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                {values.ppci_isento && (
+                  <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">
+                    Isento
+                  </Badge>
+                )}
+                <Switch
+                  id="ppci_isento"
+                  checked={values.ppci_isento}
+                  onCheckedChange={(checked) => setField("ppci_isento", checked)}
+                />
+              </div>
             </div>
 
-            <div className="space-y-1.5 max-w-md">
-              <Label htmlFor="gov-password">Senha do portal GOV.BR</Label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Input
-                    id="gov-password"
-                    type={showGovPassword ? "text" : "password"}
-                    value={values.gov_password || ""}
-                    onChange={(e) => setField("gov_password", e.target.value)}
-                    placeholder="Digite ou cole a senha do GOV.BR..."
-                    className="pr-10 font-mono"
-                    autoComplete="off"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowGovPassword(!showGovPassword)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-0.5"
-                    title={showGovPassword ? "Ocultar senha" : "Exibir senha"}
-                  >
-                    {showGovPassword ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
-                  </button>
+            {values.ppci_isento ? (
+              <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-xl flex items-center gap-3">
+                <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">
+                    Cliente classificado como ISENTO de PPCI
+                  </p>
+                  <p className="text-xs text-emerald-700/90 dark:text-emerald-300/80">
+                    Os campos de metragem, dados do responsável e senha do GOV estão dispensados para esta edificação.
+                  </p>
                 </div>
-                {values.gov_password && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={handleCopyGovPassword}
-                    title="Copiar senha"
-                    className="shrink-0 h-10 w-10"
-                  >
-                    {copiedGovPassword ? (
-                      <Check className="h-4 w-4 text-emerald-600" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
-                    )}
-                  </Button>
-                )}
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                Clique no ícone de olho para verificar a senha digitada.
-              </p>
+            ) : (
+              <div className="space-y-4 pt-1">
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="metragem">Metragem da Edificação</Label>
+                    <div className="relative">
+                      <Input
+                        id="metragem"
+                        type="text"
+                        value={values.metragem || ""}
+                        onChange={(e) => setField("metragem", e.target.value)}
+                        placeholder="Ex: 350.50"
+                        className="pr-12"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground">
+                        m²
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cpf_responsavel">CPF do Responsável</Label>
+                    <Input
+                      id="cpf_responsavel"
+                      value={values.cpf_responsavel || ""}
+                      onChange={(e) => setField("cpf_responsavel", applyMask(e.target.value, "cpf"))}
+                      placeholder="000.000.000-00"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="contato_responsavel">Contato do Responsável</Label>
+                    <Input
+                      id="contato_responsavel"
+                      value={values.contato_responsavel || ""}
+                      onChange={(e) => setField("contato_responsavel", applyMask(e.target.value, "phone"))}
+                      placeholder="(00) 00000-0000"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 max-w-md pt-1">
+                  <Label htmlFor="senha_gov">Senha .Gov</Label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Input
+                        id="senha_gov"
+                        type={showGovPassword ? "text" : "password"}
+                        value={values.senha_gov || values.gov_password || ""}
+                        onChange={(e) => {
+                          setField("senha_gov", e.target.value);
+                          setField("gov_password", e.target.value);
+                        }}
+                        placeholder="Digite ou cole a senha do GOV.BR..."
+                        className="pr-10 font-mono"
+                        autoComplete="off"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowGovPassword(!showGovPassword)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-0.5"
+                        title={showGovPassword ? "Ocultar senha" : "Exibir senha"}
+                      >
+                        {showGovPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                    {(values.senha_gov || values.gov_password) && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => {
+                          navigator.clipboard.writeText(values.senha_gov || values.gov_password || "");
+                          setCopiedGovPassword(true);
+                          toast({ variant: "success", title: "Senha copiada!" });
+                          setTimeout(() => setCopiedGovPassword(false), 2000);
+                        }}
+                        title="Copiar senha"
+                        className="shrink-0 h-10 w-10"
+                      >
+                        {copiedGovPassword ? (
+                          <Check className="h-4 w-4 text-emerald-600" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Utilizada pela engenharia e equipe técnica para protocolar vistorias e alvarás.
+                  </p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Seção de Anexos e Documentos Drag & Drop */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Paperclip className="h-5 w-5 text-blue-600" />
+              <CardTitle className="text-base">Documentos e Anexos (PPCI, NF, Fotos)</CardTitle>
             </div>
+            <CardDescription>
+              Upload direto para o Storage com tagueamento rápido de arquivos (&quot;PPCI&quot;, &quot;Anexo D&quot;, &quot;Nota Fiscal&quot;, &quot;Foto&quot;).
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {initialData?.id ? (
+              <ClientDragDropUploader clientId={initialData.id} />
+            ) : (
+              <div className="p-6 text-center border border-dashed rounded-xl bg-neutral-50/50 dark:bg-neutral-900/30 text-sm text-muted-foreground">
+                <Paperclip className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
+                <p className="font-semibold text-neutral-800 dark:text-neutral-200">
+                  Salve o cliente para habilitar o envio de documentos
+                </p>
+                <p className="text-xs mt-1">
+                  Assim que o cadastro for criado, você poderá arrastar e soltar múltiplos arquivos para a nuvem.
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 

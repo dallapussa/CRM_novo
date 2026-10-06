@@ -42,6 +42,7 @@ const PATH_PERMISSION: Record<string, RolePermission> = {
   "/dashboard/financeiro": "receipts",
   "/dashboard/relatorios": "reports",
   "/dashboard/custos": "financial_costs",
+  "/dashboard/vencimentos": "dashboard",
 };
 
 function hasPermission(role: UserRole | null | undefined, permission: RolePermission): boolean {

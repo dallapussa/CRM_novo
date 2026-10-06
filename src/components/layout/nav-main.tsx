@@ -55,6 +55,13 @@ const NAV_ITEMS: NavItem[] = [
     phase: 1,
   },
   {
+    title: "Vencimentos",
+    href: "/dashboard/vencimentos",
+    icon: CalendarDays,
+    permission: "dashboard",
+    phase: 1,
+  },
+  {
     title: "Portal do Cliente",
     href: "/dashboard",
     icon: ShieldCheck,

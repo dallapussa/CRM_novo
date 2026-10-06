@@ -6,6 +6,11 @@ export type ClientInput = Omit<Customer, "id" | "created_at" | "updated_at">;
 interface ClientMeta {
   whatsapp?: string | null;
   gov_password?: string | null;
+  ppci_isento?: boolean;
+  metragem?: number | null;
+  cpf_responsavel?: string | null;
+  contato_responsavel?: string | null;
+  senha_gov?: string | null;
 }
 
 function parseClientMeta(observacoes?: string | null): { cleanNotes: string | null; meta: ClientMeta } {
@@ -23,15 +28,25 @@ function parseClientMeta(observacoes?: string | null): { cleanNotes: string | nu
   return { cleanNotes: cleanNotes || null, meta };
 }
 
-function packClientObservacoes(notes?: string | null, whatsapp?: string | null, govPassword?: string | null): string | null {
+function packClientObservacoes(
+  notes?: string | null,
+  whatsapp?: string | null,
+  govPassword?: string | null,
+  ppciData?: Partial<ClientMeta>
+): string | null {
   const baseNotes = notes?.trim() || "";
-  const hasMeta = Boolean(whatsapp || govPassword);
-  if (!hasMeta) {
-    return baseNotes || null;
-  }
-  const metaObj: Record<string, string> = {};
+  const metaObj: Record<string, any> = {};
   if (whatsapp) metaObj.whatsapp = whatsapp;
   if (govPassword) metaObj.gov_password = govPassword;
+  if (ppciData?.ppci_isento !== undefined) metaObj.ppci_isento = ppciData.ppci_isento;
+  if (ppciData?.metragem !== undefined) metaObj.metragem = ppciData.metragem;
+  if (ppciData?.cpf_responsavel !== undefined) metaObj.cpf_responsavel = ppciData.cpf_responsavel;
+  if (ppciData?.contato_responsavel !== undefined) metaObj.contato_responsavel = ppciData.contato_responsavel;
+  if (ppciData?.senha_gov !== undefined) metaObj.senha_gov = ppciData.senha_gov;
+
+  if (Object.keys(metaObj).length === 0) {
+    return baseNotes || null;
+  }
   const metaBlock = `\n\n[EXTIN_META]\n${JSON.stringify(metaObj)}\n[/EXTIN_META]`;
   return (baseNotes + metaBlock).trim();
 }
@@ -48,7 +63,12 @@ function mapClient(row: Record<string, any>): Customer {
   };
   const { cleanNotes, meta } = parseClientMeta(row.observacoes);
   const whatsapp = row.whatsapp || meta.whatsapp || row.telefone2 || null;
-  const gov_password = row.gov_password || meta.gov_password || null;
+  const gov_password = row.gov_password || meta.gov_password || row.senha_gov || meta.senha_gov || null;
+  const ppci_isento = row.ppci_isento ?? meta.ppci_isento ?? false;
+  const metragem = row.metragem !== undefined && row.metragem !== null ? Number(row.metragem) : (meta.metragem ?? null);
+  const cpf_responsavel = row.cpf_responsavel || meta.cpf_responsavel || null;
+  const contato_responsavel = row.contato_responsavel || meta.contato_responsavel || null;
+  const senha_gov = row.senha_gov || meta.senha_gov || gov_password;
 
   return {
     id: row.id,
@@ -59,11 +79,16 @@ function mapClient(row: Record<string, any>): Customer {
     phone1: row.telefone ?? "",
     phone2: row.telefone2,
     whatsapp,
-    gov_password,
+    gov_password: senha_gov,
     email: row.email,
     address: Object.values(address).some(Boolean) ? address : null,
     notes: cleanNotes,
     is_active: row.status === "Ativo",
+    ppci_isento,
+    metragem,
+    cpf_responsavel,
+    contato_responsavel,
+    senha_gov,
     created_by: row.created_by ?? "",
     owner_id: row.owner_id,
     created_at: row.created_at,
@@ -90,10 +115,30 @@ function clientRow(input: Partial<ClientInput>) {
   }
   if (input.email !== undefined) row.email = input.email;
 
-  // Notas com metadados estruturados (WhatsApp e Senha GOV.BR)
-  if (input.notes !== undefined || input.whatsapp !== undefined || input.gov_password !== undefined) {
-    row.observacoes = packClientObservacoes(input.notes, input.whatsapp, input.gov_password);
+  // PPCI direto na linha se a coluna existir
+  if (input.ppci_isento !== undefined) row.ppci_isento = input.ppci_isento;
+  if (input.metragem !== undefined) row.metragem = input.metragem;
+  if (input.cpf_responsavel !== undefined) row.cpf_responsavel = input.cpf_responsavel;
+  if (input.contato_responsavel !== undefined) row.contato_responsavel = input.contato_responsavel;
+  if (input.senha_gov !== undefined || input.gov_password !== undefined) {
+    row.senha_gov = input.senha_gov || input.gov_password;
+    row.gov_password = input.senha_gov || input.gov_password;
   }
+
+  // Notas com metadados estruturados (PPCI, WhatsApp e Senha GOV.BR)
+  const ppciMeta = {
+    ppci_isento: input.ppci_isento,
+    metragem: input.metragem,
+    cpf_responsavel: input.cpf_responsavel,
+    contato_responsavel: input.contato_responsavel,
+    senha_gov: input.senha_gov || input.gov_password,
+  };
+  row.observacoes = packClientObservacoes(
+    input.notes,
+    input.whatsapp,
+    input.senha_gov || input.gov_password,
+    ppciMeta
+  );
 
   if (input.is_active !== undefined) row.status = input.is_active ? "Ativo" : "Inativo";
   if (input.owner_id !== undefined) row.owner_id = input.owner_id;

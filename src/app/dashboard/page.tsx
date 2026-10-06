@@ -21,12 +21,17 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
+import { useQuery } from "@tanstack/react-query";
+import { getExpiringItems } from "@/services/prevention.service";
+import { CalendarDays } from "lucide-react";
 
 export default function DashboardPage() {
   const { user, role: authRole } = useAuth();
   const role: UserRole = authRole ?? "admin";
   const statsQuery = useDashboardStats(role);
   const stats = statsQuery.data ?? { osCount: 0, customerCount: 0, userCount: 0, recentOs: [], totalRevenue: 0 };
+  const expiringQuery = useQuery({ queryKey: ["expiring-items"], queryFn: getExpiringItems });
+  const expiringData = expiringQuery.data;
 
   const statCards = [
     {
@@ -140,6 +145,69 @@ export default function DashboardPage() {
             ))}
           </div>
         )}
+      </div>
+ 
+      {/* 3 CARDS DE CONTADORES DE VENCIMENTO NO TOPO */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* CARD 1: Vencidos */}
+        <Link href="/dashboard/vencimentos" className="block group">
+          <Card className="hover:border-red-400 transition-all border-red-200/80 bg-red-50/20 dark:bg-red-950/10 shadow-sm cursor-pointer group-hover:shadow-md">
+            <CardContent className="p-5 flex items-center justify-between">
+              <div className="space-y-1">
+                <Badge className="bg-red-600 text-white font-bold px-2.5 py-0.5 text-xs hover:bg-red-600">
+                  Vencidos
+                </Badge>
+                <p className="text-3xl font-extrabold text-red-700 dark:text-red-400 mt-2 font-display">
+                  {expiringData?.vencidosCount ?? 0}
+                </p>
+                <p className="text-xs text-muted-foreground">Itens com prazo expirado</p>
+              </div>
+              <div className="p-3 bg-red-100 dark:bg-red-950/60 text-red-600 rounded-2xl group-hover:scale-105 transition-transform">
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+
+        {/* CARD 2: Vencendo Este Mês */}
+        <Link href="/dashboard/vencimentos" className="block group">
+          <Card className="hover:border-amber-400 transition-all border-amber-200/80 bg-amber-50/20 dark:bg-amber-950/10 shadow-sm cursor-pointer group-hover:shadow-md">
+            <CardContent className="p-5 flex items-center justify-between">
+              <div className="space-y-1">
+                <Badge className="bg-amber-500 text-white font-bold px-2.5 py-0.5 text-xs hover:bg-amber-500">
+                  Vencendo Este Mês
+                </Badge>
+                <p className="text-3xl font-extrabold text-amber-700 dark:text-amber-400 mt-2 font-display">
+                  {expiringData?.vencendoMesCount ?? 0}
+                </p>
+                <p className="text-xs text-muted-foreground">Renovações do mês atual</p>
+              </div>
+              <div className="p-3 bg-amber-100 dark:bg-amber-950/60 text-amber-600 rounded-2xl group-hover:scale-105 transition-transform">
+                <Clock className="h-6 w-6" />
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+
+        {/* CARD 3: Próximo Mês */}
+        <Link href="/dashboard/vencimentos" className="block group">
+          <Card className="hover:border-neutral-400 transition-all border-neutral-200 dark:border-neutral-800 shadow-sm cursor-pointer group-hover:shadow-md">
+            <CardContent className="p-5 flex items-center justify-between">
+              <div className="space-y-1">
+                <Badge variant="outline" className="bg-neutral-100 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200 font-bold px-2.5 py-0.5 text-xs">
+                  Próximo Mês
+                </Badge>
+                <p className="text-3xl font-extrabold text-neutral-800 dark:text-neutral-200 mt-2 font-display">
+                  {expiringData?.proximoMesCount ?? 0}
+                </p>
+                <p className="text-xs text-muted-foreground">Previsão do próximo ciclo</p>
+              </div>
+              <div className="p-3 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 rounded-2xl group-hover:scale-105 transition-transform">
+                <CalendarDays className="h-6 w-6" />
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

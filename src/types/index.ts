@@ -65,6 +65,7 @@ export const PATH_PERMISSION: Record<string, RolePermission> = {
   "/dashboard/financeiro": "receipts",
   "/dashboard/relatorios": "reports",
   "/dashboard/custos": "financial_costs",
+  "/dashboard/vencimentos": "dashboard",
 };
 
 /** Retorna a permissão exigida para um dado pathname (ex: /dashboard/usuarios/123) */
@@ -118,6 +119,11 @@ export interface Customer {
   address?: { cep?: string; street?: string; number?: string; complement?: string; neighborhood?: string; city?: string; state?: string } | null;
   notes?: string | null;
   is_active: boolean;
+  ppci_isento?: boolean;
+  metragem?: number | null;
+  cpf_responsavel?: string | null;
+  contato_responsavel?: string | null;
+  senha_gov?: string | null;
   created_by: string;
   owner_id?: string | null;
   created_at?: string;
@@ -628,3 +634,70 @@ export const WHATSAPP_TEMPLATE_PRESETS: WhatsappTemplate[] = [
     body: "Bom dia, {NOME}! ☀️\n\nPassando para lembrar do documento {NUMERO_DOC} (vencimento {DATA_VENCIMENTO}) no valor de {VALOR} que está em atraso.\n\nPodemos ajudar com alguma negociação? Basta responder.",
   },
 ];
+
+// ============================================================================
+// MÓDULO CENTRAL — PREVENÇÃO CONTRA INCÊNDIO
+// ============================================================================
+
+export type DocumentoClienteTipo = "PPCI" | "Recibo" | "Nota Fiscal" | "Foto" | "Anexo D" | "Outro";
+
+export interface DocumentoCliente {
+  id: string;
+  client_id: string;
+  tipo_documento: DocumentoClienteTipo;
+  file_url: string;
+  file_name: string;
+  storage_path?: string | null;
+  file_size?: number | null;
+  created_at?: string;
+}
+
+export type ExtintorStatus = "no_cliente" | "em_bancada" | "testado" | "pronto";
+
+export interface ExtintorInventario {
+  id: string;
+  client_id: string;
+  identificacao: string; // ex: "ABC 4kg 01"
+  tipo_capacidade: string; // ex: "PÓ ABC - 4kg"
+  localizacao?: string | null;
+  data_ultima_recarga?: string | null;
+  data_vencimento: string;
+  valor_servico: number;
+  status: ExtintorStatus;
+  created_at?: string;
+  updated_at?: string;
+  client?: { id: string; name: string } | null;
+}
+
+export type OrdemRecolhimentoMotivo = "Recarga Anual" | "Troca" | "Garantia";
+export type OrdemRecolhimentoStatus = "recolhido" | "em_manutencao" | "concluido";
+export type ModalidadeRecarga = "Reaproveitamento" | "Normal";
+
+export interface OrdemRecolhimento {
+  id: string;
+  client_id: string;
+  numero_ordem: number;
+  motivo: OrdemRecolhimentoMotivo;
+  deixou_reserva: boolean;
+  detalhes_reserva?: string | null;
+  tecnico_responsavel?: string | null;
+  data_recolhimento: string;
+  previsao_devolucao?: string | null;
+  observacoes?: string | null;
+  status: OrdemRecolhimentoStatus;
+  created_at?: string;
+  updated_at?: string;
+  created_by?: string | null;
+  client?: { id: string; name: string; document?: string } | null;
+  itens?: ItemRecolhimento[];
+}
+
+export interface ItemRecolhimento {
+  id: string;
+  ordem_id: string;
+  extintor_id: string;
+  modalidade_recarga: ModalidadeRecarga;
+  valor_registrado: number;
+  created_at?: string;
+  extintor?: ExtintorInventario;
+}

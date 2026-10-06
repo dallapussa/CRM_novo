@@ -46,6 +46,8 @@ import type { Customer } from "@/types";
 import { formatDocument, formatPhone, formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useClients, useDeleteClient } from "@/hooks/useClients";
+import { ClientTechSheetModal } from "./client-tech-sheet-modal";
+import { Flame } from "lucide-react";
 
 interface CustomersListProps {
   initialCustomers?: Customer[];
@@ -56,6 +58,7 @@ export function CustomersList({ initialCustomers }: CustomersListProps = {}) {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [deleteCustomer, setDeleteCustomer] = useState<Customer | null>(null);
+  const [techSheetCustomer, setTechSheetCustomer] = useState<Customer | null>(null);
   const { toast } = useToast();
   const { data: customers = [], isLoading } = useClients(initialCustomers);
   const deleteMutation = useDeleteClient();
@@ -277,10 +280,14 @@ export function CustomersList({ initialCustomers }: CustomersListProps = {}) {
                 </TableHeader>
                 <TableBody>
                   {filteredCustomers.map((c) => (
-                    <TableRow key={c.id}>
+                    <TableRow
+                      key={c.id}
+                      className="cursor-pointer hover:bg-neutral-50/80 dark:hover:bg-neutral-900/60 transition-colors"
+                      onClick={() => setTechSheetCustomer(c)}
+                    >
                       <TableCell>
                         <div>
-                          <p className="font-semibold leading-tight">
+                          <p className="font-semibold leading-tight text-neutral-900 dark:text-neutral-100 hover:text-red-600 transition-colors">
                             {c.name}
                           </p>
                           {c.email && (
@@ -318,6 +325,7 @@ export function CustomersList({ initialCustomers }: CustomersListProps = {}) {
                                 href={`https://wa.me/55${c.whatsapp.replace(/\D/g, "")}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
                                 className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-700 hover:underline"
                                 title="Abrir conversa no WhatsApp"
                               >
@@ -350,7 +358,18 @@ export function CustomersList({ initialCustomers }: CustomersListProps = {}) {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="inline-flex items-center gap-1">
+                        <div className="inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                          {/* Botão Ficha Técnica */}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                            title="Ficha Técnica & Manutenções"
+                            onClick={() => setTechSheetCustomer(c)}
+                          >
+                            <Flame className="h-4 w-4" />
+                          </Button>
+
                           {(c.whatsapp || c.phone1) && (
                             <Button
                               asChild
@@ -409,6 +428,15 @@ export function CustomersList({ initialCustomers }: CustomersListProps = {}) {
           )}
         </CardContent>
       </Card>
+
+      {/* Modal Ficha Técnica & Manutenções */}
+      {techSheetCustomer && (
+        <ClientTechSheetModal
+          open={!!techSheetCustomer}
+          onOpenChange={(o) => !o && setTechSheetCustomer(null)}
+          customer={techSheetCustomer}
+        />
+      )}
 
       <Dialog open={!!deleteCustomer} onOpenChange={(o) => !o && setDeleteCustomer(null)}>
         <DialogContent>
