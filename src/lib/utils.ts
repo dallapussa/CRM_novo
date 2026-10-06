@@ -67,6 +67,50 @@ export function formatDate(date?: string | Date | null) {
   });
 }
 
+/**
+ * Formata data estritamente como Mês/Ano (MM/AAAA) para extintores
+ */
+export function formatMonthYear(date?: string | Date | null) {
+  if (!date) return "";
+  const str = String(date).trim();
+  // Se já estiver no padrão YYYY-MM ou YYYY-MM-DD
+  const isoMatch = str.match(/^(\d{4})-(\d{2})/);
+  if (isoMatch) {
+    return `${isoMatch[2]}/${isoMatch[1]}`;
+  }
+  const d = typeof date === "string" ? new Date(date + "T00:00:00") : date;
+  if (isNaN(d.getTime())) return "";
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const y = d.getFullYear();
+  return `${m}/${y}`;
+}
+
+/**
+ * Converte data ou string ISO para YYYY-MM para uso em <input type="month" />
+ */
+export function toMonthInput(date?: string | Date | null) {
+  if (!date) return "";
+  const str = String(date).trim();
+  const isoMatch = str.match(/^(\d{4})-(\d{2})/);
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}`;
+  const d = typeof date === "string" ? new Date(date + "T00:00:00") : date;
+  if (isNaN(d.getTime())) return "";
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${d.getFullYear()}-${m}`;
+}
+
+/**
+ * Converte valor de <input type="month" /> (YYYY-MM) para YYYY-MM-01 para persistência
+ */
+export function monthInputToDate(monthVal: string) {
+  if (!monthVal) return "";
+  const trimmed = monthVal.trim();
+  if (/^\d{4}-\d{2}$/.test(trimmed)) {
+    return `${trimmed}-01`;
+  }
+  return trimmed;
+}
+
 export function formatDateTime(date?: string | Date | null) {
   if (!date) return "";
   const d = typeof date === "string" ? new Date(date) : date;

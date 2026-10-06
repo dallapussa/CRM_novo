@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -19,6 +19,13 @@ import {
   RefreshCw,
   Loader2,
   Truck,
+  Layers,
+  ChevronDown,
+  ChevronUp,
+  MapPin,
+  Phone,
+  FileText,
+  Sparkles,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -39,20 +46,29 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getExpiringItems, listClientExtintores, VencimentoItem } from "@/services/prevention.service";
+import {
+  getExpiringItems,
+  listClientExtintores,
+  VencimentoItem,
+  groupExpiringExtintoresByClient,
+  ClienteLoteVencimento,
+} from "@/services/prevention.service";
 import { ClientTechSheetModal } from "@/components/clients/client-tech-sheet-modal";
 import { OrderPickupModal } from "@/components/clients/order-pickup-modal";
 import { getClient } from "@/services/clients.service";
 import { useToast } from "@/hooks/use-toast";
+import { formatMonthYear } from "@/lib/utils";
 import type { Customer, ExtintorInventario } from "@/types";
 
 export default function VencimentosPage() {
   const { toast } = useToast();
+  const [viewMode, setViewMode] = useState<"lotes" | "detalhado">("lotes");
   const [search, setSearch] = useState("");
   const [periodFilter, setPeriodFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [techSheetTab, setTechSheetTab] = useState<"extintores" | "ppci">("extintores");
+  const [expandedClients, setExpandedClients] = useState<Record<string, boolean>>({});
 
   // Estados da Ordem de Recolhimento
   const [isPickupOpen, setIsPickupOpen] = useState(false);
@@ -65,28 +81,42 @@ export default function VencimentosPage() {
     queryFn: getExpiringItems,
   });
 
-  const items = data?.items || [];
+  const items = useMemo(() => data?.items || [], [data?.items]);
 
-  const filteredItems = items.filter((item) => {
-    // Filtro de período
-    if (periodFilter === "vencidos" && item.status_alerta !== "vencido") return false;
-    if (periodFilter === "mes_atual" && item.status_alerta !== "mes_atual") return false;
-    if (periodFilter === "proximo_mes" && item.status_alerta !== "proximo_mes") return false;
+  const filteredItems = useMemo(() => {
+    return items.filter((item) => {
+      // Filtro de período
+      if (periodFilter === "vencidos" && item.status_alerta !== "vencido") return false;
+      if (periodFilter === "mes_atual" && item.status_alerta !== "mes_atual") return false;
+      if (periodFilter === "proximo_mes" && item.status_alerta !== "proximo_mes") return false;
 
-    // Filtro de categoria
-    if (categoryFilter !== "all" && item.categoria !== categoryFilter) return false;
+      // Filtro de categoria
+      if (categoryFilter !== "all" && item.categoria !== categoryFilter) return false;
 
-    // Busca textual
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      const matchClient = item.cliente_nome.toLowerCase().includes(q);
-      const matchItem = item.item_nome.toLowerCase().includes(q);
-      const matchLoc = (item.localizacao || "").toLowerCase().includes(q);
-      if (!matchClient && !matchItem && !matchLoc) return false;
-    }
+      // Busca textual
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        const matchClient = item.cliente_nome.toLowerCase().includes(q);
+        const matchItem = item.item_nome.toLowerCase().includes(q);
+        const matchLoc = (item.localizacao || "").toLowerCase().includes(q);
+        if (!matchClient && !matchItem && !matchLoc) return false;
+      }
 
-    return true;
-  });
+      return true;
+    });
+  }, [items, periodFilter, categoryFilter, search]);
+
+  // Agrupamento em lotes por cliente (para extintores)
+  const clientLots = useMemo(() => {
+    return groupExpiringExtintoresByClient(filteredItems);
+  }, [filteredItems]);
+
+  function toggleExpandClient(clienteId: string) {
+    setExpandedClients((prev) => ({
+      ...prev,
+      [clienteId]: !prev[clienteId],
+    }));
+  }
 
   async function handleOpenClientTechSheet(clientId: string, tab: "extintores" | "ppci" = "extintores") {
     try {
@@ -100,7 +130,89 @@ export default function VencimentosPage() {
     }
   }
 
+  // Recolhimento do Lote Completo de um Cliente
+  async function handleRecolherLoteCliente(group: ClienteLoteVencimento) {
+    if (group.todos_em_bancada) {
+      toast({
+        variant: "destructive",
+        title: "Lote já na Oficina",
+        description: "Todos os extintores deste cliente já se encontram na bancada de manutenção.",
+      });
+      return;
+    }
+
+    setLoadingPickupId(group.cliente_id);
+    try {
+      const client = await getClient(group.cliente_id);
+      if (!client) {
+        toast({
+          variant: "destructive",
+          title: "Cliente não localizado",
+          description: "Não foi possível carregar os dados deste cliente.",
+        });
+        return;
+      }
+
+      const clientExtintores = await listClientExtintores(group.cliente_id);
+      if (!clientExtintores || clientExtintores.length === 0) {
+        toast({
+          variant: "destructive",
+          title: "Nenhum extintor no inventário",
+          description: "Cadastre extintores para este cliente na Ficha Técnica antes de recolher.",
+        });
+        return;
+      }
+
+      // IDs disponíveis no lote de vencimento (que não estão em bancada)
+      const idsDisponiveis = new Set(
+        group.extintores_disponiveis.map((it) => it.extintor_id || it.id).filter(Boolean)
+      );
+
+      // Filtra os extintores reais do cliente evitando estritamente os que já estão na bancada
+      let targetExtintores = clientExtintores.filter((e) => {
+        if (e.status === "em_bancada") return false;
+        return idsDisponiveis.has(e.id);
+      });
+
+      // Fallback: se não encontrou por ID exato, pega todos os extintores do cliente que não estão em bancada
+      if (targetExtintores.length === 0) {
+        targetExtintores = clientExtintores.filter((e) => e.status !== "em_bancada");
+      }
+
+      if (targetExtintores.length === 0) {
+        toast({
+          variant: "destructive",
+          title: "Todos os extintores já estão na Bancada",
+          description: "Não há extintores pendentes para recolher neste momento.",
+        });
+        return;
+      }
+
+      setPickupCustomer(client);
+      setPickupExtintores(targetExtintores);
+      setIsPickupOpen(true);
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao iniciar recolhimento do lote",
+        description: err?.message || "Tente novamente.",
+      });
+    } finally {
+      setLoadingPickupId(null);
+    }
+  }
+
+  // Recolhimento individual (quando na visão detalhada)
   async function handleRecolherExtintor(item: VencimentoItem) {
+    if (item.extintor_status === "em_bancada") {
+      toast({
+        variant: "destructive",
+        title: "Extintor já recolhido",
+        description: "Este extintor já está na bancada de manutenção da oficina.",
+      });
+      return;
+    }
+
     setLoadingPickupId(item.id);
     try {
       const client = await getClient(item.cliente_id);
@@ -123,7 +235,6 @@ export default function VencimentosPage() {
         return;
       }
 
-      // Procura o extintor específico vencido
       let target = clientExtintores.find(
         (e) => e.id === item.extintor_id || e.id === item.id
       );
@@ -135,8 +246,18 @@ export default function VencimentosPage() {
         );
       }
 
+      const chosen = target || clientExtintores.find((e) => e.status !== "em_bancada");
+      if (!chosen || chosen.status === "em_bancada") {
+        toast({
+          variant: "destructive",
+          title: "Extintor já na Bancada",
+          description: "Este extintor já está na oficina.",
+        });
+        return;
+      }
+
       setPickupCustomer(client);
-      setPickupExtintores(target ? [target] : [clientExtintores[0]]);
+      setPickupExtintores([chosen]);
       setIsPickupOpen(true);
     } catch (err: any) {
       toast({
@@ -153,13 +274,32 @@ export default function VencimentosPage() {
     const rawPhone = (item.cliente_telefone || "").replace(/\D/g, "");
     if (!rawPhone) return "#";
 
-    const formattedDate = new Date(item.data_vencimento + "T00:00:00").toLocaleDateString("pt-BR");
+    // Validade estritamente mês/ano para extintores
+    const dataTxt = item.categoria === "Extintores"
+      ? formatMonthYear(item.data_vencimento)
+      : new Date(item.data_vencimento + "T00:00:00").toLocaleDateString("pt-BR");
+
     const statusMsg =
       item.status_alerta === "vencido"
-        ? `está com o prazo VENCIDO desde ${formattedDate}`
-        : `vence em breve no dia ${formattedDate}`;
+        ? `está com o prazo VENCIDO (${dataTxt})`
+        : `vence em breve (${dataTxt})`;
 
     const text = `Olá, *${item.cliente_nome}*! 👋\n\nAqui é da equipe técnica da *ExtinControl Prevenção Contra Incêndio*.\n\nIdentificamos em nosso sistema que o seguinte item:\n🔥 *${item.item_nome}* (${item.categoria})\n${statusMsg}.\n\nPodemos agendar a visita técnica para inspeção, renovação e recarga preventiva?\n\nAguardamos seu retorno para programar o atendimento! 😊`;
+
+    return `https://wa.me/55${rawPhone}?text=${encodeURIComponent(text)}`;
+  }
+
+  function generateLoteWhatsAppUrl(group: ClienteLoteVencimento) {
+    const rawPhone = (group.cliente_telefone || "").replace(/\D/g, "");
+    if (!rawPhone) return "#";
+
+    const modelosTxt = group.modelos_agrupados.map((m) => `${m.count}x ${m.modelo}`).join(", ");
+    const mesesTxt = group.meses_vencimento.join(", ");
+    const statusMsg = group.tem_vencido
+      ? `constatamos itens com validade VENCIDA (${mesesTxt})`
+      : `a validade expira em breve (${mesesTxt})`;
+
+    const text = `Olá, *${group.cliente_nome}*! 👋\n\nAqui é da equipe técnica da *ExtinControl Prevenção Contra Incêndio*.\n\nIdentificamos em nosso sistema o vencimento do lote de extintores da sua empresa:\n🔥 *Lote de ${group.total_extintores} extintor(es)*: ${modelosTxt}\n📅 *Vencimento:* ${mesesTxt} (${statusMsg}).\n\nPodemos programar o recolhimento deste lote completo para revisão e recarga preventiva na nossa oficina?\n\nAguardamos seu retorno para agendar a retirada! 😊`;
 
     return `https://wa.me/55${rawPhone}?text=${encodeURIComponent(text)}`;
   }
@@ -328,194 +468,535 @@ export default function VencimentosPage() {
         </CardContent>
       </Card>
 
-      {/* TABELA DE VENCIMENTOS */}
-      <Card>
-        <CardHeader className="p-4 pb-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-base font-bold">
-                Itens Monitorados ({filteredItems.length})
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Clique no nome do cliente para abrir a ficha técnica ou no WhatsApp para contato rápido
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
+      {/* SELETOR DE VISUALIZAÇÃO: LOTES POR CLIENTE (PADRÃO) vs LISTA INDIVIDUAL */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-neutral-100 dark:bg-neutral-800/70 p-2.5 rounded-xl border">
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant={viewMode === "lotes" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("lotes")}
+            className={`gap-2 text-xs font-bold ${
+              viewMode === "lotes"
+                ? "bg-red-600 hover:bg-red-700 text-white shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Truck className="h-4 w-4" />
+            Lotes por Cliente ({clientLots.length})
+          </Button>
+
+          <Button
+            type="button"
+            variant={viewMode === "detalhado" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("detalhado")}
+            className={`gap-2 text-xs font-bold ${
+              viewMode === "detalhado"
+                ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Filter className="h-4 w-4" />
+            Lista Individual de Itens ({filteredItems.length})
+          </Button>
+        </div>
+
+        <p className="text-[11px] text-muted-foreground">
+          {viewMode === "lotes"
+            ? "Agrupado por cliente para recolhimento em lote direto para a bancada"
+            : "Visualização individualizada incluindo PPCI e mangueiras"}
+        </p>
+      </div>
+
+      {/* VISÃO 1: LOTES POR CLIENTE (PADRÃO) */}
+      {viewMode === "lotes" && (
+        <div className="space-y-4">
           {isLoading ? (
             <div className="flex items-center justify-center py-16 text-sm text-muted-foreground gap-2">
-              <Loader2 className="h-5 w-5 animate-spin" /> Carregando vencimentos do sistema...
+              <Loader2 className="h-5 w-5 animate-spin" /> Carregando lotes de clientes...
             </div>
-          ) : filteredItems.length === 0 ? (
-            <div className="p-12 text-center text-sm text-muted-foreground">
-              Nenhum item encontrado com os filtros selecionados.
-            </div>
+          ) : clientLots.length === 0 ? (
+            <Card>
+              <CardContent className="p-12 text-center text-sm text-muted-foreground">
+                Nenhum lote de extintores encontrado com os filtros selecionados.
+              </CardContent>
+            </Card>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Cliente</TableHead>
-                    <TableHead>Categoria</TableHead>
-                    <TableHead>Equipamento / Item</TableHead>
-                    <TableHead>Localização</TableHead>
-                    <TableHead>Data Vencimento</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Ação</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredItems.map((item) => {
-                    const isOverdue = item.status_alerta === "vencido";
-                    const isThisMonth = item.status_alerta === "mes_atual";
+            clientLots.map((group) => {
+              const isExpanded = !!expandedClients[group.cliente_id];
 
-                    return (
-                      <TableRow key={`${item.categoria}-${item.id}`}>
-                        {/* Nome do Cliente com Link para Ficha Técnica */}
-                        <TableCell>
+              return (
+                <Card
+                  key={group.cliente_id}
+                  className={`border transition-all shadow-sm ${
+                    group.todos_em_bancada
+                      ? "bg-neutral-50/70 dark:bg-neutral-900/40 border-neutral-200 dark:border-neutral-800 opacity-90"
+                      : group.tem_vencido
+                      ? "border-red-300 dark:border-red-900/60 bg-white dark:bg-neutral-900"
+                      : "border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900"
+                  }`}
+                >
+                  <CardContent className="p-5 space-y-4">
+                    {/* Linha Superior: Dados do Cliente + Badges de Status */}
+                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-3 border-b pb-3">
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
                           <button
                             type="button"
-                            onClick={() =>
-                              handleOpenClientTechSheet(
-                                item.cliente_id,
-                                item.categoria === "PPCI" ? "ppci" : "extintores"
-                              )
-                            }
-                            className="text-left font-bold text-neutral-900 dark:text-neutral-100 hover:text-red-600 transition-colors"
+                            onClick={() => handleOpenClientTechSheet(group.cliente_id, "extintores")}
+                            className="text-base font-bold text-neutral-900 dark:text-neutral-100 hover:text-red-600 transition-colors flex items-center gap-1.5"
                           >
-                            {item.cliente_nome}
+                            <Building2 className="h-4 w-4 text-red-600" />
+                            {group.cliente_nome}
                           </button>
-                        </TableCell>
 
-                        {/* Categoria */}
-                        <TableCell>
-                          <Badge
-                            variant="outline"
-                            className={`text-[10px] font-semibold gap-1 ${
-                              item.categoria === "Extintores"
-                                ? "bg-red-50 text-red-700 border-red-200"
-                                : item.categoria === "PPCI"
-                                ? "bg-amber-50 text-amber-700 border-amber-200"
-                                : "bg-blue-50 text-blue-700 border-blue-200"
-                            }`}
-                          >
-                            {item.categoria === "Extintores" && <Flame className="h-3 w-3" />}
-                            {item.categoria === "PPCI" && <ShieldCheck className="h-3 w-3" />}
-                            {item.categoria === "Mangueiras" && <Waves className="h-3 w-3" />}
-                            {item.categoria}
-                          </Badge>
-                        </TableCell>
-
-                        {/* Item */}
-                        <TableCell className="font-medium text-sm">
-                          {item.item_nome}
-                        </TableCell>
-
-                        {/* Localização */}
-                        <TableCell className="text-xs text-muted-foreground">
-                          {item.localizacao || "—"}
-                        </TableCell>
-
-                        {/* Vencimento */}
-                        <TableCell className="font-mono text-xs">
-                          <span className={isOverdue ? "font-bold text-red-600" : ""}>
-                            {new Date(item.data_vencimento + "T00:00:00").toLocaleDateString("pt-BR")}
-                          </span>
-                          <span className="block text-[10px] text-muted-foreground">
-                            {isOverdue
-                              ? `Expirou há ${Math.abs(item.dias_restantes)} dias`
-                              : item.dias_restantes === 0
-                              ? "Vence hoje!"
-                              : `Em ${item.dias_restantes} dias`}
-                          </span>
-                        </TableCell>
-
-                        {/* Badge de Alerta */}
-                        <TableCell>
-                          {isOverdue ? (
-                            <Badge className="bg-red-600 text-white font-bold text-[10px] hover:bg-red-600">
-                              VENCIDO
-                            </Badge>
-                          ) : isThisMonth ? (
-                            <Badge className="bg-amber-500 text-white font-bold text-[10px] hover:bg-amber-500">
-                              VENCE ESTE MÊS
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-[10px] text-neutral-600">
-                              PRÓXIMO MÊS
-                            </Badge>
+                          {group.cliente_fantasia && (
+                            <span className="text-xs text-muted-foreground">
+                              ({group.cliente_fantasia})
+                            </span>
                           )}
-                        </TableCell>
+                        </div>
 
-                        {/* Ações: Recolher Extintor, Editar PPCI, Enviar WhatsApp */}
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                            {item.categoria === "Extintores" && (
-                              <Button
-                                type="button"
-                                size="sm"
-                                onClick={() => handleRecolherExtintor(item)}
-                                disabled={loadingPickupId === item.id}
-                                className="h-8 px-2.5 text-xs bg-orange-600 hover:bg-orange-700 text-white font-semibold gap-1.5 shadow-sm"
-                                title="Abrir Ordem de Recolhimento para Oficina / Bancada"
-                              >
-                                {loadingPickupId === item.id ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <Truck className="h-3.5 w-3.5" />
-                                )}
-                                Recolher
-                              </Button>
-                            )}
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1 flex-wrap">
+                          {group.cliente_documento && (
+                            <span className="font-mono">{group.cliente_documento}</span>
+                          )}
+                          {group.cliente_telefone && (
+                            <span className="flex items-center gap-1">
+                              <Phone className="h-3 w-3" />
+                              {group.cliente_telefone}
+                            </span>
+                          )}
+                          {group.cliente_endereco && (
+                            <span className="flex items-center gap-1">
+                              <MapPin className="h-3 w-3" />
+                              {group.cliente_endereco}
+                            </span>
+                          )}
+                        </div>
+                      </div>
 
-                            {item.categoria === "PPCI" && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleOpenClientTechSheet(item.cliente_id, "ppci")}
-                                className="h-8 px-2.5 text-xs border-amber-300 text-amber-800 hover:bg-amber-50 dark:hover:bg-amber-950/30 font-semibold gap-1.5 shadow-sm"
-                                title="Editar PPCI e Alvará do Cliente"
-                              >
-                                <ShieldCheck className="h-3.5 w-3.5 text-amber-600" />
-                                Editar PPCI
-                              </Button>
-                            )}
+                      {/* Badges de Vencimento e Status da Oficina */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {group.todos_em_bancada ? (
+                          <Badge className="bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-950/50 dark:text-sky-300 font-bold text-xs gap-1">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-sky-600" />
+                            Lote Já na Bancada (Oficina)
+                          </Badge>
+                        ) : group.extintores_em_bancada.length > 0 ? (
+                          <Badge variant="outline" className="text-xs bg-amber-50 text-amber-800 border-amber-300">
+                            {group.extintores_em_bancada.length} na oficina / {group.extintores_disponiveis.length} a recolher
+                          </Badge>
+                        ) : null}
 
-                            {item.cliente_telefone ? (
-                              <Button
-                                asChild
-                                size="sm"
-                                variant="outline"
-                                className="h-8 px-2.5 text-xs text-emerald-700 border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 font-semibold gap-1.5 shadow-sm"
-                                title="Enviar aviso pré-configurado no WhatsApp"
-                              >
-                                <a
-                                  href={generateWhatsAppUrl(item)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  <MessageCircle className="h-3.5 w-3.5 text-emerald-600" />
-                                  WhatsApp
-                                </a>
-                              </Button>
-                            ) : (
-                              <span className="text-xs text-muted-foreground italic px-1">
-                                Sem telefone
-                              </span>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
+                        {group.tem_vencido ? (
+                          <Badge className="bg-red-600 text-white font-bold text-xs">
+                            VENCIDO
+                          </Badge>
+                        ) : group.tem_mes_atual ? (
+                          <Badge className="bg-amber-500 text-white font-bold text-xs">
+                            VENCE ESTE MÊS
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-xs text-neutral-600">
+                            PRÓXIMO MÊS
+                          </Badge>
+                        )}
+
+                        <Badge className="bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 font-bold text-xs">
+                          {group.total_extintores} {group.total_extintores === 1 ? "Cilindro" : "Cilindros"}
+                        </Badge>
+                      </div>
+                    </div>
+
+                    {/* Linha Central: Resumo do Lote (Modelos e Meses de Vencimento) */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-neutral-50 dark:bg-neutral-800/40 rounded-xl border text-xs">
+                      {/* Modelos de Extintores */}
+                      <div>
+                        <span className="font-semibold text-muted-foreground block mb-1">
+                          Composição do Lote:
+                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {group.modelos_agrupados.map((m, idx) => (
+                            <Badge
+                              key={idx}
+                              variant="secondary"
+                              className="text-[11px] font-medium bg-white dark:bg-neutral-900 border text-neutral-800 dark:text-neutral-200"
+                            >
+                              <Flame className="h-3 w-3 text-red-500 mr-1" />
+                              <strong className="mr-1">{m.count}x</strong> {m.modelo}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Meses de Vencimento (apenas MM/AAAA) */}
+                      <div>
+                        <span className="font-semibold text-muted-foreground block mb-1">
+                          Vencimento dos Cilindros (Mês/Ano):
+                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {group.meses_vencimento.map((m, idx) => (
+                            <Badge
+                              key={idx}
+                              variant="outline"
+                              className="text-[11px] font-mono font-bold bg-white dark:bg-neutral-900 border-red-200 text-red-700 dark:text-red-400"
+                            >
+                              📅 {m}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Detalhamento Expansível dos Cilindros do Lote */}
+                    {isExpanded && (
+                      <div className="border rounded-lg overflow-hidden bg-white dark:bg-neutral-900 mt-2">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="bg-neutral-50 dark:bg-neutral-800/60 text-[11px]">
+                              <TableHead>Identificação / Cilindro</TableHead>
+                              <TableHead>Tipo / Capacidade</TableHead>
+                              <TableHead>Localização</TableHead>
+                              <TableHead>Vencimento (MM/AAAA)</TableHead>
+                              <TableHead className="text-right">Status</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody className="text-xs">
+                            {group.extintores.map((ext) => {
+                              const isEmBancada = ext.extintor_status === "em_bancada";
+                              return (
+                                <TableRow key={ext.id}>
+                                  <TableCell className="font-mono font-bold">
+                                    {ext.item_nome}
+                                  </TableCell>
+                                  <TableCell>{ext.subtipo || "Extintor"}</TableCell>
+                                  <TableCell className="text-muted-foreground">
+                                    {ext.localizacao || "—"}
+                                  </TableCell>
+                                  <TableCell className="font-mono font-semibold">
+                                    {formatMonthYear(ext.data_vencimento)}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    {isEmBancada ? (
+                                      <Badge className="bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-950/50 dark:text-sky-300 text-[10px] font-bold">
+                                        Na Bancada
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="outline" className="text-[10px] text-neutral-600">
+                                        No Cliente
+                                      </Badge>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+
+                    {/* Linha Inferior: Botões de Ação do Lote */}
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => toggleExpandClient(group.cliente_id)}
+                        className="text-xs text-muted-foreground hover:text-foreground gap-1 justify-start px-1"
+                      >
+                        {isExpanded ? (
+                          <>
+                            <ChevronUp className="h-3.5 w-3.5" />
+                            Ocultar cilindros do lote
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown className="h-3.5 w-3.5" />
+                            Ver todos os {group.total_extintores} cilindros do lote
+                          </>
+                        )}
+                      </Button>
+
+                      <div className="flex items-center gap-2 flex-wrap justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleOpenClientTechSheet(group.cliente_id, "extintores")}
+                          className="h-9 px-3 text-xs gap-1.5 font-medium"
+                        >
+                          <FileText className="h-3.5 w-3.5 text-neutral-600" />
+                          Ficha Técnica
+                        </Button>
+
+                        {group.cliente_telefone ? (
+                          <Button
+                            asChild
+                            size="sm"
+                            variant="outline"
+                            className="h-9 px-3 text-xs text-emerald-700 border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 font-semibold gap-1.5 shadow-sm"
+                            title="Enviar aviso do lote completo no WhatsApp"
+                          >
+                            <a
+                              href={generateLoteWhatsAppUrl(group)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <MessageCircle className="h-3.5 w-3.5 text-emerald-600" />
+                              WhatsApp Lote
+                            </a>
+                          </Button>
+                        ) : null}
+
+                        {/* Botão de Recolhimento do Lote */}
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={group.todos_em_bancada || loadingPickupId === group.cliente_id}
+                          onClick={() => handleRecolherLoteCliente(group)}
+                          className={`h-9 px-4 text-xs font-bold gap-2 shadow-sm ${
+                            group.todos_em_bancada
+                              ? "bg-neutral-300 dark:bg-neutral-800 text-neutral-500 cursor-not-allowed"
+                              : "bg-orange-600 hover:bg-orange-700 text-white"
+                          }`}
+                          title={
+                            group.todos_em_bancada
+                              ? "Todos os cilindros deste lote já estão na bancada"
+                              : "Recolher o lote completo de extintores deste cliente para a bancada"
+                          }
+                        >
+                          {loadingPickupId === group.cliente_id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Truck className="h-4 w-4" />
+                          )}
+                          {group.todos_em_bancada
+                            ? "Lote Já na Oficina"
+                            : `Recolher Lote (${group.extintores_disponiveis.length} cilindros)`}
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })
           )}
-        </CardContent>
-      </Card>
+        </div>
+      )}
+
+      {/* VISÃO 2: TABELA DETALHADA INDIVIDUAL (COM PPCI E MANGUEIRAS) */}
+      {viewMode === "detalhado" && (
+        <Card>
+          <CardHeader className="p-4 pb-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-base font-bold">
+                  Itens Monitorados Individualmente ({filteredItems.length})
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Extintores com validade mês/ano e bloqueio de duplicidade para bancada
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {isLoading ? (
+              <div className="flex items-center justify-center py-16 text-sm text-muted-foreground gap-2">
+                <Loader2 className="h-5 w-5 animate-spin" /> Carregando vencimentos do sistema...
+              </div>
+            ) : filteredItems.length === 0 ? (
+              <div className="p-12 text-center text-sm text-muted-foreground">
+                Nenhum item encontrado com os filtros selecionados.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Cliente</TableHead>
+                      <TableHead>Categoria</TableHead>
+                      <TableHead>Equipamento / Item</TableHead>
+                      <TableHead>Localização</TableHead>
+                      <TableHead>Vencimento (MM/AAAA)</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Ação</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredItems.map((item) => {
+                      const isOverdue = item.status_alerta === "vencido";
+                      const isThisMonth = item.status_alerta === "mes_atual";
+                      const isEmBancada = item.extintor_status === "em_bancada";
+
+                      // Para extintores, exibe estritamente MM/AAAA. Para PPCI, data completa.
+                      const dataFormatada = item.categoria === "Extintores"
+                        ? formatMonthYear(item.data_vencimento)
+                        : new Date(item.data_vencimento + "T00:00:00").toLocaleDateString("pt-BR");
+
+                      return (
+                        <TableRow key={`${item.categoria}-${item.id}`}>
+                          {/* Nome do Cliente com Link para Ficha Técnica */}
+                          <TableCell>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleOpenClientTechSheet(
+                                  item.cliente_id,
+                                  item.categoria === "PPCI" ? "ppci" : "extintores"
+                                )
+                              }
+                              className="text-left font-bold text-neutral-900 dark:text-neutral-100 hover:text-red-600 transition-colors"
+                            >
+                              {item.cliente_nome}
+                            </button>
+                          </TableCell>
+
+                          {/* Categoria */}
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] font-semibold gap-1 ${
+                                item.categoria === "Extintores"
+                                  ? "bg-red-50 text-red-700 border-red-200"
+                                  : item.categoria === "PPCI"
+                                  ? "bg-amber-50 text-amber-700 border-amber-200"
+                                  : "bg-blue-50 text-blue-700 border-blue-200"
+                              }`}
+                            >
+                              {item.categoria === "Extintores" && <Flame className="h-3 w-3" />}
+                              {item.categoria === "PPCI" && <ShieldCheck className="h-3 w-3" />}
+                              {item.categoria === "Mangueiras" && <Waves className="h-3 w-3" />}
+                              {item.categoria}
+                            </Badge>
+                          </TableCell>
+
+                          {/* Item */}
+                          <TableCell className="font-medium text-sm">
+                            <div className="flex items-center gap-2">
+                              <span>{item.item_nome}</span>
+                              {isEmBancada && (
+                                <Badge className="bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-950/50 dark:text-sky-300 text-[9px] font-bold">
+                                  Na Bancada
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+
+                          {/* Localização */}
+                          <TableCell className="text-xs text-muted-foreground">
+                            {item.localizacao || "—"}
+                          </TableCell>
+
+                          {/* Vencimento (MM/AAAA para extintor) */}
+                          <TableCell className="font-mono text-xs">
+                            <span className={isOverdue ? "font-bold text-red-600" : ""}>
+                              {dataFormatada}
+                            </span>
+                            <span className="block text-[10px] text-muted-foreground">
+                              {isOverdue
+                                ? `Expirou há ${Math.abs(item.dias_restantes)} dias`
+                                : item.dias_restantes === 0
+                                ? "Vence hoje!"
+                                : `Em ${item.dias_restantes} dias`}
+                            </span>
+                          </TableCell>
+
+                          {/* Badge de Alerta */}
+                          <TableCell>
+                            {isOverdue ? (
+                              <Badge className="bg-red-600 text-white font-bold text-[10px] hover:bg-red-600">
+                                VENCIDO
+                              </Badge>
+                            ) : isThisMonth ? (
+                              <Badge className="bg-amber-500 text-white font-bold text-[10px] hover:bg-amber-500">
+                                VENCE ESTE MÊS
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px] text-neutral-600">
+                                PRÓXIMO MÊS
+                              </Badge>
+                            )}
+                          </TableCell>
+
+                          {/* Ações: Recolher Extintor com trava anti-duplicidade, Editar PPCI, Enviar WhatsApp */}
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                              {item.categoria === "Extintores" && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={() => handleRecolherExtintor(item)}
+                                  disabled={isEmBancada || loadingPickupId === item.id}
+                                  className={`h-8 px-2.5 text-xs font-semibold gap-1.5 shadow-sm ${
+                                    isEmBancada
+                                      ? "bg-neutral-200 dark:bg-neutral-800 text-neutral-500 cursor-not-allowed"
+                                      : "bg-orange-600 hover:bg-orange-700 text-white"
+                                  }`}
+                                  title={
+                                    isEmBancada
+                                      ? "Este extintor já está na bancada da oficina"
+                                      : "Abrir Ordem de Recolhimento para Oficina / Bancada"
+                                  }
+                                >
+                                  {loadingPickupId === item.id ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Truck className="h-3.5 w-3.5" />
+                                  )}
+                                  {isEmBancada ? "Na Bancada" : "Recolher"}
+                                </Button>
+                              )}
+
+                              {item.categoria === "PPCI" && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleOpenClientTechSheet(item.cliente_id, "ppci")}
+                                  className="h-8 px-2.5 text-xs border-amber-300 text-amber-800 hover:bg-amber-50 dark:hover:bg-amber-950/30 font-semibold gap-1.5 shadow-sm"
+                                  title="Editar PPCI e Alvará do Cliente"
+                                >
+                                  <ShieldCheck className="h-3.5 w-3.5 text-amber-600" />
+                                  Editar PPCI
+                                </Button>
+                              )}
+
+                              {item.cliente_telefone ? (
+                                <Button
+                                  asChild
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 px-2.5 text-xs text-emerald-700 border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 font-semibold gap-1.5 shadow-sm"
+                                  title="Enviar aviso pré-configurado no WhatsApp"
+                                >
+                                  <a
+                                    href={generateWhatsAppUrl(item)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    <MessageCircle className="h-3.5 w-3.5 text-emerald-600" />
+                                    WhatsApp
+                                  </a>
+                                </Button>
+                              ) : (
+                                <span className="text-xs text-muted-foreground italic px-1">
+                                  Sem telefone
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Modal Ficha Técnica acionado ao clicar no cliente ou Editar PPCI */}
       {selectedCustomer && (

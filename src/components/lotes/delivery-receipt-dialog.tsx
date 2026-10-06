@@ -33,7 +33,7 @@ import {
   AlertTriangle,
   Loader2,
 } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatMonthYear } from "@/lib/utils";
 import {
   confirmClientDeliveryAndPayment,
 } from "@/services/prevention.service";
@@ -494,7 +494,7 @@ export function DeliveryReceiptDialog({
                           <td className="p-2 border">{it.tipo_capacidade} ({it.modalidade})</td>
                           <td className="p-2 border text-muted-foreground">📍 {it.localizacao || "Padrão"}</td>
                           <td className="p-2 border font-bold text-emerald-700 dark:text-emerald-400">
-                            {new Date(it.nova_validade + "T00:00:00").toLocaleDateString("pt-BR")}
+                            {formatMonthYear(it.nova_validade)}
                           </td>
                           <td className="p-2 border text-right font-mono font-bold">
                             {formatCurrency(it.valor)}

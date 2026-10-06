@@ -48,7 +48,7 @@ import {
   renewExtintoresBatch,
   deleteExtintor,
 } from "@/services/prevention.service";
-import { formatCurrency, formatDocument, formatPhone } from "@/lib/utils";
+import { formatCurrency, formatDocument, formatPhone, formatMonthYear, toMonthInput, monthInputToDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { Switch } from "@/components/ui/switch";
@@ -317,7 +317,7 @@ export function ClientTechSheetModal({
           localizacao,
           valor_servico: valorServico,
           data_ultima_recarga: dataUltimaRecarga || undefined,
-          data_vencimento: dataVencimento || editingExtintor.data_vencimento,
+          data_vencimento: monthInputToDate(dataVencimento) || editingExtintor.data_vencimento,
           status: editingExtintor.status,
         });
         toast({ variant: "success", title: "Extintor atualizado com sucesso." });
@@ -329,7 +329,7 @@ export function ClientTechSheetModal({
             tipoCapacidade,
             valorServico,
             localizacao,
-            dataVencimento || undefined,
+            monthInputToDate(dataVencimento) || undefined,
             dataUltimaRecarga || undefined
           );
           toast({
@@ -344,7 +344,7 @@ export function ClientTechSheetModal({
             localizacao,
             valor_servico: valorServico,
             data_ultima_recarga: dataUltimaRecarga || undefined,
-            data_vencimento: dataVencimento || undefined,
+            data_vencimento: monthInputToDate(dataVencimento) || undefined,
             status: "no_cliente",
           });
           toast({ variant: "success", title: "Extintor cadastrado com sucesso." });
@@ -372,7 +372,7 @@ export function ClientTechSheetModal({
     setLocalizacao(ext.localizacao || "");
     setValorServico(ext.valor_servico);
     setDataUltimaRecarga(ext.data_ultima_recarga ? ext.data_ultima_recarga.split("T")[0] : "");
-    setDataVencimento(ext.data_vencimento ? ext.data_vencimento.split("T")[0] : "");
+    setDataVencimento(toMonthInput(ext.data_vencimento));
     setBatchCount(1);
     setIsAddExtintorOpen(true);
   }
@@ -386,7 +386,7 @@ export function ClientTechSheetModal({
     setLocalizacao("Recepção");
     setValorServico(45.0);
     setDataUltimaRecarga(today);
-    setDataVencimento(nextYear);
+    setDataVencimento(toMonthInput(nextYear));
     setBatchCount(1);
     setIsAddExtintorOpen(true);
   }
@@ -692,8 +692,16 @@ export function ClientTechSheetModal({
                               <input
                                 type="checkbox"
                                 checked={isSelected}
+                                disabled={ext.status === "em_bancada"}
                                 onChange={() => handleToggleSelect(ext.id)}
-                                className="mt-1 h-4 w-4 rounded border-neutral-300 text-orange-600 focus:ring-orange-500 cursor-pointer"
+                                title={
+                                  ext.status === "em_bancada"
+                                    ? "Este extintor já foi recolhido e está na bancada da oficina"
+                                    : "Selecionar para recolhimento"
+                                }
+                                className={`mt-1 h-4 w-4 rounded border-neutral-300 text-orange-600 focus:ring-orange-500 ${
+                                  ext.status === "em_bancada" ? "opacity-30 cursor-not-allowed" : "cursor-pointer"
+                                }`}
                               />
                               <div>
                                 <h4 className="text-sm font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
@@ -725,8 +733,8 @@ export function ClientTechSheetModal({
                               </Badge>
 
                               {ext.status === "em_bancada" && (
-                                <Badge className="bg-blue-600 text-white text-[10px]">
-                                  Em Oficina
+                                <Badge className="bg-amber-600 text-white text-[10px] font-bold">
+                                  Na Bancada (Oficina)
                                 </Badge>
                               )}
                             </div>
@@ -750,7 +758,7 @@ export function ClientTechSheetModal({
                                     isExpired ? "text-red-600" : "text-foreground"
                                   }`}
                                 >
-                                  {new Date(ext.data_vencimento + "T00:00:00").toLocaleDateString("pt-BR")}
+                                  {formatMonthYear(ext.data_vencimento)}
                                 </span>
                               </p>
                             </div>
@@ -1464,11 +1472,11 @@ export function ClientTechSheetModal({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="ext-venc" className="text-xs font-semibold">
-                  Data de Vencimento *
+                  Mês/Ano de Vencimento (MM/AAAA) *
                 </Label>
                 <Input
                   id="ext-venc"
-                  type="date"
+                  type="month"
                   value={dataVencimento}
                   onChange={(e) => setDataVencimento(e.target.value)}
                   required
@@ -1546,7 +1554,7 @@ export function ClientTechSheetModal({
                     <td className="p-2 border">{e.tipo_capacidade}</td>
                     <td className="p-2 border">{e.localizacao || "—"}</td>
                     <td className="p-2 border font-mono">
-                      {new Date(e.data_vencimento + "T00:00:00").toLocaleDateString("pt-BR")}
+                      {formatMonthYear(e.data_vencimento)}
                     </td>
                   </tr>
                 ))}

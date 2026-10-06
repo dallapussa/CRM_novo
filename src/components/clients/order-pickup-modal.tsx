@@ -43,7 +43,7 @@ import type {
 } from "@/types";
 import { createOrdemRecolhimento, listLotesRecolhimento } from "@/services/prevention.service";
 import { LoteCreateDialog } from "@/components/lotes/lote-create-dialog";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatMonthYear } from "@/lib/utils";
 
 interface OrderPickupModalProps {
   open: boolean;
@@ -64,8 +64,28 @@ export function OrderPickupModal({
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Modalidades individuais por extintor
+  // Anti-duplicidade: Separa extintores elegíveis dos que já estão na oficina
+  const extintoresElegiveis = React.useMemo(() => {
+    return selectedExtintores.filter((e) => e.status !== "em_bancada");
+  }, [selectedExtintores]);
+
+  const extintoresJaEmBancada = React.useMemo(() => {
+    return selectedExtintores.filter((e) => e.status === "em_bancada");
+  }, [selectedExtintores]);
+
+  // Modalidades individuais por extintor (Padrão: "Reaproveitamento")
   const [modalidades, setModalidades] = useState<Record<string, ModalidadeRecarga>>({});
+
+  // Inicializa com "Reaproveitamento" como padrão
+  React.useEffect(() => {
+    if (open && extintoresElegiveis.length > 0) {
+      const initial: Record<string, ModalidadeRecarga> = {};
+      extintoresElegiveis.forEach((e) => {
+        initial[e.id] = "Reaproveitamento";
+      });
+      setModalidades(initial);
+    }
+  }, [open, extintoresElegiveis]);
 
   // Motivo da OS
   const [motivo, setMotivo] = useState<OrdemRecolhimentoMotivo>("Recarga Anual");
@@ -108,12 +128,12 @@ export function OrderPickupModal({
   }
 
   function getModalidade(extId: string): ModalidadeRecarga {
-    return modalidades[extId] || "Normal";
+    return modalidades[extId] || "Reaproveitamento";
   }
 
   function setAllModalidade(mode: ModalidadeRecarga) {
     const next: Record<string, ModalidadeRecarga> = {};
-    selectedExtintores.forEach((e) => {
+    extintoresElegiveis.forEach((e) => {
       next[e.id] = mode;
     });
     setModalidades(next);
@@ -122,16 +142,19 @@ export function OrderPickupModal({
   function toggleIndividualModalidade(extId: string, current: ModalidadeRecarga) {
     setModalidades((prev) => ({
       ...prev,
-      [extId]: current === "Normal" ? "Reaproveitamento" : "Normal",
+      [extId]: current === "Reaproveitamento" ? "Normal" : "Reaproveitamento",
     }));
   }
 
   async function handleConfirm() {
-    if (selectedExtintores.length === 0) {
+    if (extintoresElegiveis.length === 0) {
       toast({
         variant: "destructive",
-        title: "Nenhum extintor selecionado",
-        description: "Selecione pelo menos um extintor para recolher.",
+        title: "Nenhum extintor disponível para recolher",
+        description:
+          extintoresJaEmBancada.length > 0
+            ? "Todos os extintores selecionados já estão na oficina/bancada."
+            : "Selecione pelo menos um extintor para recolher.",
       });
       return;
     }
@@ -148,7 +171,7 @@ export function OrderPickupModal({
         dataRecolhimento,
         previsaoDevolucao,
         observacoes,
-        itens: selectedExtintores.map((e) => ({
+        itens: extintoresElegiveis.map((e) => ({
           extintorId: e.id,
           modalidade: getModalidade(e.id),
           valorRegistrado: e.valor_servico || 45.0,
@@ -158,11 +181,13 @@ export function OrderPickupModal({
       toast({
         variant: "success",
         title: `OS de Recolhimento nº ${result.numero_ordem} Gerada!`,
-        description: `${selectedExtintores.length} extintor(es) foram enviados para a oficina (em bancada).`,
+        description: `${extintoresElegiveis.length} extintor(es) foram enviados para a oficina (em bancada com Reaproveitamento).`,
       });
 
       queryClient.invalidateQueries({ queryKey: ["bench_records"] });
       queryClient.invalidateQueries({ queryKey: ["lotes_recolhimento"] });
+      queryClient.invalidateQueries({ queryKey: ["extintores"] });
+      queryClient.invalidateQueries({ queryKey: ["expiring-items"] });
       onOpenChange(false);
       onSuccess?.();
     } catch (err: any) {
@@ -187,7 +212,7 @@ export function OrderPickupModal({
             </div>
             <div>
               <DialogTitle className="text-xl font-bold text-white tracking-tight">
-                Recolher {selectedExtintores.length} Extintor(es)
+                Recolher {extintoresElegiveis.length} Extintor(es)
               </DialogTitle>
               <p className="text-xs text-orange-100 mt-0.5">
                 Abertura de Ordem de Serviço para manutenção e recarga na oficina
@@ -210,6 +235,16 @@ export function OrderPickupModal({
         </div>
 
         <div className="p-6 space-y-6">
+          {/* Alerta de extintores já recolhidos (Anti-duplicidade) */}
+          {extintoresJaEmBancada.length > 0 && (
+            <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-300 rounded-xl text-xs text-amber-800 dark:text-amber-200 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+              <span>
+                <strong>Atenção:</strong> {extintoresJaEmBancada.length} extintor(es) deste cliente já está(ão) na oficina/bancada e foi(ram) ignorado(s) para evitar duplicidade.
+              </span>
+            </div>
+          )}
+
           {/* SEÇÃO 1: Cilindros e Classificação */}
           <div className="space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -222,75 +257,85 @@ export function OrderPickupModal({
                 <Button
                   type="button"
                   size="sm"
-                  variant="ghost"
-                  onClick={() => setAllModalidade("Normal")}
-                  className="h-6 text-xs px-2 hover:bg-white dark:hover:bg-neutral-700"
+                  onClick={() => setAllModalidade("Reaproveitamento")}
+                  className="h-6 text-xs px-2.5 bg-orange-600 hover:bg-orange-700 text-white font-bold"
                 >
-                  Normal
+                  ✓ Reaproveitamento (Padrão)
                 </Button>
                 <Button
                   type="button"
                   size="sm"
                   variant="ghost"
-                  onClick={() => setAllModalidade("Reaproveitamento")}
-                  className="h-6 text-xs px-2 hover:bg-white dark:hover:bg-neutral-700 text-orange-600"
+                  onClick={() => setAllModalidade("Normal")}
+                  className="h-6 text-xs px-2 hover:bg-white dark:hover:bg-neutral-700 text-muted-foreground"
                 >
-                  Reaproveitamento
+                  Normal
                 </Button>
               </div>
             </div>
 
             <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl divide-y divide-neutral-100 dark:divide-neutral-800 max-h-56 overflow-y-auto">
-              {selectedExtintores.map((ext) => {
-                const mode = getModalidade(ext.id);
-                return (
-                  <div
-                    key={ext.id}
-                    className="p-3 flex items-center justify-between gap-3 hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-colors"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 truncate">
-                        {ext.identificacao}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {ext.tipo_capacidade} • {ext.localizacao || "Local não informado"} •{" "}
-                        <span className="text-emerald-600 font-medium">
-                          {formatCurrency(ext.valor_servico)}
-                        </span>
-                      </p>
-                    </div>
+              {extintoresElegiveis.length === 0 ? (
+                <div className="p-6 text-center text-xs text-muted-foreground">
+                  Nenhum extintor disponível para recolher (todos já estão na oficina).
+                </div>
+              ) : (
+                extintoresElegiveis.map((ext) => {
+                  const mode = getModalidade(ext.id);
+                  return (
+                    <div
+                      key={ext.id}
+                      className="p-3 flex items-center justify-between gap-3 hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-colors"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 truncate">
+                          {ext.identificacao}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {ext.tipo_capacidade} • {ext.localizacao || "Local não informado"} •{" "}
+                          {ext.data_vencimento && (
+                            <span className="font-semibold text-foreground">
+                              Venc: {formatMonthYear(ext.data_vencimento)} •{" "}
+                            </span>
+                          )}
+                          <span className="text-emerald-600 font-medium">
+                            {formatCurrency(ext.valor_servico)}
+                          </span>
+                        </p>
+                      </div>
 
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={mode === "Normal" ? "default" : "outline"}
-                        onClick={() => toggleIndividualModalidade(ext.id, mode)}
-                        className={`h-7 text-xs px-2.5 font-medium ${
-                          mode === "Normal"
-                            ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
-                            : ""
-                        }`}
-                      >
-                        Normal
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={mode === "Reaproveitamento" ? "default" : "outline"}
-                        onClick={() => toggleIndividualModalidade(ext.id, mode)}
-                        className={`h-7 text-xs px-2.5 font-medium ${
-                          mode === "Reaproveitamento"
-                            ? "bg-orange-600 text-white hover:bg-orange-700"
-                            : "text-orange-600 border-orange-200 hover:bg-orange-50"
-                        }`}
-                      >
-                        Reaproveitamento
-                      </Button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={mode === "Reaproveitamento" ? "default" : "outline"}
+                          onClick={() => toggleIndividualModalidade(ext.id, mode)}
+                          className={`h-7 text-xs px-2.5 font-bold ${
+                            mode === "Reaproveitamento"
+                              ? "bg-orange-600 text-white hover:bg-orange-700 shadow-sm"
+                              : "text-orange-600 border-orange-200 hover:bg-orange-50"
+                          }`}
+                        >
+                          Reaproveitamento
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={mode === "Normal" ? "default" : "outline"}
+                          onClick={() => toggleIndividualModalidade(ext.id, mode)}
+                          className={`h-7 text-xs px-2.5 font-medium ${
+                            mode === "Normal"
+                              ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                              : "text-muted-foreground"
+                          }`}
+                        >
+                          Normal
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
 

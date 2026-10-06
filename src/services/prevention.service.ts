@@ -393,6 +393,23 @@ export async function createOrdemRecolhimento(
     data: { user },
   } = await supabase.auth.getUser();
 
+  // 0. TRAVA ANTI-DUPLICIDADE: Impede recolher mais de uma vez o mesmo extintor para a bancada
+  const extintorIds = input.itens.map((i) => i.extintorId).filter(Boolean);
+  if (extintorIds.length > 0) {
+    const { data: extsDb } = await supabase
+      .from("extintores")
+      .select("id, identificacao, status")
+      .in("id", extintorIds);
+
+    const jaNaBancada = (extsDb || []).filter((e) => e.status === "em_bancada");
+    if (jaNaBancada.length > 0) {
+      const nomes = jaNaBancada.map((e) => e.identificacao).join(", ");
+      throw new Error(
+        `Recolhimento duplicado bloqueado: O(s) extintor(es) [${nomes}] já está(ão) na bancada da oficina.`
+      );
+    }
+  }
+
   // Se tiver loteId, embute tag [LOTE:id] nas observações para garantia caso a coluna lote_id ainda não exista
   const observacaoComLote = input.loteId
     ? `${input.observacoes ? input.observacoes + " " : ""}[LOTE:${input.loteId}]`
@@ -1159,13 +1176,127 @@ export interface VencimentoItem {
   extintor_id?: string;
   cliente_id: string;
   cliente_nome: string;
+  cliente_fantasia?: string;
   cliente_telefone?: string | null;
+  cliente_documento?: string;
+  cliente_endereco?: string;
   categoria: "Extintores" | "PPCI" | "Mangueiras";
   item_nome: string;
+  subtipo?: string;
   localizacao?: string | null;
   data_vencimento: string;
   status_alerta: "vencido" | "mes_atual" | "proximo_mes" | "em_dia";
   dias_restantes: number;
+  extintor_status?: string | null;
+}
+
+export interface ClienteLoteVencimento {
+  cliente_id: string;
+  cliente_nome: string;
+  cliente_fantasia?: string;
+  cliente_telefone?: string | null;
+  cliente_documento?: string;
+  cliente_endereco?: string;
+  total_extintores: number;
+  extintores: VencimentoItem[];
+  extintores_disponiveis: VencimentoItem[];
+  extintores_em_bancada: VencimentoItem[];
+  modelos_agrupados: { modelo: string; count: number }[];
+  meses_vencimento: string[];
+  status_geral: "vencido" | "mes_atual" | "proximo_mes" | "em_dia";
+  todos_em_bancada: boolean;
+  tem_vencido: boolean;
+  tem_mes_atual: boolean;
+}
+
+/**
+ * Agrupa os extintores vencidos / a vencer por cliente em Lotes Completos
+ */
+export function groupExpiringExtintoresByClient(items: VencimentoItem[]): ClienteLoteVencimento[] {
+  const extItems = items.filter((it) => it.categoria === "Extintores");
+  const groups = new Map<string, ClienteLoteVencimento>();
+
+  for (const item of extItems) {
+    let group = groups.get(item.cliente_id);
+    if (!group) {
+      group = {
+        cliente_id: item.cliente_id,
+        cliente_nome: item.cliente_nome,
+        cliente_fantasia: item.cliente_fantasia,
+        cliente_telefone: item.cliente_telefone,
+        cliente_documento: item.cliente_documento,
+        cliente_endereco: item.cliente_endereco,
+        total_extintores: 0,
+        extintores: [],
+        extintores_disponiveis: [],
+        extintores_em_bancada: [],
+        modelos_agrupados: [],
+        meses_vencimento: [],
+        status_geral: item.status_alerta,
+        todos_em_bancada: false,
+        tem_vencido: false,
+        tem_mes_atual: false,
+      };
+      groups.set(item.cliente_id, group);
+    }
+
+    group.total_extintores += 1;
+    group.extintores.push(item);
+    if (item.extintor_status === "em_bancada") {
+      group.extintores_em_bancada.push(item);
+    } else {
+      group.extintores_disponiveis.push(item);
+    }
+
+    // Atualiza status geral com base na severidade (vencido > mes_atual > proximo_mes)
+    if (item.status_alerta === "vencido") {
+      group.status_geral = "vencido";
+    } else if (item.status_alerta === "mes_atual" && group.status_geral !== "vencido") {
+      group.status_geral = "mes_atual";
+    }
+
+    // Adiciona mês/ano formatado à lista
+    if (item.data_vencimento) {
+      const ym = item.data_vencimento.slice(0, 7);
+      const [year, month] = ym.split("-");
+      const formatted = `${month}/${year}`;
+      if (!group.meses_vencimento.includes(formatted)) {
+        group.meses_vencimento.push(formatted);
+      }
+    }
+  }
+
+  const result: ClienteLoteVencimento[] = [];
+  for (const group of groups.values()) {
+    group.todos_em_bancada =
+      group.total_extintores > 0 &&
+      group.extintores_em_bancada.length === group.total_extintores;
+
+    group.tem_vencido = group.status_geral === "vencido";
+    group.tem_mes_atual = group.status_geral === "mes_atual";
+
+    const countMap: Record<string, number> = {};
+    const relevantList =
+      group.extintores_disponiveis.length > 0
+        ? group.extintores_disponiveis
+        : group.extintores_em_bancada;
+
+    for (const ext of relevantList) {
+      const model = ext.item_nome.replace(/^[^()]*\((.*)\)$/, "$1") || ext.item_nome;
+      countMap[model] = (countMap[model] || 0) + 1;
+    }
+    group.modelos_agrupados = Object.entries(countMap).map(([modelo, count]) => ({
+      modelo,
+      count,
+    }));
+    result.push(group);
+  }
+
+  return result.sort((a, b) => {
+    if (a.status_geral === "vencido" && b.status_geral !== "vencido") return -1;
+    if (b.status_geral === "vencido" && a.status_geral !== "vencido") return 1;
+    return b.extintores_disponiveis.length - a.extintores_disponiveis.length;
+  });
 }
 
 export async function getExpiringItems(): Promise<{
@@ -1200,7 +1331,7 @@ export async function getExpiringItems(): Promise<{
   // 1. Busca Extintores
   const { data: extintores } = await supabase
     .from("extintores")
-    .select("id, client_id, identificacao, tipo_capacidade, localizacao, data_vencimento, status, client:client_id(id, razao_social, telefone, telefone2, observacoes)");
+    .select("id, client_id, identificacao, tipo_capacidade, localizacao, data_vencimento, status, client:client_id(id, razao_social, nome_fantasia, cpf_cnpj, endereco, telefone, telefone2, observacoes)");
 
   if (extintores && extintores.length > 0) {
     for (const e of extintores) {
@@ -1223,13 +1354,18 @@ export async function getExpiringItems(): Promise<{
         extintor_id: e.id,
         cliente_id: e.client_id,
         cliente_nome: (e.client as any)?.razao_social || "Cliente",
+        cliente_fantasia: (e.client as any)?.nome_fantasia || undefined,
         cliente_telefone: extractPhone(e.client),
+        cliente_documento: (e.client as any)?.cpf_cnpj || undefined,
+        cliente_endereco: (e.client as any)?.endereco || undefined,
         categoria: "Extintores",
         item_nome: `${e.identificacao} (${e.tipo_capacidade})`,
+        subtipo: e.tipo_capacidade || "Extintor",
         localizacao: e.localizacao,
         data_vencimento: e.data_vencimento,
         status_alerta: status,
         dias_restantes: diasRestantes,
+        extintor_status: e.status || "no_cliente",
       });
     }
   } else {
@@ -1267,6 +1403,7 @@ export async function getExpiringItems(): Promise<{
           data_vencimento: e.expires_at,
           status_alerta: status,
           dias_restantes: diasRestantes,
+          extintor_status: e.status || "no_cliente",
         });
       }
     }
