@@ -18,6 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   CheckCircle2,
   Printer,
+  Download,
   MessageCircle,
   Truck,
   Flame,
@@ -38,6 +39,11 @@ import {
   confirmClientDeliveryAndPayment,
   type GroupedClientInLote,
 } from "@/services/prevention.service";
+import {
+  buildReceiptPdfDocument,
+  saveReceiptPdfToClientDocuments,
+  type EditableReceiptData,
+} from "@/services/receipt-pdf.service";
 import type {
   OrdemRecolhimento,
   PaymentMethod,
@@ -181,8 +187,65 @@ export function DeliveryReceiptDialog({
     }
   }
 
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
   function handlePrintReceipt() {
     window.print();
+  }
+
+  async function handleDownloadPdfAndSaveDocs() {
+    if (!receiptData) return;
+    setIsGeneratingPdf(true);
+    try {
+      const pdfData: EditableReceiptData = {
+        numero_recibo: String(receiptData.numero_recibo),
+        data_emissao: receiptData.data_emissao,
+        cliente_id: effectiveClientId,
+        cliente_nome: receiptData.cliente_nome,
+        cliente_documento: receiptData.cliente_documento,
+        cliente_telefone: receiptData.cliente_telefone,
+        cliente_endereco: receiptData.cliente_endereco,
+        lote_codigo: receiptData.lote_codigo,
+        ordens_numeros: String(receiptData.ordens_numeros || (osNumeros.length > 0 ? osNumeros.join(", #") : receiptData.ordem_numero)),
+        itens: (receiptData.itens || []).map((it) => ({
+          identificacao: it.identificacao,
+          tipo_capacidade: it.tipo_capacidade,
+          modalidade: it.modalidade,
+          nova_validade: formatMonthYear(it.nova_validade),
+          valor: it.valor,
+        })),
+        valor_total: receiptData.valor_total,
+        forma_pagamento: receiptData.forma_pagamento,
+        status_pagamento: receiptData.status_pagamento,
+        observacoes: receiptData.observacoes,
+      };
+
+      const { doc, fileName } = buildReceiptPdfDocument(pdfData);
+      doc.save(fileName);
+
+      if (effectiveClientId) {
+        await saveReceiptPdfToClientDocuments(effectiveClientId, pdfData, doc);
+        toast({
+          variant: "success",
+          title: "Recibo em PDF baixado e salvo no Menu Documentos!",
+          description: `O arquivo "${fileName}" foi arquivado no perfil do cliente.`,
+        });
+      } else {
+        toast({
+          variant: "success",
+          title: "Recibo em PDF baixado com sucesso!",
+          description: `Arquivo salvo como "${fileName}".`,
+        });
+      }
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao gerar PDF",
+        description: err.message,
+      });
+    } finally {
+      setIsGeneratingPdf(false);
+    }
   }
 
   function generateWhatsAppUrl() {
@@ -487,6 +550,18 @@ export function DeliveryReceiptDialog({
                     type="button"
                     variant="outline"
                     size="sm"
+                    onClick={handleDownloadPdfAndSaveDocs}
+                    disabled={isGeneratingPdf}
+                    className="gap-1.5 text-xs border-red-200 text-red-700 hover:bg-red-50 font-bold"
+                  >
+                    <Download className="h-3.5 w-3.5 text-red-600" />
+                    Baixar PDF
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
                     onClick={handlePrintReceipt}
                     className="gap-1.5 text-xs"
                   >
@@ -641,13 +716,23 @@ export function DeliveryReceiptDialog({
               </div>
 
               {/* Botão Concluir */}
-              <DialogFooter>
+              <DialogFooter className="gap-2 sm:gap-0">
                 <Button
                   type="button"
+                  variant="outline"
                   onClick={() => onOpenChange(false)}
-                  className="bg-neutral-900 text-white hover:bg-neutral-800 font-bold"
                 >
-                  Concluir e Fechar
+                  Fechar
+                </Button>
+
+                <Button
+                  type="button"
+                  onClick={handleDownloadPdfAndSaveDocs}
+                  disabled={isGeneratingPdf}
+                  className="bg-red-600 text-white hover:bg-red-700 font-bold gap-2 shadow-sm"
+                >
+                  <Download className="h-4 w-4" />
+                  {isGeneratingPdf ? "Gerando PDF..." : "Baixar Recibo em PDF & Salvar nos Documentos"}
                 </Button>
               </DialogFooter>
             </div>
