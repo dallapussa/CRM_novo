@@ -24,10 +24,13 @@ import {
   Building,
   Phone,
   FileText,
+  DollarSign,
+  TrendingUp,
 } from "lucide-react";
 import type { LoteRecolhimento } from "@/types";
 import { formatCurrency } from "@/lib/utils";
 import { isLoteAutomatico, groupOrdensByClient } from "@/services/prevention.service";
+import { LoteProfitReportDialog } from "@/components/lotes/lote-profit-report-dialog";
 
 interface LoteInspectDialogProps {
   open: boolean;
@@ -42,6 +45,7 @@ export function LoteInspectDialog({
   lote,
   onAdvanceStage,
 }: LoteInspectDialogProps) {
+  const [isProfitReportOpen, setIsProfitReportOpen] = React.useState(false);
   const clientesAgrupados = React.useMemo(() => {
     return lote ? groupOrdensByClient(lote.ordens || []) : [];
   }, [lote]);
@@ -266,40 +270,61 @@ export function LoteInspectDialog({
           </div>
         </div>
 
-        <DialogFooter className="p-4 bg-neutral-50 dark:bg-neutral-900 border-t flex flex-row items-center justify-between">
-          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} className="text-xs">
-            Fechar
-          </Button>
-
-          {onAdvanceStage && (lote.status === "aguardando_descarga" || lote.status === "recolhendo") && (
+        <DialogFooter className="p-4 bg-neutral-50 dark:bg-neutral-900 border-t flex flex-row items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} className="text-xs">
+              Fechar
+            </Button>
             <Button
               type="button"
-              onClick={() => {
-                onAdvanceStage(lote.id, "em_oficina");
-                onOpenChange(false);
-              }}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs gap-1.5 shadow-sm"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsProfitReportOpen(true)}
+              className="text-xs gap-1.5 text-emerald-700 border-emerald-300 hover:bg-emerald-50 font-bold"
             >
-              <PackageCheck className="h-4 w-4" />
-              Descarregar Lote ➔ Na Oficina
+              <TrendingUp className="h-3.5 w-3.5 text-emerald-600" />
+              Lucro do Lote
             </Button>
-          )}
+          </div>
 
-          {onAdvanceStage && lote.status === "em_oficina" && (
-            <Button
-              type="button"
-              onClick={() => {
-                onAdvanceStage(lote.id, "saida");
-                onOpenChange(false);
-              }}
-              className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs gap-1.5 shadow-sm"
-            >
-              <Wrench className="h-4 w-4" />
-              Concluir Oficina ➔ Enviar p/ Saída
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {onAdvanceStage && (lote.status === "aguardando_descarga" || lote.status === "recolhendo") && (
+              <Button
+                type="button"
+                onClick={() => {
+                  onAdvanceStage(lote.id, "em_oficina");
+                  onOpenChange(false);
+                }}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs gap-1.5 shadow-sm"
+              >
+                <PackageCheck className="h-4 w-4" />
+                Descarregar Lote ➔ Na Oficina
+              </Button>
+            )}
+
+            {onAdvanceStage && lote.status === "em_oficina" && (
+              <Button
+                type="button"
+                onClick={() => {
+                  onAdvanceStage(lote.id, "saida");
+                  onOpenChange(false);
+                }}
+                className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs gap-1.5 shadow-sm"
+              >
+                <Wrench className="h-4 w-4" />
+                Concluir Oficina ➔ Enviar p/ Saída
+              </Button>
+            )}
+          </div>
         </DialogFooter>
       </DialogContent>
+
+      {/* Relatório de Lucro e Custos do Lote */}
+      <LoteProfitReportDialog
+        open={isProfitReportOpen}
+        onOpenChange={setIsProfitReportOpen}
+        lote={lote}
+      />
     </Dialog>
   );
 }

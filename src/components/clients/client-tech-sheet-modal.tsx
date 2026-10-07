@@ -48,6 +48,11 @@ import {
   renewExtintoresBatch,
   deleteExtintor,
 } from "@/services/prevention.service";
+import {
+  listExtinguisherModels,
+  type ExtinguisherModel,
+  findModelByTipoCapacidade,
+} from "@/services/extinguisher-catalog.service";
 import { formatCurrency, formatDocument, formatPhone, formatMonthYear, toMonthInput, monthInputToDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
@@ -171,9 +176,11 @@ export function ClientTechSheetModal({
   const [isMemorialOpen, setIsMemorialOpen] = useState(false);
 
   // Estados de Criação / Edição de Extintor
+  const [catalogModels, setCatalogModels] = useState<ExtinguisherModel[]>([]);
+  const [isCustomTipo, setIsCustomTipo] = useState(false);
   const [editingExtintor, setEditingExtintor] = useState<ExtintorInventario | null>(null);
   const [batchCount, setBatchCount] = useState<number>(1);
-  const [tipoCapacidade, setTipoCapacidade] = useState<string>("PÓ ABC - 4kg");
+  const [tipoCapacidade, setTipoCapacidade] = useState<string>("Pó ABC - 4kg");
   const [identificacao, setIdentificacao] = useState<string>("");
   const [localizacao, setLocalizacao] = useState<string>("Recepção");
   const [valorServico, setValorServico] = useState<number>(45.0);
@@ -208,6 +215,7 @@ export function ClientTechSheetModal({
   useEffect(() => {
     if (open && customer) {
       loadExtintores();
+      listExtinguisherModels().then(setCatalogModels).catch(console.error);
       setSelectedIds(new Set());
       setActiveTab("extintores");
     }
@@ -369,6 +377,10 @@ export function ClientTechSheetModal({
     setEditingExtintor(ext);
     setIdentificacao(ext.identificacao);
     setTipoCapacidade(ext.tipo_capacidade);
+    const hasInCatalog = catalogModels.some(
+      (m) => m.nome.trim().toLowerCase() === (ext.tipo_capacidade || "").trim().toLowerCase()
+    );
+    setIsCustomTipo(!hasInCatalog);
     setLocalizacao(ext.localizacao || "");
     setValorServico(ext.valor_servico);
     setDataUltimaRecarga(ext.data_ultima_recarga ? ext.data_ultima_recarga.split("T")[0] : "");
@@ -380,11 +392,16 @@ export function ClientTechSheetModal({
   function openAddModal() {
     const today = new Date().toISOString().split("T")[0];
     const nextYear = new Date(Date.now() + 365 * 86400000).toISOString().split("T")[0];
+    const defaultModel = catalogModels[0];
+    const defaultTipo = defaultModel?.nome || "Pó ABC - 4kg";
+    const defaultPrice = defaultModel?.preco_padrao || 45.0;
+
     setEditingExtintor(null);
+    setIsCustomTipo(false);
     setIdentificacao(`Extintor ${extintores.length + 1}`);
-    setTipoCapacidade("PÓ ABC - 4kg");
+    setTipoCapacidade(defaultTipo);
     setLocalizacao("Recepção");
-    setValorServico(45.0);
+    setValorServico(defaultPrice);
     setDataUltimaRecarga(today);
     setDataVencimento(toMonthInput(nextYear));
     setBatchCount(1);
@@ -1144,6 +1161,7 @@ export function ClientTechSheetModal({
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                       {groupedByType.map((grp) => {
                         const currentInputPrice = typePriceInputs[grp.tipo] ?? grp.samplePrice;
+                        const catalogItem = findModelByTipoCapacidade(grp.tipo, catalogModels);
                         return (
                           <div
                             key={grp.tipo}
@@ -1157,6 +1175,25 @@ export function ClientTechSheetModal({
                                 {grp.count} un.
                               </Badge>
                             </div>
+
+                            {catalogItem && (
+                              <div className="text-[10px] text-muted-foreground flex items-center justify-between border-t border-dashed pt-1">
+                                <span>Padrão em Custos: {formatCurrency(catalogItem.preco_padrao)}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setTypePriceInputs((prev) => ({
+                                      ...prev,
+                                      [grp.tipo]: catalogItem.preco_padrao,
+                                    }));
+                                  }}
+                                  className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+                                  title="Carregar preço padrão do menu Custos"
+                                >
+                                  Usar padrão ({formatCurrency(catalogItem.preco_padrao)})
+                                </button>
+                              </div>
+                            )}
 
                             <div className="flex items-center gap-2">
                               <div className="relative flex-1">
@@ -1441,21 +1478,76 @@ export function ClientTechSheetModal({
               </div>
             )}
 
-            <div className="space-y-1">
-              <Label htmlFor="ext-tipo">Tipo e Capacidade</Label>
-              <select
-                id="ext-tipo"
-                value={tipoCapacidade}
-                onChange={(e) => setTipoCapacidade(e.target.value)}
-                className="w-full h-10 px-3 text-sm rounded-md border border-input bg-background"
-              >
-                <option value="PÓ ABC - 4kg">PÓ ABC - 4kg</option>
-                <option value="PÓ ABC - 6kg">PÓ ABC - 6kg</option>
-                <option value="PÓ BC - 4kg">PÓ BC - 4kg</option>
-                <option value="CO2 - 6kg">CO2 - 6kg</option>
-                <option value="ÁGUA - 10L">ÁGUA - 10L</option>
-                <option value="ESPUMA - 10L">ESPUMA MECÂNICA - 10L</option>
-              </select>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="ext-tipo" className="text-xs font-semibold">
+                  Tipo e Capacidade *
+                </Label>
+                <button
+                  type="button"
+                  onClick={() => setIsCustomTipo(!isCustomTipo)}
+                  className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+                >
+                  {isCustomTipo ? "← Selecionar da Lista" : "+ Digitar texto livre..."}
+                </button>
+              </div>
+
+              {isCustomTipo ? (
+                <div className="space-y-1">
+                  <Input
+                    id="ext-tipo-custom"
+                    value={tipoCapacidade}
+                    onChange={(e) => setTipoCapacidade(e.target.value)}
+                    placeholder="Ex: PÓ ABC 8kg, BC 12kg, CO2 10kg..."
+                    required
+                    className="h-10 text-sm font-medium"
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    Campo livre: você pode digitar qualquer agente ou peso (Ex: ABC 8kg ou BC 12kg).
+                  </p>
+                </div>
+              ) : (
+                <select
+                  id="ext-tipo"
+                  value={tipoCapacidade}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "__custom__") {
+                      setIsCustomTipo(true);
+                      return;
+                    }
+                    setTipoCapacidade(val);
+                    const matched = catalogModels.find((m) => m.nome === val);
+                    if (matched && !editingExtintor) {
+                      setValorServico(matched.preco_padrao);
+                    }
+                  }}
+                  className="w-full h-10 px-3 text-sm rounded-md border border-input bg-background"
+                >
+                  {catalogModels.map((m) => (
+                    <option key={m.id} value={m.nome}>
+                      {m.nome} — {formatCurrency(m.preco_padrao)} (Custo: {formatCurrency(m.custo_normal)})
+                    </option>
+                  ))}
+                  <option value="__custom__">+ Outro modelo (digitar livremente)...</option>
+                </select>
+              )}
+
+              {/* Informações de Custo e Preço de Referência do Catálogo */}
+              {(() => {
+                const matched = findModelByTipoCapacidade(tipoCapacidade, catalogModels);
+                if (matched) {
+                  return (
+                    <div className="p-2 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-lg text-[11px] text-emerald-800 dark:text-emerald-300 flex items-center justify-between">
+                      <span>Tabela em Custos:</span>
+                      <span className="font-semibold">
+                        Padrão: {formatCurrency(matched.preco_padrao)} • Normal: {formatCurrency(matched.custo_normal)} • Reaprov: {formatCurrency(matched.custo_reaproveitamento)}
+                      </span>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
             </div>
 
             <div className="space-y-1">
@@ -1469,7 +1561,24 @@ export function ClientTechSheetModal({
             </div>
 
             <div className="space-y-1">
-              <Label htmlFor="ext-val">Valor do Serviço / Recarga (R$)</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="ext-val">Valor do Serviço / Recarga p/ Cliente (R$)</Label>
+                {(() => {
+                  const matched = findModelByTipoCapacidade(tipoCapacidade, catalogModels);
+                  if (matched && valorServico !== matched.preco_padrao) {
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => setValorServico(matched.preco_padrao)}
+                        className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+                      >
+                        Resetar p/ Padrão ({formatCurrency(matched.preco_padrao)})
+                      </button>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
               <Input
                 id="ext-val"
                 type="number"

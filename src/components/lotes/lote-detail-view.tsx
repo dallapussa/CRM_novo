@@ -38,6 +38,7 @@ import {
   DollarSign,
   Receipt,
   Trash2,
+  TrendingUp,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { LoteRecolhimento, OrdemRecolhimento, LoteRecolhimentoStatus } from "@/types";
@@ -49,6 +50,12 @@ import {
   type GroupedClientInLote,
 } from "@/services/prevention.service";
 import { DeliveryReceiptDialog } from "./delivery-receipt-dialog";
+import { LoteProfitReportDialog } from "./lote-profit-report-dialog";
+import {
+  listExtinguisherModels,
+  type ExtinguisherModel,
+  calculateItemCostAndProfit,
+} from "@/services/extinguisher-catalog.service";
 
 interface LoteDetailViewProps {
   lote: LoteRecolhimento;
@@ -71,12 +78,67 @@ export function LoteDetailView({
   const [confirmingOrdemId, setConfirmingOrdemId] = useState<string | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [selectedGroupForDelivery, setSelectedGroupForDelivery] = useState<GroupedClientInLote | null>(null);
+  const [isProfitReportOpen, setIsProfitReportOpen] = useState(false);
+  const [catalogModels, setCatalogModels] = useState<ExtinguisherModel[]>([]);
+
+  React.useEffect(() => {
+    listExtinguisherModels().then(setCatalogModels).catch(console.error);
+  }, []);
 
   const ordens = useMemo(() => lote.ordens || [], [lote.ordens]);
 
   const clientesAgrupados = useMemo<GroupedClientInLote[]>(() => {
     return groupOrdensByClient(ordens);
   }, [ordens]);
+
+  // Resumo Financeiro & Lucratividade do Lote
+  const financialSummary = useMemo(() => {
+    let totalReceita = 0;
+    let totalCusto = 0;
+    let totalCilindros = 0;
+    let qtdNormal = 0;
+    let qtdReaprov = 0;
+    let custoNormal = 0;
+    let custoReaprov = 0;
+
+    ordens.forEach((ordem) => {
+      (ordem.itens || []).forEach((item) => {
+        totalCilindros += 1;
+        const valor = Number(item.valor_registrado || item.extintor?.valor_servico || 0);
+        totalReceita += valor;
+        const tipoCap = item.extintor?.tipo_capacidade || "Pó ABC - 4kg";
+        const mod = (item.modalidade_recarga || "reaproveitamento").toLowerCase().includes("reaproveit")
+          ? "reaproveitamento"
+          : "normal";
+
+        const itemCost = calculateItemCostAndProfit(tipoCap, mod, valor, catalogModels);
+        totalCusto += itemCost.custo;
+
+        if (mod === "reaproveitamento") {
+          qtdReaprov += 1;
+          custoReaprov += itemCost.custo;
+        } else {
+          qtdNormal += 1;
+          custoNormal += itemCost.custo;
+        }
+      });
+    });
+
+    const lucroLiquido = totalReceita - totalCusto;
+    const margemPercentual = totalReceita > 0 ? (lucroLiquido / totalReceita) * 100 : 0;
+
+    return {
+      totalReceita,
+      totalCusto,
+      lucroLiquido,
+      margemPercentual,
+      totalCilindros,
+      qtdNormal,
+      qtdReaprov,
+      custoNormal,
+      custoReaprov,
+    };
+  }, [ordens, catalogModels]);
 
   // 1. Agrupamento de Chegada: por Tipo e Capacidade
   const contagemPorTipo: Record<string, { tipoCapacidade: string; quantidade: number; valorTotal: number }> = {};
@@ -160,6 +222,9 @@ export function LoteDetailView({
       });
       queryClient.invalidateQueries({ queryKey: ["lotes_recolhimento"] });
       onRefresh?.();
+      if (nextStatus === "concluido") {
+        setIsProfitReportOpen(true);
+      }
     } catch (err: any) {
       toast({
         variant: "destructive",
@@ -192,6 +257,16 @@ export function LoteDetailView({
         </Button>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsProfitReportOpen(true)}
+            className="gap-2 border-emerald-300 text-emerald-800 hover:bg-emerald-50 font-bold"
+          >
+            <TrendingUp className="h-4 w-4 text-emerald-600" />
+            Relatório de Lucro
+          </Button>
+
           <Button variant="outline" size="sm" onClick={handlePrintRomaneio} className="gap-2">
             <Printer className="h-4 w-4" />
             Imprimir Romaneio
@@ -620,11 +695,86 @@ export function LoteDetailView({
                 Indica exatamente quais extintores deixar em cada cliente e a localização no prédio.
               </p>
             </div>
-            <Button variant="outline" size="sm" onClick={handlePrintRomaneio} className="gap-2">
-              <Printer className="h-4 w-4" />
-              Versão p/ Impressão
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsProfitReportOpen(true)}
+                className="gap-2 border-emerald-300 text-emerald-800 hover:bg-emerald-50 font-bold"
+              >
+                <TrendingUp className="h-4 w-4 text-emerald-600" />
+                Relatório de Lucro
+              </Button>
+              <Button variant="outline" size="sm" onClick={handlePrintRomaneio} className="gap-2">
+                <Printer className="h-4 w-4" />
+                Versão p/ Impressão
+              </Button>
+            </div>
           </div>
+
+          {/* BANNER DE LUCRO & CUSTOS DO LOTE */}
+          <Card className="print:hidden bg-gradient-to-br from-slate-900 via-neutral-900 to-slate-950 border-emerald-500/30 text-white overflow-hidden shadow-lg rounded-2xl">
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-emerald-500 text-neutral-950 font-bold text-xs uppercase tracking-wider">
+                      Rentabilidade Operacional
+                    </Badge>
+                    <span className="text-xs text-neutral-400">
+                      Calculado com base nas recargas e recolhimentos deste lote
+                    </span>
+                  </div>
+                  <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5 text-emerald-400" />
+                    Balanço Financeiro: {lote.codigo}
+                  </h3>
+                </div>
+
+                <Button
+                  size="sm"
+                  onClick={() => setIsProfitReportOpen(true)}
+                  className="bg-emerald-500 hover:bg-emerald-600 text-neutral-950 font-bold gap-2 whitespace-nowrap shadow-sm text-xs"
+                >
+                  <DollarSign className="h-4 w-4" />
+                  Abrir Relatório Completo
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4 pt-4 border-t border-neutral-800">
+                <div className="p-3 bg-neutral-900/80 rounded-xl border border-neutral-800">
+                  <span className="text-[10px] text-neutral-400 uppercase font-semibold block">Receita Cobrada</span>
+                  <strong className="text-base sm:text-lg text-emerald-400 font-bold font-mono">
+                    {formatCurrency(financialSummary.totalReceita)}
+                  </strong>
+                </div>
+
+                <div className="p-3 bg-neutral-900/80 rounded-xl border border-neutral-800">
+                  <span className="text-[10px] text-neutral-400 uppercase font-semibold block">Custo Operacional</span>
+                  <strong className="text-base sm:text-lg text-red-400 font-bold font-mono">
+                    {formatCurrency(financialSummary.totalCusto)}
+                  </strong>
+                  <span className="text-[10px] text-neutral-500 block truncate">
+                    Normal: {financialSummary.qtdNormal} | Reaprov: {financialSummary.qtdReaprov}
+                  </span>
+                </div>
+
+                <div className="p-3 bg-neutral-900/80 rounded-xl border border-neutral-800">
+                  <span className="text-[10px] text-neutral-400 uppercase font-semibold block">Lucro Líquido</span>
+                  <strong className="text-base sm:text-lg text-white font-extrabold font-mono">
+                    {formatCurrency(financialSummary.lucroLiquido)}
+                  </strong>
+                </div>
+
+                <div className="p-3 bg-neutral-900/80 rounded-xl border border-neutral-800">
+                  <span className="text-[10px] text-neutral-400 uppercase font-semibold block">Margem do Lote</span>
+                  <strong className="text-base sm:text-lg text-emerald-300 font-bold font-mono">
+                    {financialSummary.margemPercentual.toFixed(1)}%
+                  </strong>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Lista de Devoluções por Cliente (Agrupada por Cliente, consolidando todas as OSs) */}
           <div className="space-y-4">
@@ -878,6 +1028,14 @@ export function LoteDetailView({
           }}
         />
       )}
+
+      {/* DIÁLOGO DO RELATÓRIO DE LUCRO E CUSTOS DO LOTE */}
+      <LoteProfitReportDialog
+        open={isProfitReportOpen}
+        onOpenChange={setIsProfitReportOpen}
+        lote={lote}
+        catalogModels={catalogModels}
+      />
     </div>
   );
 }
