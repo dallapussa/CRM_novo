@@ -262,9 +262,8 @@ export async function buildReceiptPdfDocument(
   doc.setFontSize(8.5);
   doc.setTextColor(255, 255, 255);
   doc.text("ITEM / SELO", margin + 3, tableTop + 5);
-  doc.text("MODELO / AGENTE & PESO", margin + 38, tableTop + 5);
-  doc.text("MODALIDADE", margin + 105, tableTop + 5);
-  doc.text("VALIDADE", margin + 142, tableTop + 5);
+  doc.text("MODELO / AGENTE & PESO", margin + 45, tableTop + 5);
+  doc.text("VALIDADE", margin + 140, tableTop + 5);
   doc.text("VALOR", margin + contentWidth - 3, tableTop + 5, { align: "right" });
 
   y += 7;
@@ -284,14 +283,11 @@ export async function buildReceiptPdfDocument(
     doc.text(it.identificacao || `Cilindro #${idx + 1}`, margin + 3, y + 4.5);
 
     doc.setFont("helvetica", "normal");
-    doc.text(it.tipo_capacidade || "Pó ABC - 4kg", margin + 38, y + 4.5);
-
-    doc.setTextColor(71, 85, 105);
-    doc.text(it.modalidade || "Normal", margin + 105, y + 4.5);
+    doc.text(it.tipo_capacidade || "Pó ABC - 4kg", margin + 45, y + 4.5);
 
     doc.setFont("helvetica", "bold");
     doc.setTextColor(16, 185, 129); // Verde validade
-    doc.text(it.nova_validade || "Próx. Ano", margin + 142, y + 4.5);
+    doc.text(it.nova_validade || "Próx. Ano", margin + 140, y + 4.5);
 
     doc.setFont("helvetica", "bold");
     doc.setTextColor(15, 23, 42);

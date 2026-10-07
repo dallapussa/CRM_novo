@@ -786,7 +786,7 @@ export function DeliveryReceiptDialog({
                       {receiptData.itens.map((it, idx) => (
                         <tr key={idx} className="border-b">
                           <td className="p-2 border font-bold font-mono">{it.identificacao}</td>
-                          <td className="p-2 border">{it.tipo_capacidade} ({it.modalidade})</td>
+                          <td className="p-2 border">{it.tipo_capacidade}</td>
                           <td className="p-2 border text-muted-foreground">📍 {it.localizacao || "Padrão"}</td>
                           <td className="p-2 border font-bold text-emerald-700 dark:text-emerald-400">
                             {formatMonthYear(it.nova_validade)}

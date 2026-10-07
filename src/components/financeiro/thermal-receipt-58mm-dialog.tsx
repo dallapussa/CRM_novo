@@ -56,14 +56,14 @@ export function ThermalReceipt58mmDialog({
       .catch(() => {});
   }, []);
 
-  // Agrupa os itens do recibo por Modelo/Capacidade + Modalidade para o resumo em 58mm
+  // Agrupa os itens do recibo por Modelo/Capacidade para o resumo em 58mm
   const itensAgrupados = useMemo(() => {
     if (!receiptData?.itens) return [];
 
-    const map = new Map<string, { tipo: string; modalidade: string; qtd: number; valorUnit: number; total: number }>();
+    const map = new Map<string, { tipo: string; qtd: number; valorUnit: number; total: number }>();
 
     receiptData.itens.forEach((it) => {
-      const key = `${it.tipo_capacidade}_${it.modalidade}_${it.valor}`;
+      const key = `${it.tipo_capacidade}_${it.valor}`;
       const existing = map.get(key);
       if (existing) {
         existing.qtd += 1;
@@ -71,7 +71,6 @@ export function ThermalReceipt58mmDialog({
       } else {
         map.set(key, {
           tipo: it.tipo_capacidade,
-          modalidade: it.modalidade,
           qtd: 1,
           valorUnit: Number(it.valor) || 0,
           total: Number(it.valor) || 0,
@@ -323,7 +322,7 @@ export function ThermalReceipt58mmDialog({
       y += 4.5;
 
       itensAgrupados.forEach((it) => {
-        const desc = `${it.qtd}x ${it.tipo} (${it.modalidade.slice(0, 4)}.)`;
+        const desc = `${it.qtd}x ${it.tipo}`;
         const valTot = formatMoeda(it.total);
         doc.setFont("helvetica", "bold");
         doc.setFontSize(8);
@@ -616,7 +615,7 @@ export function ThermalReceipt58mmDialog({
               {itensAgrupados.map((it, idx) => (
                 <div key={idx} className="flex justify-between text-[11px] leading-snug">
                   <span className="break-words max-w-[65%]">
-                    <strong>{it.qtd}x</strong> {it.tipo} ({it.modalidade.slice(0, 4)}.)
+                    <strong>{it.qtd}x</strong> {it.tipo}
                     <br />
                     <span className="text-[10px] text-neutral-600">
                       Un: {formatMoeda(it.valorUnit)}
