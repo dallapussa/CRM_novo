@@ -59,12 +59,13 @@ export async function listClientDocuments(clientId: string): Promise<DocumentoCl
 export async function uploadClientDocument(
   clientId: string,
   file: File,
-  tipo: DocumentoClienteTipo
+  tipo: DocumentoClienteTipo,
+  customStoragePath?: string
 ): Promise<DocumentoCliente> {
   const supabase = createClient();
   const fileExt = file.name.split(".").pop();
   const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
-  const storagePath = `${clientId}/${Date.now()}_${cleanName}`;
+  const storagePath = customStoragePath || `${clientId}/${Date.now()}_${cleanName}`;
 
   // Upload para o bucket "client-documents" (ou fallback "documentos")
   let bucketName = "client-documents";

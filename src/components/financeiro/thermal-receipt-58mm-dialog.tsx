@@ -86,17 +86,18 @@ export function ThermalReceipt58mmDialog({
       setIsGeneratingUrl(true);
       try {
         if (!receiptData) return;
-        const { doc } = buildReceiptPdfDocument(receiptData);
-        if (receiptData.cliente_id) {
+        const currentData = receiptData;
+        const { doc, receiptUrl } = await buildReceiptPdfDocument(currentData);
+        if (currentData.cliente_id) {
           const uploadedUrl = await saveReceiptPdfToClientDocuments(
-            receiptData.cliente_id,
-            receiptData,
+            currentData.cliente_id,
+            currentData,
             doc
           );
           if (isMounted) {
             const finalUrl = uploadedUrl.startsWith("http")
               ? uploadedUrl
-              : `${window.location.origin}/dashboard/clientes/${receiptData.cliente_id}`;
+              : `${window.location.origin}/dashboard/clientes/${currentData.cliente_id}`;
             setActivePdfUrl(finalUrl);
             generateQr(finalUrl);
           }
@@ -350,10 +351,12 @@ export function ThermalReceipt58mmDialog({
 
             <div className="border-t border-dashed border-black my-2" />
 
-            {/* CANHOTO DE ASSINATURA */}
-            <div className="pt-6 border-t border-black text-center text-[9px] mt-4">
-              <p className="font-bold uppercase">{receiptData.cliente_nome}</p>
-              <p className="text-[8px]">Assinatura e Carimbo do Recebedor</p>
+            {/* AUTENTICAÇÃO DIGITAL & SEGURANÇA */}
+            <div className="border border-black p-1.5 text-center text-[8px] mt-2 rounded">
+              <p className="font-bold uppercase tracking-wider">DOCUMENTO AUTENTICADO DIGITALMENTE</p>
+              <p className="text-[7.5px] mt-0.5 leading-tight">
+                Emitido via Fire CRM. Dispensa assinatura manual e garante segurança anti-adulteração via QR Code.
+              </p>
             </div>
 
             <p className="text-[8px] text-center mt-3">

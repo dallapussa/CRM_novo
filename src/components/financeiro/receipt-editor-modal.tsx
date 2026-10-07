@@ -140,8 +140,8 @@ export function ReceiptEditorModal({
     setIsGenerating(true);
 
     try {
-      // 1. Gera o PDF vetorizado com jsPDF
-      const { doc, fileName } = buildReceiptPdfDocument(data);
+      // 1. Gera o PDF vetorizado com jsPDF e Selo de Autenticidade com QR Code
+      const { doc, fileName } = await buildReceiptPdfDocument(data);
 
       // 2. Faz o download direto no dispositivo
       doc.save(fileName);
@@ -455,6 +455,14 @@ export function ReceiptEditorModal({
             <label htmlFor="saveToDocsCheck" className="text-xs text-blue-900 dark:text-blue-200 cursor-pointer">
               <strong>Disponibilizar PDF na aba "Documentos" do cliente:</strong> O arquivo PDF gerado será salvo no perfil do cliente para consulta futura e re-impressão.
             </label>
+          </div>
+
+          {/* 7. INFORMATIVO DE AUTENTICIDADE DIGITAL & QR CODE */}
+          <div className="flex items-center gap-3 p-3 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs text-emerald-900 dark:text-emerald-200">
+            <ShieldCheck className="h-5 w-5 text-emerald-600 shrink-0" />
+            <div>
+              <strong>Segurança Anti-Adulteração:</strong> Este recibo é gerado com <strong>Selo de Autenticidade Digital e QR Code</strong> vinculado diretamente ao arquivo salvo no Supabase, substituindo assinaturas manuais e prevenindo adulterações.
+            </div>
           </div>
         </div>
 

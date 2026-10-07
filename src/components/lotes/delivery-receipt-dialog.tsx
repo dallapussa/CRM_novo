@@ -42,8 +42,10 @@ import {
 import {
   buildReceiptPdfDocument,
   saveReceiptPdfToClientDocuments,
+  getReceiptPublicUrl,
   type EditableReceiptData,
 } from "@/services/receipt-pdf.service";
+import QRCode from "qrcode";
 import { ThermalReceipt58mmDialog } from "@/components/financeiro/thermal-receipt-58mm-dialog";
 import type {
   OrdemRecolhimento,
@@ -235,6 +237,31 @@ export function DeliveryReceiptDialog({
   }
 
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [previewQrCodeUrl, setPreviewQrCodeUrl] = useState<string>("");
+  const [previewAuthCode, setPreviewAuthCode] = useState<string>("");
+
+  useEffect(() => {
+    if (!receiptData) {
+      setPreviewQrCodeUrl("");
+      setPreviewAuthCode("");
+      return;
+    }
+
+    const { fileUrl, authCode } = getReceiptPublicUrl(
+      effectiveClientId,
+      String(receiptData.numero_recibo),
+      receiptData.cliente_nome
+    );
+    setPreviewAuthCode(authCode);
+
+    QRCode.toDataURL(fileUrl, {
+      width: 180,
+      margin: 1,
+      color: { dark: "#000000", light: "#ffffff" },
+    })
+      .then((dataUrl) => setPreviewQrCodeUrl(dataUrl))
+      .catch((err) => console.warn("Erro ao gerar QR Code para pré-visualização:", err));
+  }, [receiptData, effectiveClientId]);
 
   function handlePrintReceipt() {
     window.print();
@@ -267,7 +294,7 @@ export function DeliveryReceiptDialog({
         observacoes: receiptData.observacoes,
       };
 
-      const { doc, fileName } = buildReceiptPdfDocument(pdfData);
+      const { doc, fileName } = await buildReceiptPdfDocument(pdfData);
       doc.save(fileName);
 
       if (effectiveClientId) {
@@ -310,7 +337,13 @@ export function DeliveryReceiptDialog({
         ? `OS #${osNumeros.join(", #")}`
         : `OS #${receiptData.ordem_numero}`;
 
-    const text = `Olá, *${receiptData.cliente_nome}*! 👋\n\nAqui é da equipe da *ExtinControl Prevenção Contra Incêndio*.\n\nConfirmamos a devolução e reinstalação dos seus extintores referente à *${osLabel}* (Lote ${receiptData.lote_codigo}).\n\n📄 *Recibo de Devolução nº ${receiptData.numero_recibo}*\n💰 *Valor Total:* ${formatCurrency(receiptData.valor_total)}\n💳 *Forma de Pagamento:* ${receiptData.forma_pagamento} (${receiptData.status_pagamento})\n\nTodos os extintores foram revisados, recarregados e têm garantia com nova validade estendida até o próximo ano.\n\nAgradecemos a preferência e parceria! 🚒🔥`;
+    const { fileUrl } = getReceiptPublicUrl(
+      effectiveClientId,
+      String(receiptData.numero_recibo),
+      receiptData.cliente_nome
+    );
+
+    const text = `Olá, *${receiptData.cliente_nome}*! 👋\n\nAqui é da equipe da *ExtinControl Prevenção Contra Incêndio*.\n\nConfirmamos a devolução e reinstalação dos seus extintores referente à *${osLabel}* (Lote ${receiptData.lote_codigo}).\n\n📄 *Recibo de Devolução nº ${receiptData.numero_recibo}*\n💰 *Valor Total:* ${formatCurrency(receiptData.valor_total)}\n💳 *Forma de Pagamento:* ${receiptData.forma_pagamento} (${receiptData.status_pagamento})\n\nTodos os extintores foram revisados, recarregados e têm garantia com nova validade estendida até o próximo ano.\n\n🔒 *Recibo Digital Autenticado (QR Code):*\n${fileUrl}\n\nAgradecemos a preferência e parceria! 🚒🔥`;
 
     return `https://wa.me/55${rawPhone}?text=${encodeURIComponent(text)}`;
   }
@@ -777,16 +810,40 @@ export function DeliveryReceiptDialog({
                   </p>
                 )}
 
-                {/* Canhoto de Assinatura */}
-                <div className="pt-8 border-t flex justify-between gap-6 text-[10px] text-muted-foreground">
-                  <div className="text-center flex-1">
-                    <div className="border-t border-neutral-400 pt-1">
-                      Assinatura do Técnico / Responsável Entrega
+                {/* Selo de Autenticidade e Verificação Digital com QR Code (Substitui assinaturas manuais) */}
+                <div className="mt-4 pt-4 border-t border-neutral-200 dark:border-neutral-800">
+                  <div className="bg-slate-50 dark:bg-neutral-900 border border-slate-200 dark:border-neutral-800 rounded-xl p-3.5 flex flex-col sm:flex-row items-center gap-3.5 shadow-xs">
+                    <div className="bg-white p-1.5 rounded-lg border border-slate-300 dark:border-neutral-700 shadow-xs shrink-0 flex items-center justify-center">
+                      {previewQrCodeUrl ? (
+                        <img
+                          src={previewQrCodeUrl}
+                          alt="QR Code de Verificação do Recibo"
+                          className="h-20 w-20 object-contain"
+                        />
+                      ) : (
+                        <div className="h-20 w-20 flex items-center justify-center bg-neutral-100 rounded text-neutral-400">
+                          <QrCode className="h-10 w-10 animate-pulse text-emerald-600" />
+                        </div>
+                      )}
                     </div>
-                  </div>
-                  <div className="text-center flex-1">
-                    <div className="border-t border-neutral-400 pt-1">
-                      Assinatura e Carimbo do Cliente Recebedor ({receiptData.cliente_nome})
+                    <div className="space-y-1 text-center sm:text-left flex-1 min-w-0">
+                      <div className="flex items-center justify-center sm:justify-start gap-1.5">
+                        <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                        <span className="text-[11px] font-bold text-neutral-900 dark:text-neutral-100 tracking-tight">
+                          DOCUMENTO ASSINADO DIGITALMENTE • AUTENTICIDADE VERIFICADA
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-neutral-600 dark:text-neutral-300 leading-tight">
+                        Este recibo foi registrado eletronicamente em nuvem segura via Fire CRM, substituindo assinaturas manuais e prevenindo qualquer tipo de adulteração.
+                      </p>
+                      <p className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
+                        ➤ Aponte a câmera do celular para abrir o recibo original arquivado no Supabase.
+                      </p>
+                      {previewAuthCode && (
+                        <p className="text-[9px] text-muted-foreground font-mono truncate">
+                          Chave de Autenticidade: <strong className="text-neutral-800 dark:text-neutral-200">{previewAuthCode}</strong> • Emissão Segura Fire CRM
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>

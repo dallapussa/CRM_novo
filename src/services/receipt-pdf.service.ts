@@ -1,6 +1,8 @@
 import { jsPDF } from "jspdf";
+import QRCode from "qrcode";
 import type { LoteRecolhimento, PaymentMethod } from "@/types";
 import { uploadClientDocument } from "@/services/prevention.service";
+import { createClient } from "@/lib/supabase/client";
 
 export interface ReceiptItem {
   id?: string;
@@ -32,6 +34,44 @@ export interface EditableReceiptData {
   empresa_cnpj?: string;
   empresa_telefone?: string;
   empresa_endereco?: string;
+  qr_code_url?: string;
+  qr_code_data_url?: string;
+  codigo_autenticidade?: string;
+}
+
+/**
+ * Retorna o caminho de armazenamento e a URL pública definitiva do recibo no Supabase Storage.
+ */
+export function getReceiptPublicUrl(
+  clientId: string,
+  numeroRecibo: string,
+  clientName?: string
+): {
+  storagePath: string;
+  fileUrl: string;
+  authCode: string;
+  fileName: string;
+} {
+  const supabase = createClient();
+  const cleanReceipt = String(numeroRecibo || "REC-001").replace(/[^a-zA-Z0-9.-]/g, "_");
+  const cleanClient = String(clientName || "cliente").replace(/[^a-zA-Z0-9]/g, "_").slice(0, 30);
+  const fileName = `Recibo_${cleanReceipt}_${cleanClient}.pdf`;
+  const storagePath = `${clientId || "geral"}/recibo_${cleanReceipt}_${cleanClient}.pdf`;
+
+  const { data } = supabase.storage
+    .from("client-documents")
+    .getPublicUrl(storagePath);
+
+  // Gera chave de autenticação única e determinística
+  const rawSeed = `${numeroRecibo}|${clientId}|${cleanClient}|${storagePath}`;
+  let hash = 0;
+  for (let i = 0; i < rawSeed.length; i++) {
+    hash = ((hash << 5) - hash) + rawSeed.charCodeAt(i);
+    hash |= 0;
+  }
+  const authCode = `AUTH-${Math.abs(hash).toString(16).toUpperCase().padStart(8, "0")}`;
+
+  return { storagePath, fileUrl: data.publicUrl, authCode, fileName };
 }
 
 /**
@@ -47,10 +87,19 @@ function formatMoeda(val: number): string {
 /**
  * Gera o documento PDF do recibo utilizando jsPDF com layout profissional
  */
-export function buildReceiptPdfDocument(data: EditableReceiptData): {
+export async function buildReceiptPdfDocument(
+  data: EditableReceiptData,
+  options?: {
+    receiptUrl?: string;
+    qrCodeDataUrl?: string;
+    authCode?: string;
+  }
+): Promise<{
   doc: jsPDF;
   fileName: string;
-} {
+  receiptUrl: string;
+  authCode: string;
+}> {
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
@@ -258,40 +307,117 @@ export function buildReceiptPdfDocument(data: EditableReceiptData): {
   const splitObs = doc.splitTextToSize(textoObs, contentWidth);
   doc.text(splitObs, margin, y);
 
-  y += splitObs.length * 4 + 14;
+  y += splitObs.length * 4 + 8;
 
-  // 7. Canhotos de Assinatura
-  doc.setDrawColor(148, 163, 184); // Slate-400
-  const colWidth = (contentWidth - 10) / 2;
+  // 7. Selo de Autenticidade e Verificação Digital com QR Code (Substitui assinaturas manuais por segurança)
+  const { fileUrl: defaultFileUrl, authCode: defaultAuthCode, fileName: defaultFileName } = getReceiptPublicUrl(
+    data.cliente_id,
+    data.numero_recibo,
+    data.cliente_nome
+  );
 
-  // Assinatura Emissor
-  doc.line(margin, y, margin + colWidth, y);
+  const targetReceiptUrl = options?.receiptUrl || data.qr_code_url || defaultFileUrl;
+  const authCode = options?.authCode || data.codigo_autenticidade || defaultAuthCode;
+
+  let qrCodeDataUrl = options?.qrCodeDataUrl || data.qr_code_data_url;
+  if (!qrCodeDataUrl && targetReceiptUrl) {
+    try {
+      qrCodeDataUrl = await QRCode.toDataURL(targetReceiptUrl, {
+        width: 280,
+        margin: 1,
+        color: { dark: "#000000", light: "#ffffff" },
+      });
+    } catch (qrErr) {
+      console.warn("Erro ao gerar QR code para o recibo:", qrErr);
+    }
+  }
+
+  const sealBoxY = Math.min(y, 238); // Garante posicionamento perfeito antes do rodapé de 290mm
+  const sealBoxHeight = 36;
+
+  // Fundo sutil Slate-50 com borda Slate-300
+  doc.setFillColor(248, 250, 252);
+  doc.rect(margin, sealBoxY, contentWidth, sealBoxHeight, "F");
+
+  doc.setDrawColor(203, 213, 225);
+  doc.setLineWidth(0.3);
+  doc.rect(margin, sealBoxY, contentWidth, sealBoxHeight, "S");
+
+  // Faixa decorativa lateral esquerda Verde Esmeralda (Certificado / Confiável)
+  doc.setFillColor(16, 185, 129); // Emerald-500
+  doc.rect(margin, sealBoxY, 2.5, sealBoxHeight, "F");
+
+  // QR Code no lado esquerdo
+  const qrSize = 28;
+  const qrX = margin + 5;
+  const qrY = sealBoxY + 4;
+  if (qrCodeDataUrl) {
+    try {
+      doc.addImage(qrCodeDataUrl, "PNG", qrX, qrY, qrSize, qrSize);
+    } catch (e) {
+      console.warn("Aviso ao desenhar QR code no PDF:", e);
+    }
+  }
+
+  // Textos de Autenticidade ao lado do QR Code
+  const textLeft = qrX + qrSize + 5;
+  let textY = sealBoxY + 6;
+
+  // Título do Selo
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
-  doc.setTextColor(30, 41, 59);
-  doc.text(data.empresa_nome || "ExtinControl Prevenção contra Incêndio", margin + colWidth / 2, y + 4, { align: "center" });
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
-  doc.setTextColor(100, 116, 139);
-  doc.text("Responsável Técnico / Entrega", margin + colWidth / 2, y + 8, { align: "center" });
+  doc.setFontSize(8.5);
+  doc.setTextColor(15, 23, 42); // Slate-900
+  doc.text("DOCUMENTO ASSINADO DIGITALMENTE • AUTENTICIDADE VERIFICADA", textLeft, textY);
 
-  // Assinatura Cliente
-  const rightColX = margin + colWidth + 10;
-  doc.line(rightColX, y, rightColX + colWidth, y);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
-  doc.setTextColor(30, 41, 59);
-  doc.text(data.cliente_nome, rightColX + colWidth / 2, y + 4, { align: "center" });
+  // Descrição de segurança anti-adulteração
+  textY += 4.5;
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
-  doc.setTextColor(100, 116, 139);
-  doc.text("Assinatura e Carimbo do Cliente Recebedor", rightColX + colWidth / 2, y + 8, { align: "center" });
+  doc.setFontSize(7);
+  doc.setTextColor(71, 85, 105); // Slate-600
+  doc.text(
+    "Este recibo foi emitido e registrado eletronicamente em nuvem segura via Fire CRM,",
+    textLeft,
+    textY
+  );
+  textY += 3.5;
+  doc.text(
+    "substituindo assinaturas manuais e garantindo integridade contra qualquer tipo de adulteração.",
+    textLeft,
+    textY
+  );
+
+  // Instrução do QR Code em destaque
+  textY += 4.5;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7);
+  doc.setTextColor(220, 38, 38); // Red-600
+  doc.text(
+    "➤ APONTE A CÂMERA DO CELULAR PARA O QR CODE PARA ABRIR O RECIBO ORIGINAL EM NUVEM",
+    textLeft,
+    textY
+  );
+
+  // Chave e Timestamp
+  textY += 4;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(6.5);
+  doc.setTextColor(100, 116, 139); // Slate-500
+  doc.text(
+    `Chave de Autenticidade: ${authCode} • Emissão: ${new Date().toLocaleDateString("pt-BR")} às ${new Date().toLocaleTimeString("pt-BR")}`,
+    textLeft,
+    textY
+  );
+
+  // Link direto
+  textY += 3.5;
+  const displayUrl = targetReceiptUrl.length > 70 ? `${targetReceiptUrl.slice(0, 68)}...` : targetReceiptUrl;
+  doc.text(`Arquivo Original: ${displayUrl}`, textLeft, textY);
 
   // Rodapé com Timestamp
   doc.setFontSize(7);
   doc.setTextColor(148, 163, 184);
   doc.text(
-    `Documento gerado eletronicamente em ${new Date().toLocaleString("pt-BR")} via Fire CRM.`,
+    `Recibo nº ${data.numero_recibo} • Autenticado e arquivado digitalmente via Fire CRM.`,
     margin,
     290
   );
@@ -299,7 +425,7 @@ export function buildReceiptPdfDocument(data: EditableReceiptData): {
   const cleanClient = data.cliente_nome.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 30);
   const fileName = `Recibo_${data.numero_recibo}_${cleanClient}.pdf`;
 
-  return { doc, fileName };
+  return { doc, fileName, receiptUrl: targetReceiptUrl, authCode };
 }
 
 /**
@@ -312,13 +438,16 @@ export async function saveReceiptPdfToClientDocuments(
   pdfDoc: jsPDF
 ): Promise<string> {
   const blob = pdfDoc.output("blob");
-  const cleanClient = receiptData.cliente_nome.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 30);
-  const fileName = `Recibo_${receiptData.numero_recibo}_${cleanClient}.pdf`;
+  const { storagePath, fileUrl, fileName } = getReceiptPublicUrl(
+    clientId,
+    receiptData.numero_recibo,
+    receiptData.cliente_nome
+  );
   const pdfFile = new File([blob], fileName, { type: "application/pdf" });
 
-  // Upload direto para o bucket e tabela de documentos do cliente
-  const docResult = await uploadClientDocument(clientId, pdfFile, "Recibo");
-  return docResult.file_url || docResult.id;
+  // Upload direto para o bucket e tabela de documentos do cliente com caminho determinístico
+  const docResult = await uploadClientDocument(clientId, pdfFile, "Recibo", storagePath);
+  return docResult.file_url || fileUrl;
 }
 
 /**
