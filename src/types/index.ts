@@ -779,6 +779,7 @@ export interface DeliveryReceiptData {
   cliente_endereco?: string;
   lote_codigo: string;
   ordem_numero: number;
+  ordens_numeros?: string;
   itens: {
     identificacao: string;
     tipo_capacidade: string;

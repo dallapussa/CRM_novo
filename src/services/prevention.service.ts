@@ -1337,7 +1337,8 @@ export async function mergeLotesRecolhimento(
 }
 
 export interface ConfirmDeliveryAndPaymentInput {
-  orderId: string;
+  orderId?: string;
+  orderIds?: string[];
   loteId?: string;
   clientId: string;
   paymentMethod: PaymentMethod;
@@ -1355,21 +1356,32 @@ export async function confirmClientDeliveryAndPayment(
   const today = new Date().toISOString().split("T")[0];
   const nextYear = new Date(Date.now() + 365 * 86400000).toISOString().split("T")[0];
 
-  // 1. Busca ordem e dados do cliente
-  const { data: ordem } = await supabase
+  const targetOrderIds =
+    input.orderIds && input.orderIds.length > 0
+      ? input.orderIds
+      : input.orderId
+      ? [input.orderId]
+      : [];
+
+  if (targetOrderIds.length === 0) {
+    throw new Error("Nenhuma ordem informada para confirmação de entrega.");
+  }
+
+  // 1. Busca ordens e dados do cliente
+  const { data: ordensData } = await supabase
     .from("ordens_recolhimento")
     .select("*, client:client_id(*)")
-    .eq("id", input.orderId)
-    .single();
+    .in("id", targetOrderIds);
 
-  const client = (ordem as any)?.client;
-  const clientName = client?.razao_social || client?.nome_fantasia || "Cliente";
+  const firstOrdem = ordensData?.[0];
+  const client = firstOrdem?.client;
+  const clientName = client?.razao_social || client?.nome_fantasia || client?.name || "Cliente";
 
-  // 2. Busca itens da ordem e extintores
+  // 2. Busca itens das ordens e extintores
   const { data: itens } = await supabase
     .from("itens_recolhimento")
     .select("*, extintor:extintor_id(*)")
-    .eq("ordem_id", input.orderId);
+    .in("ordem_id", targetOrderIds);
 
   const extIds = (itens || []).map((i) => i.extintor_id).filter(Boolean);
 
@@ -1386,14 +1398,14 @@ export async function confirmClientDeliveryAndPayment(
       .in("id", extIds);
   }
 
-  // 4. Conclui a ordem de recolhimento
+  // 4. Conclui todas as ordens de recolhimento
   await supabase
     .from("ordens_recolhimento")
     .update({
       status: "concluido",
       updated_at: new Date().toISOString(),
     })
-    .eq("id", input.orderId);
+    .in("id", targetOrderIds);
 
   // 5. Identifica company_id para lançamento no Financeiro
   let companyId = client?.company_id;
@@ -1403,7 +1415,8 @@ export async function confirmClientDeliveryAndPayment(
   }
 
   // 6. Lança transação em public.receipts (FINANCEIRO & RELATÓRIOS)
-  let receiptNumero: number = ordem?.numero_ordem || Math.floor(1000 + Math.random() * 9000);
+  const numerosOS = (ordensData || []).map((o) => o.numero_ordem).filter(Boolean).join(", #");
+  let receiptNumero: number = firstOrdem?.numero_ordem || Math.floor(1000 + Math.random() * 9000);
   try {
     const { data: authUser } = await supabase.auth.getUser();
     if (companyId) {
@@ -1418,7 +1431,7 @@ export async function confirmClientDeliveryAndPayment(
         issued_at: today,
         received_at: input.isPaid ? new Date().toISOString() : null,
         payment_method: input.paymentMethod,
-        description: `Recarga de ${(itens || []).length} extintor(es) - OS #${ordem?.numero_ordem || ""} - ${clientName}`,
+        description: `Recarga de ${(itens || []).length} extintor(es) - OS #${numerosOS || receiptNumero} - ${clientName}`,
         notes: input.notes || `Cobrança de devolução via ${input.paymentMethod}`,
         created_by: authUser.user?.id || null,
       };
@@ -1438,7 +1451,7 @@ export async function confirmClientDeliveryAndPayment(
   }
 
   // 7. Se pertencer a um lote, verifica se todas as outras ordens do lote foram concluídas
-  const loteId = input.loteId || ordem?.lote_id;
+  const loteId = input.loteId || firstOrdem?.lote_id;
   let loteCodigo = "LOTE-GERAL";
   if (loteId) {
     const { data: loteData } = await supabase
@@ -1450,7 +1463,9 @@ export async function confirmClientDeliveryAndPayment(
     if (loteData?.codigo) loteCodigo = loteData.codigo;
 
     const allOrdensDoLote = await listOrdensRecolhimento(undefined, loteId);
-    const pendentes = allOrdensDoLote.filter((o) => o.id !== input.orderId && o.status !== "concluido");
+    const pendentes = allOrdensDoLote.filter(
+      (o) => !targetOrderIds.includes(o.id) && o.status !== "concluido"
+    );
     if (pendentes.length === 0) {
       await updateLoteStatus(loteId, "concluido");
     }
@@ -1485,7 +1500,8 @@ export async function confirmClientDeliveryAndPayment(
       .filter(Boolean)
       .join(", "),
     lote_codigo: loteCodigo,
-    ordem_numero: ordem?.numero_ordem || 1,
+    ordem_numero: firstOrdem?.numero_ordem || 1,
+    ordens_numeros: numerosOS || String(firstOrdem?.numero_ordem || "1"),
     itens: receiptItems,
     valor_total: input.amount,
     forma_pagamento: input.paymentMethod,

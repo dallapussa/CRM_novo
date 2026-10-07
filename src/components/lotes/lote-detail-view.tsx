@@ -70,7 +70,7 @@ export function LoteDetailView({
   const [activeTab, setActiveTab] = useState<"chegada" | "saida" | "romaneio">("chegada");
   const [confirmingOrdemId, setConfirmingOrdemId] = useState<string | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
-  const [selectedOrderForDelivery, setSelectedOrderForDelivery] = useState<OrdemRecolhimento | null>(null);
+  const [selectedGroupForDelivery, setSelectedGroupForDelivery] = useState<GroupedClientInLote | null>(null);
 
   const ordens = useMemo(() => lote.ordens || [], [lote.ordens]);
 
@@ -177,6 +177,10 @@ export function LoteDetailView({
 
   const ordensConcluidas = ordens.filter((o) => o.status === "concluido").length;
   const ordensPendentes = ordens.filter((o) => o.status !== "concluido").length;
+  const clientesConcluidos = clientesAgrupados.filter((g) =>
+    g.ordens.every((o) => o.status === "concluido")
+  ).length;
+  const clientesPendentes = clientesAgrupados.length - clientesConcluidos;
 
   return (
     <div className="space-y-6">
@@ -307,7 +311,7 @@ export function LoteDetailView({
               </div>
               <div className="border-x px-1">
                 <p className="text-[10px] text-muted-foreground font-medium uppercase">Clientes</p>
-                <p className="text-lg font-extrabold text-foreground">{ordens.length}</p>
+                <p className="text-lg font-extrabold text-foreground">{clientesAgrupados.length}</p>
               </div>
               <div>
                 <p className="text-[10px] text-muted-foreground font-medium uppercase">Total do Lote</p>
@@ -351,7 +355,7 @@ export function LoteDetailView({
             <Truck className="h-4 w-4 text-purple-600" />
             <span>2. Soma de Saída (Caminhão)</span>
             <Badge variant="secondary" className="text-xs px-1.5 py-0 h-5">
-              {ordensPendentes} pend
+              {clientesPendentes} pend
             </Badge>
           </TabsTrigger>
 
@@ -359,7 +363,7 @@ export function LoteDetailView({
             <PackageCheck className="h-4 w-4 text-emerald-600" />
             <span>3. Romaneio de Devolução</span>
             <Badge variant="secondary" className="text-xs px-1.5 py-0 h-5">
-              {ordensConcluidas}/{ordens.length}
+              {clientesConcluidos}/{clientesAgrupados.length}
             </Badge>
           </TabsTrigger>
         </TabsList>
@@ -622,23 +626,32 @@ export function LoteDetailView({
             </Button>
           </div>
 
-          {/* Lista de Devoluções por Cliente */}
+          {/* Lista de Devoluções por Cliente (Agrupada por Cliente, consolidando todas as OSs) */}
           <div className="space-y-4">
-            {ordens.map((ordem, idx) => {
-              const clientName = ordem.client?.name || "Cliente";
-              const isConcluido = ordem.status === "concluido";
+            {clientesAgrupados.map((grp, idx) => {
+              const clientName =
+                grp.client?.razao_social ||
+                grp.client?.nome_fantasia ||
+                grp.client?.name ||
+                "Cliente";
+              const isConcluido = grp.ordens.every((o) => o.status === "concluido");
+              const isParcial = !isConcluido && grp.ordens.some((o) => o.status === "concluido");
               const enderecoCompleto = [
-                ordem.client?.address?.street,
-                ordem.client?.address?.number,
-                ordem.client?.address?.neighborhood,
-                ordem.client?.address?.city,
+                grp.client?.address?.street || grp.client?.address_street,
+                grp.client?.address?.number || grp.client?.address_number,
+                grp.client?.address?.neighborhood || grp.client?.address_neighborhood,
+                grp.client?.address?.city || grp.client?.address_city,
               ]
                 .filter(Boolean)
                 .join(", ");
+              const telefone =
+                grp.client?.telefone ||
+                grp.client?.phone ||
+                grp.client?.telefone2;
 
               return (
                 <Card
-                  key={ordem.id}
+                  key={grp.clientId}
                   className={`border-2 transition-all ${
                     isConcluido
                       ? "border-emerald-200 bg-emerald-50/20 opacity-80"
@@ -653,13 +666,26 @@ export function LoteDetailView({
                             {idx + 1}
                           </span>
                           <h3 className="font-bold text-base text-foreground">{clientName}</h3>
-                          <span className="text-xs text-muted-foreground font-mono">
-                            (OS #{ordem.numero_ordem})
-                          </span>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {grp.ordens.map((o) => (
+                              <Badge
+                                key={o.id}
+                                variant="outline"
+                                className="font-mono text-xs bg-muted text-muted-foreground"
+                              >
+                                OS #{o.numero_ordem}
+                              </Badge>
+                            ))}
+                          </div>
                           {isConcluido ? (
                             <Badge className="bg-emerald-600 text-white text-xs gap-1">
                               <CheckCircle2 className="h-3 w-3" />
                               Devolvido com Sucesso
+                            </Badge>
+                          ) : isParcial ? (
+                            <Badge className="bg-amber-600 text-white text-xs gap-1">
+                              <Clock className="h-3 w-3" />
+                              Parcialmente Devolvido
                             </Badge>
                           ) : (
                             <Badge variant="outline" className="text-xs bg-amber-50 text-amber-800 border-amber-300">
@@ -676,16 +702,19 @@ export function LoteDetailView({
                               {enderecoCompleto}
                             </span>
                           )}
-                          {ordem.client?.telefone && (
+                          {telefone && (
                             <span className="flex items-center gap-1">
                               <Phone className="h-3.5 w-3.5 text-muted-foreground" />
-                              {ordem.client.telefone}
+                              {telefone}
                             </span>
                           )}
+                          <span className="font-semibold text-emerald-600">
+                            Volume: {grp.itens.length} extintor(es) • Total: {formatCurrency(grp.valorTotal)}
+                          </span>
                         </div>
                       </div>
 
-                      {/* Botão de Ação: Entregar, Cobrar & Recibo */}
+                      {/* Botão de Ação: Entregar, Cobrar & Recibo Consolidado */}
                       <div className="print:hidden flex items-center gap-2">
                         {isConcluido ? (
                           <div className="flex items-center gap-2">
@@ -696,7 +725,7 @@ export function LoteDetailView({
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => setSelectedOrderForDelivery(ordem)}
+                              onClick={() => setSelectedGroupForDelivery(grp)}
                               className="h-8 text-xs border-emerald-300 text-emerald-800 hover:bg-emerald-50 gap-1.5"
                             >
                               <Receipt className="h-3.5 w-3.5" />
@@ -706,27 +735,28 @@ export function LoteDetailView({
                         ) : (
                           <Button
                             size="sm"
-                            disabled={confirmingOrdemId === ordem.id}
-                            onClick={() => setSelectedOrderForDelivery(ordem)}
+                            onClick={() => setSelectedGroupForDelivery(grp)}
                             className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 whitespace-nowrap shadow-sm font-bold text-xs"
                           >
                             <DollarSign className="h-3.5 w-3.5" />
-                            Entregar & Cobrar Cliente
+                            Entregar & Cobrar Cliente ({grp.itens.length} un)
                           </Button>
                         )}
                       </div>
                     </div>
 
-                    {/* ALERTA DE CILINDRO RESERVA */}
-                    {ordem.deixou_reserva && (
-                      <div className="mt-2 p-2.5 bg-amber-100 border border-amber-300 rounded-md text-amber-900 text-xs font-medium flex items-center gap-2">
-                        <AlertTriangle className="h-4 w-4 text-amber-700 shrink-0" />
-                        <div>
-                          <strong>⚠️ RECOLHER CILINDRO RESERVA DA NOSSA OFICINA:</strong>{" "}
-                          {ordem.detalhes_reserva
-                            ? ordem.detalhes_reserva
-                            : "Cliente ficou com cilindro reserva no recolhimento. Não esquecer de pegar de volta!"}
+                    {/* ALERTA DE CILINDRO RESERVA DO CLIENTE */}
+                    {grp.reservas.length > 0 && (
+                      <div className="mt-2 p-2.5 bg-amber-100 border border-amber-300 rounded-md text-amber-900 text-xs font-medium space-y-1">
+                        <div className="flex items-center gap-1.5 font-bold">
+                          <AlertTriangle className="h-4 w-4 text-amber-700 shrink-0" />
+                          <span>⚠️ RECOLHER CILINDRO(S) RESERVA DA NOSSA OFICINA COM ESTE CLIENTE:</span>
                         </div>
+                        {grp.reservas.map((res, rIdx) => (
+                          <p key={rIdx} className="pl-5 text-amber-950 font-semibold">
+                            • (OS #{res.numero_ordem}): {res.detalhes}
+                          </p>
+                        ))}
                       </div>
                     )}
                   </CardHeader>
@@ -742,13 +772,16 @@ export function LoteDetailView({
                             <th className="py-2 px-3 text-left font-bold text-foreground">
                               📍 Onde Deixar (Local no Prédio)
                             </th>
+                            {grp.ordens.length > 1 && (
+                              <th className="py-2 px-3 text-left">OS de Origem</th>
+                            )}
                             <th className="py-2 px-3 text-left">Modalidade</th>
                             <th className="py-2 px-3 text-right">Valor</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y">
-                          {(ordem.itens || []).map((item) => (
-                            <tr key={item.id} className="hover:bg-muted/20">
+                          {grp.itens.map((item, itIdx) => (
+                            <tr key={item.id || itIdx} className="hover:bg-muted/20">
                               <td className="py-2 px-3 font-bold text-foreground">
                                 {item.extintor?.identificacao || "Extintor"}
                               </td>
@@ -766,9 +799,16 @@ export function LoteDetailView({
                                   </span>
                                 )}
                               </td>
+                              {grp.ordens.length > 1 && (
+                                <td className="py-2 px-3">
+                                  <Badge variant="outline" className="text-[10px] font-mono">
+                                    OS #{grp.ordens.find((o) => o.id === item.ordem_id)?.numero_ordem}
+                                  </Badge>
+                                </td>
+                              )}
                               <td className="py-2 px-3">
                                 <Badge variant="outline" className="text-[10px]">
-                                  {item.modalidade_recarga}
+                                  {item.modalidade_recarga || "Recarga"}
                                 </Badge>
                               </td>
                               <td className="py-2 px-3 text-right font-medium text-emerald-600">
@@ -777,6 +817,17 @@ export function LoteDetailView({
                             </tr>
                           ))}
                         </tbody>
+                        <tfoot className="bg-muted/50 font-bold border-t">
+                          <tr>
+                            <td colSpan={grp.ordens.length > 1 ? 4 : 3} className="py-2 px-3 text-foreground">
+                              Total do Cliente ({grp.itens.length} cilindros)
+                            </td>
+                            <td className="py-2 px-3 text-muted-foreground">Total</td>
+                            <td className="py-2 px-3 text-right text-emerald-700 font-mono text-sm">
+                              {formatCurrency(grp.valorTotal)}
+                            </td>
+                          </tr>
+                        </tfoot>
                       </table>
                     </div>
 
@@ -790,6 +841,9 @@ export function LoteDetailView({
                         <div className="text-center">
                           <div className="w-56 border-b border-black mb-1" />
                           <p>Assinatura do Recebedor ({clientName})</p>
+                          <p className="text-[10px]">
+                            {grp.ordens.map((o) => `OS #${o.numero_ordem}`).join(" • ")}
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -802,15 +856,16 @@ export function LoteDetailView({
       </Tabs>
 
       {/* Diálogo de Cobrança, Entrega, Renovação e Recibo Timbrado */}
-      {selectedOrderForDelivery && (
+      {selectedGroupForDelivery && (
         <DeliveryReceiptDialog
-          open={!!selectedOrderForDelivery}
-          onOpenChange={(o) => !o && setSelectedOrderForDelivery(null)}
-          ordem={selectedOrderForDelivery}
+          open={!!selectedGroupForDelivery}
+          onOpenChange={(o) => !o && setSelectedGroupForDelivery(null)}
+          clientGroup={selectedGroupForDelivery}
           loteId={lote.id}
           loteCodigo={lote.codigo}
           onSuccess={() => {
             queryClient.invalidateQueries({ queryKey: ["lotes_recolhimento"] });
+            queryClient.invalidateQueries({ queryKey: ["ordens_recolhimento"] });
             queryClient.invalidateQueries({ queryKey: ["client_extintores"] });
             queryClient.invalidateQueries({ queryKey: ["receipts"] });
             queryClient.invalidateQueries({ queryKey: ["invoices"] });

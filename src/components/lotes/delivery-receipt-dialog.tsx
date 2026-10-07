@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -36,17 +36,20 @@ import {
 import { formatCurrency, formatMonthYear } from "@/lib/utils";
 import {
   confirmClientDeliveryAndPayment,
+  type GroupedClientInLote,
 } from "@/services/prevention.service";
 import type {
   OrdemRecolhimento,
   PaymentMethod,
   DeliveryReceiptData,
+  ItemRecolhimento,
 } from "@/types";
 
 interface DeliveryReceiptDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  ordem: OrdemRecolhimento;
+  clientGroup?: GroupedClientInLote | null;
+  ordem?: OrdemRecolhimento | null;
   loteId?: string;
   loteCodigo?: string;
   onSuccess?: (receiptData: DeliveryReceiptData) => void;
@@ -65,6 +68,7 @@ const PAYMENT_OPTIONS: { id: PaymentMethod; label: string; icon: any; isImmediat
 export function DeliveryReceiptDialog({
   open,
   onOpenChange,
+  clientGroup,
   ordem,
   loteId,
   loteCodigo,
@@ -75,14 +79,54 @@ export function DeliveryReceiptDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [receiptData, setReceiptData] = useState<DeliveryReceiptData | null>(null);
 
+  const effectiveClient = clientGroup?.client || ordem?.client;
+  const effectiveClientId = clientGroup?.clientId || ordem?.client_id || "";
+
+  const effectiveOrdens: OrdemRecolhimento[] = useMemo(() => {
+    if (clientGroup?.ordens && clientGroup.ordens.length > 0) return clientGroup.ordens;
+    if (ordem) return [ordem];
+    return [];
+  }, [clientGroup, ordem]);
+
+  const effectiveItens: ItemRecolhimento[] = useMemo(() => {
+    if (clientGroup?.itens && clientGroup.itens.length > 0) return clientGroup.itens;
+    if (ordem?.itens) return ordem.itens;
+    return [];
+  }, [clientGroup, ordem]);
+
+  const clientName =
+    effectiveClient?.razao_social ||
+    effectiveClient?.nome_fantasia ||
+    effectiveClient?.name ||
+    "Cliente";
+
+  const osNumeros = effectiveOrdens.map((o) => o.numero_ordem).filter(Boolean);
+  const osIds = effectiveOrdens.map((o) => o.id);
+
+  const reservas = useMemo(() => {
+    if (clientGroup?.reservas && clientGroup.reservas.length > 0) {
+      return clientGroup.reservas;
+    }
+    if (ordem?.deixou_reserva && ordem.detalhes_reserva) {
+      return [{ numero_ordem: ordem.numero_ordem, detalhes: ordem.detalhes_reserva }];
+    }
+    return [];
+  }, [clientGroup, ordem]);
+
   // Itens com preços editáveis
-  const [itemPrices, setItemPrices] = useState<Record<string, number>>(() => {
-    const map: Record<string, number> = {};
-    (ordem.itens || []).forEach((it) => {
-      map[it.id] = Number(it.valor_registrado || it.extintor?.valor_servico || 45.0);
-    });
-    return map;
-  });
+  const [itemPrices, setItemPrices] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (open) {
+      const map: Record<string, number> = {};
+      effectiveItens.forEach((it) => {
+        map[it.id] = Number(it.valor_registrado || it.extintor?.valor_servico || 45.0);
+      });
+      setItemPrices(map);
+      setStep("form");
+      setReceiptData(null);
+    }
+  }, [open, effectiveItens]);
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("PIX");
   const [dueDate, setDueDate] = useState<string>(
@@ -106,9 +150,10 @@ export function DeliveryReceiptDialog({
     try {
       const isPaid = selectedOption.isImmediate;
       const receipt = await confirmClientDeliveryAndPayment({
-        orderId: ordem.id,
-        loteId: loteId || ordem.lote_id || undefined,
-        clientId: ordem.client_id,
+        orderIds: osIds,
+        orderId: osIds[0],
+        loteId: loteId || effectiveOrdens[0]?.lote_id || undefined,
+        clientId: effectiveClientId,
         paymentMethod,
         amount: totalCalculado,
         amountPaid: isPaid ? totalCalculado : 0,
@@ -142,15 +187,38 @@ export function DeliveryReceiptDialog({
 
   function generateWhatsAppUrl() {
     if (!receiptData) return "#";
-    const rawPhone = (receiptData.cliente_telefone || "").replace(/\D/g, "");
+    const rawPhone = (
+      receiptData.cliente_telefone ||
+      effectiveClient?.telefone ||
+      effectiveClient?.phone ||
+      ""
+    ).replace(/\D/g, "");
     if (!rawPhone) return "#";
 
-    const text = `Olá, *${receiptData.cliente_nome}*! 👋\n\nAqui é da equipe da *ExtinControl Prevenção Contra Incêndio*.\n\nConfirmamos a devolução e reinstalação dos seus extintores referente à *OS #${receiptData.ordem_numero}* (Lote ${receiptData.lote_codigo}).\n\n📄 *Recibo de Devolução nº ${receiptData.numero_recibo}*\n💰 *Valor Total:* ${formatCurrency(receiptData.valor_total)}\n💳 *Forma de Pagamento:* ${receiptData.forma_pagamento} (${receiptData.status_pagamento})\n\nTodos os extintores foram revisados, recarregados e têm garantia com nova validade estendida até o próximo ano.\n\nAgradecemos a preferência e parceria! 🚒🔥`;
+    const osLabel =
+      osNumeros.length > 0
+        ? `OS #${osNumeros.join(", #")}`
+        : `OS #${receiptData.ordem_numero}`;
+
+    const text = `Olá, *${receiptData.cliente_nome}*! 👋\n\nAqui é da equipe da *ExtinControl Prevenção Contra Incêndio*.\n\nConfirmamos a devolução e reinstalação dos seus extintores referente à *${osLabel}* (Lote ${receiptData.lote_codigo}).\n\n📄 *Recibo de Devolução nº ${receiptData.numero_recibo}*\n💰 *Valor Total:* ${formatCurrency(receiptData.valor_total)}\n💳 *Forma de Pagamento:* ${receiptData.forma_pagamento} (${receiptData.status_pagamento})\n\nTodos os extintores foram revisados, recarregados e têm garantia com nova validade estendida até o próximo ano.\n\nAgradecemos a preferência e parceria! 🚒🔥`;
 
     return `https://wa.me/55${rawPhone}?text=${encodeURIComponent(text)}`;
   }
 
-  const clientName = ordem.client?.name || "Cliente";
+  const clientAddress = [
+    effectiveClient?.address?.street || effectiveClient?.address_street,
+    effectiveClient?.address?.number || effectiveClient?.address_number,
+    effectiveClient?.address?.neighborhood || effectiveClient?.address_neighborhood,
+    effectiveClient?.address?.city || effectiveClient?.address_city,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  const clientDoc =
+    effectiveClient?.document ||
+    effectiveClient?.cnpj ||
+    effectiveClient?.cpf ||
+    effectiveClient?.documento;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -159,7 +227,7 @@ export function DeliveryReceiptDialog({
           <div className="p-6 space-y-6">
             {/* Header */}
             <DialogHeader className="border-b pb-4">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div className="flex items-center gap-2">
                   <div className="p-2 bg-orange-100 dark:bg-orange-950/40 rounded-xl text-orange-600">
                     <Truck className="h-5 w-5" />
@@ -169,14 +237,18 @@ export function DeliveryReceiptDialog({
                       Entrega, Cobrança & Recibo ao Cliente
                     </DialogTitle>
                     <DialogDescription className="text-xs">
-                      Confirme os valores por cilindro, forma de pagamento e renove o inventário do cliente.
+                      Confirme os valores dos extintores do cliente, forma de pagamento e renove o inventário.
                     </DialogDescription>
                   </div>
                 </div>
 
-                <Badge className="bg-orange-600 text-white font-bold text-xs">
-                  OS #{ordem.numero_ordem}
-                </Badge>
+                <div className="flex items-center gap-1 flex-wrap">
+                  {osNumeros.map((num) => (
+                    <Badge key={num} className="bg-orange-600 text-white font-bold text-xs">
+                      OS #{num}
+                    </Badge>
+                  ))}
+                </div>
               </div>
             </DialogHeader>
 
@@ -187,41 +259,50 @@ export function DeliveryReceiptDialog({
                   <Building2 className="h-4 w-4 text-orange-600" />
                   {clientName}
                 </p>
-                {ordem.client?.document && (
+                {clientDoc && (
                   <span className="text-muted-foreground font-mono">
-                    CNPJ/CPF: {ordem.client.document}
+                    CNPJ/CPF: {clientDoc}
                   </span>
                 )}
               </div>
 
-              {ordem.client?.address?.street && (
+              {clientAddress && (
                 <p className="text-muted-foreground">
-                  📍 {ordem.client.address.street}, {ordem.client.address.number || "S/N"} -{" "}
-                  {ordem.client.address.neighborhood || ordem.client.address.city}
+                  📍 {clientAddress}
                 </p>
               )}
 
-              {ordem.deixou_reserva && (
-                <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 rounded-lg flex items-center gap-2 text-amber-900 dark:text-amber-200 font-semibold mt-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
-                  <span>
-                    Atenção: Recolher extintor de reserva deixado:{" "}
-                    <strong className="underline">{ordem.detalhes_reserva || "Reserva temporário"}</strong>
-                  </span>
+              {reservas.length > 0 && (
+                <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 rounded-lg space-y-1 text-amber-900 dark:text-amber-200 font-semibold mt-2">
+                  <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                    <span>Atenção: Recolher extintor(es) de reserva deixado(s) com este cliente:</span>
+                  </div>
+                  {reservas.map((r, rIdx) => (
+                    <p key={rIdx} className="pl-5 text-xs text-amber-950 dark:text-amber-100">
+                      • (OS #{r.numero_ordem}): <span className="underline">{r.detalhes}</span>
+                    </p>
+                  ))}
                 </div>
               )}
             </div>
 
             {/* Tabela de Extintores & Valores Unitários */}
             <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase text-muted-foreground">
-                Extintores do Cliente & Valor por Cilindro
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-bold uppercase text-muted-foreground">
+                  Extintores do Cliente ({effectiveItens.length} cilindros)
+                </Label>
+                <span className="text-[11px] text-muted-foreground">
+                  Valores editáveis por cilindro
+                </span>
+              </div>
 
-              <div className="border rounded-xl overflow-hidden divide-y">
-                {(ordem.itens || []).map((it) => {
+              <div className="border rounded-xl overflow-hidden divide-y max-h-[300px] overflow-y-auto">
+                {effectiveItens.map((it) => {
                   const ext = it.extintor;
                   const unitPrice = itemPrices[it.id] ?? 45.0;
+                  const osDaOrigem = effectiveOrdens.find((o) => o.id === it.ordem_id);
 
                   return (
                     <div
@@ -231,9 +312,16 @@ export function DeliveryReceiptDialog({
                       <div className="flex items-center gap-2.5">
                         <Flame className="h-4 w-4 text-orange-500 shrink-0" />
                         <div>
-                          <p className="font-bold text-foreground">
-                            {ext?.identificacao || "Extintor"}
-                          </p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-bold text-foreground">
+                              {ext?.identificacao || "Extintor"}
+                            </p>
+                            {osDaOrigem && effectiveOrdens.length > 1 && (
+                              <Badge variant="outline" className="text-[9px] font-mono">
+                                OS #{osDaOrigem.numero_ordem}
+                              </Badge>
+                            )}
+                          </div>
                           <p className="text-[11px] text-muted-foreground">
                             {ext?.tipo_capacidade || "Pó ABC - 4kg"} • 📍 {ext?.localizacao || "Localização padrão"}
                           </p>
@@ -264,7 +352,7 @@ export function DeliveryReceiptDialog({
               {/* Totalizador */}
               <div className="flex items-center justify-between p-3.5 bg-orange-50 dark:bg-orange-950/30 rounded-xl border border-orange-200">
                 <span className="font-bold text-sm text-orange-900 dark:text-orange-200">
-                  Valor Total a Cobrar:
+                  Valor Total a Cobrar ({effectiveItens.length} extintores):
                 </span>
                 <span className="text-xl font-extrabold text-orange-700 dark:text-orange-300 font-mono">
                   {formatCurrency(totalCalculado)}
@@ -406,7 +494,7 @@ export function DeliveryReceiptDialog({
                     Imprimir
                   </Button>
 
-                  {receiptData.cliente_telefone && (
+                  {(receiptData.cliente_telefone || effectiveClient?.telefone) && (
                     <Button
                       asChild
                       size="sm"
@@ -453,7 +541,7 @@ export function DeliveryReceiptDialog({
                       Emissão: <strong>{receiptData.data_emissao}</strong>
                     </p>
                     <p className="text-[10px] text-muted-foreground">
-                      OS: #{receiptData.ordem_numero} • Lote: {receiptData.lote_codigo}
+                      OS: #{receiptData.ordens_numeros || (osNumeros.length > 0 ? osNumeros.join(", #") : receiptData.ordem_numero)} • Lote: {receiptData.lote_codigo}
                     </p>
                   </div>
                 </div>
@@ -546,7 +634,7 @@ export function DeliveryReceiptDialog({
                   </div>
                   <div className="text-center flex-1">
                     <div className="border-t border-neutral-400 pt-1">
-                      Assinatura e Carimbo do Cliente Recebedor
+                      Assinatura e Carimbo do Cliente Recebedor ({receiptData.cliente_nome})
                     </div>
                   </div>
                 </div>
