@@ -16,6 +16,7 @@ import { Printer, Download, QrCode, FileText, CheckCircle2, Flame, Loader2 } fro
 import { useToast } from "@/hooks/use-toast";
 import type { EditableReceiptData, ReceiptItem } from "@/services/receipt-pdf.service";
 import { buildReceiptPdfDocument, saveReceiptPdfToClientDocuments } from "@/services/receipt-pdf.service";
+import { getCompanySettings } from "@/services/company-settings.service";
 
 interface ThermalReceipt58mmDialogProps {
   open: boolean;
@@ -43,6 +44,17 @@ export function ThermalReceipt58mmDialog({
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>("");
   const [activePdfUrl, setActivePdfUrl] = useState<string>(initialPdfUrl || "");
   const [isGeneratingUrl, setIsGeneratingUrl] = useState(false);
+  const [companyLogo, setCompanyLogo] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!receiptData?.empresa_logo) {
+      getCompanySettings()
+        .then((s) => {
+          if (s.logo_url) setCompanyLogo(s.logo_url);
+        })
+        .catch(() => {});
+    }
+  }, [receiptData?.empresa_logo]);
 
   // Agrupa os itens do recibo por Modelo/Capacidade + Modalidade para o resumo em 58mm
   const itensAgrupados = useMemo(() => {
@@ -191,6 +203,8 @@ export function ThermalReceipt58mmDialog({
             .double-divider { border-top: 2px solid #000; margin: 4px 0; }
             .item-row { display: flex; justify-content: space-between; margin-bottom: 2px; }
             .item-desc { max-width: 65%; word-break: break-word; }
+            .logo-container { text-align: center; margin-bottom: 4px; }
+            .logo-container img { max-height: 44px; max-width: 120px; object-fit: contain; display: inline-block; }
             .qr-container { text-align: center; margin: 6px 0; }
             .qr-container img { width: 110px; height: 110px; display: inline-block; }
             .qr-hint { font-size: 9px; line-height: 1.1; margin-top: 2px; text-align: center; }
@@ -205,6 +219,8 @@ export function ThermalReceipt58mmDialog({
 
     printWindow.document.close();
   };
+
+  const activeLogo = receiptData.empresa_logo || companyLogo;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -234,6 +250,15 @@ export function ThermalReceipt58mmDialog({
           >
             {/* CABEÇALHO DA EMPRESA */}
             <div className="text-center space-y-0.5">
+              {activeLogo && (
+                <div className="logo-container flex justify-center mb-1">
+                  <img
+                    src={activeLogo}
+                    alt="Logo"
+                    className="max-h-10 max-w-[120px] object-contain mx-auto"
+                  />
+                </div>
+              )}
               <p className="font-extrabold text-xs tracking-tight uppercase">
                 {receiptData.empresa_nome || "EXTINCONTROL"}
               </p>

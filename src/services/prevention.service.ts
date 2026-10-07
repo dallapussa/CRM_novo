@@ -87,6 +87,31 @@ export async function uploadClientDocument(
 
   const fileUrl = publicUrlData.publicUrl;
 
+  // 1. Evita duplicidade: se já existe documento com o mesmo storage_path para o cliente, atualiza o registro
+  const { data: existingDoc } = await supabase
+    .from("documentos_cliente")
+    .select("*")
+    .eq("client_id", clientId)
+    .eq("storage_path", storagePath)
+    .maybeSingle();
+
+  if (existingDoc) {
+    const { data: updatedDoc, error: updateErr } = await supabase
+      .from("documentos_cliente")
+      .update({
+        file_url: fileUrl,
+        file_name: file.name,
+        file_size: file.size,
+      })
+      .eq("id", existingDoc.id)
+      .select("*")
+      .single();
+
+    if (!updateErr && updatedDoc) {
+      return updatedDoc;
+    }
+  }
+
   // Tenta salvar na tabela dedicada "documentos_cliente"
   const { data, error } = await supabase
     .from("documentos_cliente")
@@ -103,6 +128,39 @@ export async function uploadClientDocument(
 
   if (error) {
     // Fallback para tabela legacy "documents"
+    const { data: existingLegacy } = await supabase
+      .from("documents")
+      .select("*")
+      .eq("client_id", clientId)
+      .eq("storage_path", storagePath)
+      .maybeSingle();
+
+    if (existingLegacy) {
+      const { data: updatedLeg, error: legUpErr } = await supabase
+        .from("documents")
+        .update({
+          nome: file.name,
+          categoria: tipo,
+          size_bytes: file.size,
+        })
+        .eq("id", existingLegacy.id)
+        .select("*")
+        .single();
+
+      if (!legUpErr && updatedLeg) {
+        return {
+          id: updatedLeg.id,
+          client_id: clientId,
+          tipo_documento: tipo,
+          file_url: fileUrl,
+          file_name: file.name,
+          storage_path: storagePath,
+          file_size: file.size,
+          created_at: updatedLeg.created_at,
+        };
+      }
+    }
+
     const { data: legacyRow, error: legErr } = await supabase
       .from("documents")
       .insert({

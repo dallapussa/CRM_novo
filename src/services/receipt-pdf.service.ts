@@ -34,6 +34,7 @@ export interface EditableReceiptData {
   empresa_cnpj?: string;
   empresa_telefone?: string;
   empresa_endereco?: string;
+  empresa_logo?: string; // Imagem em base64 Data URL ou URL
   qr_code_url?: string;
   qr_code_data_url?: string;
   codigo_autenticidade?: string;
@@ -41,11 +42,13 @@ export interface EditableReceiptData {
 
 /**
  * Retorna o caminho de armazenamento e a URL pública definitiva do recibo no Supabase Storage.
+ * Garante caminho determinístico por LOTE para evitar duplicação de arquivos no mesmo lote.
  */
 export function getReceiptPublicUrl(
   clientId: string,
   numeroRecibo: string,
-  clientName?: string
+  clientName?: string,
+  loteCodigo?: string
 ): {
   storagePath: string;
   fileUrl: string;
@@ -55,15 +58,20 @@ export function getReceiptPublicUrl(
   const supabase = createClient();
   const cleanReceipt = String(numeroRecibo || "REC-001").replace(/[^a-zA-Z0-9.-]/g, "_");
   const cleanClient = String(clientName || "cliente").replace(/[^a-zA-Z0-9]/g, "_").slice(0, 30);
-  const fileName = `Recibo_${cleanReceipt}_${cleanClient}.pdf`;
-  const storagePath = `${clientId || "geral"}/recibo_${cleanReceipt}_${cleanClient}.pdf`;
+  const cleanLote = loteCodigo ? String(loteCodigo).replace(/[^a-zA-Z0-9.-]/g, "_") : "";
+
+  // Se tiver lote_codigo, a âncora do arquivo é o lote para evitar duplicações
+  const fileName = cleanLote
+    ? `Recibo_${cleanLote}_${cleanClient}.pdf`
+    : `Recibo_${cleanReceipt}_${cleanClient}.pdf`;
+  const storagePath = `${clientId || "geral"}/recibo_${cleanLote ? cleanLote + "_" : cleanReceipt + "_"}${cleanClient}.pdf`;
 
   const { data } = supabase.storage
     .from("client-documents")
     .getPublicUrl(storagePath);
 
   // Gera chave de autenticação única e determinística
-  const rawSeed = `${numeroRecibo}|${clientId}|${cleanClient}|${storagePath}`;
+  const rawSeed = `${cleanLote || numeroRecibo}|${clientId}|${cleanClient}|${storagePath}`;
   let hash = 0;
   for (let i = 0; i < rawSeed.length; i++) {
     hash = ((hash << 5) - hash) + rawSeed.charCodeAt(i);
@@ -116,14 +124,28 @@ export async function buildReceiptPdfDocument(
   doc.rect(margin, y, contentWidth, 3, "F");
   y += 8;
 
+  // Se houver logo da empresa, renderiza no canto direito
+  if (data.empresa_logo) {
+    try {
+      const logoW = 28;
+      const logoH = 14;
+      const logoX = margin + contentWidth - logoW;
+      const logoY = y - 4;
+      doc.addImage(data.empresa_logo, "PNG", logoX, logoY, logoW, logoH, undefined, "FAST");
+    } catch (logoErr) {
+      console.warn("Aviso ao desenhar logo no PDF:", logoErr);
+    }
+  }
+
   // Cabeçalho da Empresa e Título do Recibo
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
+  doc.setFontSize(15);
   doc.setTextColor(30, 41, 59); // Slate-800
+  const maxCompanyWidth = data.empresa_logo ? contentWidth - 32 : contentWidth;
   doc.text(data.empresa_nome || "EXTINCONTROL MANUTENÇÃO DE EXTINTORES", margin, y);
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
+  doc.setFontSize(8.5);
   doc.setTextColor(100, 116, 139); // Slate-500
   y += 5;
   const empSub = [
@@ -131,7 +153,8 @@ export async function buildReceiptPdfDocument(
     data.empresa_telefone ? `Tel/WhatsApp: ${data.empresa_telefone}` : null,
     data.empresa_endereco ? data.empresa_endereco : null,
   ].filter(Boolean).join(" • ");
-  doc.text(empSub || "Serviços especializados em Prevenção contra Incêndio • Normas ABNT / INMETRO", margin, y);
+  const splitSub = doc.splitTextToSize(empSub || "Serviços especializados em Prevenção contra Incêndio • Normas ABNT / INMETRO", maxCompanyWidth);
+  doc.text(splitSub, margin, y);
 
   y += 7;
   doc.setDrawColor(226, 232, 240); // Slate-200
@@ -313,7 +336,8 @@ export async function buildReceiptPdfDocument(
   const { fileUrl: defaultFileUrl, authCode: defaultAuthCode, fileName: defaultFileName } = getReceiptPublicUrl(
     data.cliente_id,
     data.numero_recibo,
-    data.cliente_nome
+    data.cliente_nome,
+    data.lote_codigo
   );
 
   const targetReceiptUrl = options?.receiptUrl || data.qr_code_url || defaultFileUrl;
@@ -422,8 +446,7 @@ export async function buildReceiptPdfDocument(
     290
   );
 
-  const cleanClient = data.cliente_nome.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 30);
-  const fileName = `Recibo_${data.numero_recibo}_${cleanClient}.pdf`;
+  const fileName = defaultFileName;
 
   return { doc, fileName, receiptUrl: targetReceiptUrl, authCode };
 }
@@ -431,6 +454,7 @@ export async function buildReceiptPdfDocument(
 /**
  * Salva o PDF do recibo gerado no bucket de documentos do cliente no Supabase
  * e faz com que fique imediatamente disponível no menu de documentos do cliente.
+ * Atualiza o arquivo existente se já houver recibo para este lote.
  */
 export async function saveReceiptPdfToClientDocuments(
   clientId: string,
@@ -441,13 +465,55 @@ export async function saveReceiptPdfToClientDocuments(
   const { storagePath, fileUrl, fileName } = getReceiptPublicUrl(
     clientId,
     receiptData.numero_recibo,
-    receiptData.cliente_nome
+    receiptData.cliente_nome,
+    receiptData.lote_codigo
   );
   const pdfFile = new File([blob], fileName, { type: "application/pdf" });
 
   // Upload direto para o bucket e tabela de documentos do cliente com caminho determinístico
   const docResult = await uploadClientDocument(clientId, pdfFile, "Recibo", storagePath);
   return docResult.file_url || fileUrl;
+}
+
+/**
+ * Verifica se já existe um recibo gerado no Supabase para um cliente e lote específico.
+ */
+export async function checkLoteReceiptExists(
+  clientId: string,
+  loteCodigo?: string
+): Promise<{ exists: boolean; fileUrl?: string; fileName?: string; createdAt?: string } | null> {
+  if (!clientId) return null;
+  const supabase = createClient();
+  const cleanLote = loteCodigo ? String(loteCodigo).replace(/[^a-zA-Z0-9.-]/g, "_") : "";
+
+  try {
+    const { data } = await supabase
+      .from("documentos_cliente")
+      .select("file_url, file_name, created_at, storage_path")
+      .eq("client_id", clientId)
+      .eq("tipo_documento", "Recibo")
+      .order("created_at", { ascending: false });
+
+    if (!data || data.length === 0) return null;
+
+    if (cleanLote) {
+      const match = data.find(
+        (d) => d.file_name?.includes(cleanLote) || d.storage_path?.includes(cleanLote)
+      );
+      if (match) {
+        return {
+          exists: true,
+          fileUrl: match.file_url,
+          fileName: match.file_name,
+          createdAt: match.created_at,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn("Aviso ao verificar recibo existente:", err);
+  }
+
+  return null;
 }
 
 /**

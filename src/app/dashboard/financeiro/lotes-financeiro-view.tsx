@@ -25,6 +25,7 @@ import {
   Banknote,
   RefreshCw,
   Eye,
+  Building2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -99,6 +100,7 @@ export function LotesFinanceiroView() {
 
   // Recibo editável
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
+  const [receiptModalTab, setReceiptModalTab] = useState<"recibo" | "emitente">("recibo");
   const [editingReceiptData, setEditingReceiptData] = useState<EditableReceiptData | null>(null);
 
   // Cupom Térmico 58mm
@@ -186,7 +188,33 @@ export function LotesFinanceiroView() {
     return groupOrdensByClient(activeLote.ordens || []);
   }, [activeLote]);
 
-  // Constrói objeto de recibo para um cliente do lote
+  // Busca recibos já emitidos no Supabase para os clientes do lote ativo (evita duplicidade de arquivos)
+  const { data: existingLoteReceipts = [], refetch: refetchReceipts } = useQuery({
+    queryKey: ["lote_receipts_docs", activeLote?.codigo],
+    enabled: !!activeLote?.codigo,
+    queryFn: async () => {
+      const supabase = createClient();
+      const cleanLote = String(activeLote?.codigo || "").replace(/[^a-zA-Z0-9.-]/g, "_");
+      const { data } = await supabase
+        .from("documentos_cliente")
+        .select("id, client_id, file_url, file_name, created_at, storage_path")
+        .eq("tipo_documento", "Recibo")
+        .ilike("file_name", `%${cleanLote}%`);
+      return data || [];
+    },
+  });
+
+  const existingReceiptsByClient = useMemo(() => {
+    const map = new Map<string, any>();
+    existingLoteReceipts.forEach((doc) => {
+      if (doc.client_id) {
+        map.set(doc.client_id, doc);
+      }
+    });
+    return map;
+  }, [existingLoteReceipts]);
+
+  // Constrói objeto de recibo para um cliente do lote com número e nome determinísticos do lote
   const buildReceiptDataForClient = (grupo: any): EditableReceiptData => {
     const client = grupo.client;
     const clientName = client?.razao_social || client?.nome_fantasia || client?.name || "Cliente";
@@ -221,8 +249,12 @@ export function LotesFinanceiroView() {
       .filter(Boolean)
       .join(", ") || undefined;
 
+    const cleanLote = activeLote?.codigo
+      ? String(activeLote.codigo).replace(/[^a-zA-Z0-9.-]/g, "_")
+      : "";
+
     return {
-      numero_recibo: `REC-${firstOrdem?.numero_ordem || new Date().toISOString().slice(2, 10).replace(/-/g, "")}`,
+      numero_recibo: `REC-${cleanLote || (firstOrdem?.numero_ordem ? `OS${firstOrdem.numero_ordem}` : "001")}`,
       data_emissao: new Date().toISOString().split("T")[0],
       cliente_id: grupo.clientId,
       cliente_nome: clientName,
@@ -242,9 +274,10 @@ export function LotesFinanceiroView() {
   };
 
   // Abertura do Modal de Recibo PDF para um cliente
-  const handleOpenReceiptForClient = (grupo: any) => {
+  const handleOpenReceiptForClient = (grupo: any, tab: "recibo" | "emitente" = "recibo") => {
     const data = buildReceiptDataForClient(grupo);
     setEditingReceiptData(data);
+    setReceiptModalTab(tab);
     setReceiptModalOpen(true);
   };
 
@@ -338,7 +371,29 @@ export function LotesFinanceiroView() {
             Voltar para Todos os Lotes
           </Button>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setReceiptModalTab("emitente");
+                const dummyData = buildReceiptDataForClient(activeLoteClientes[0] || {
+                  clientId: "",
+                  client: null,
+                  ordens: [],
+                  itens: [],
+                  valorTotal: 0,
+                });
+                setEditingReceiptData(dummyData);
+                setReceiptModalOpen(true);
+              }}
+              className="gap-2 border-emerald-300 text-emerald-800 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 font-bold text-xs"
+              title="Configurar Dados do Emitente e Logo da Empresa"
+            >
+              <Building2 className="h-4 w-4 text-emerald-600" />
+              Dados do Emitente & Logo
+            </Button>
+
             <Button
               variant="outline"
               size="sm"
@@ -346,7 +401,7 @@ export function LotesFinanceiroView() {
                 setSelectedLoteIds(new Set([activeLote.id]));
                 setIsMultiReportOpen(true);
               }}
-              className="gap-2 border-red-200 text-red-700 hover:bg-red-50 font-bold"
+              className="gap-2 border-red-200 text-red-700 hover:bg-red-50 font-bold text-xs"
             >
               <Download className="h-4 w-4 text-red-600" />
               Relatório Consolidado Deste Lote (PDF)
@@ -520,14 +575,45 @@ export function LotesFinanceiroView() {
                             {isQuitado ? "Marcar Pendente" : "Marcar Quitado"}
                           </Button>
 
-                          <Button
-                            size="sm"
-                            onClick={() => handleOpenReceiptForClient(grupo)}
-                            className="bg-red-600 hover:bg-red-700 text-white font-bold gap-1.5 text-xs h-8 shadow-xs"
-                          >
-                            <FileText className="h-3.5 w-3.5" />
-                            Gerar Recibo (PDF)
-                          </Button>
+                          {existingReceiptsByClient.get(grupo.clientId) ? (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() =>
+                                  window.open(
+                                    existingReceiptsByClient.get(grupo.clientId)?.file_url,
+                                    "_blank"
+                                  )
+                                }
+                                className="border-emerald-300 text-emerald-800 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-300 font-bold gap-1 text-xs h-8 shadow-xs"
+                                title="Abrir recibo em PDF oficial já existente gravado no Supabase"
+                              >
+                                <Eye className="h-3.5 w-3.5 text-emerald-600" />
+                                Ver Recibo
+                              </Button>
+
+                              <Button
+                                size="sm"
+                                onClick={() => handleOpenReceiptForClient(grupo, "recibo")}
+                                className="bg-amber-600 hover:bg-amber-700 text-white font-bold gap-1 text-xs h-8 shadow-xs"
+                                title="Atualizar dados do recibo existente sem duplicar arquivos no lote"
+                              >
+                                <RefreshCw className="h-3.5 w-3.5" />
+                                Atualizar Recibo
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              size="sm"
+                              onClick={() => handleOpenReceiptForClient(grupo, "recibo")}
+                              className="bg-red-600 hover:bg-red-700 text-white font-bold gap-1.5 text-xs h-8 shadow-xs"
+                              title="Gerar recibo em PDF para este cliente no lote"
+                            >
+                              <FileText className="h-3.5 w-3.5" />
+                              Gerar Recibo (PDF)
+                            </Button>
+                          )}
 
                           <Button
                             size="sm"
@@ -554,7 +640,11 @@ export function LotesFinanceiroView() {
           open={receiptModalOpen}
           onOpenChange={setReceiptModalOpen}
           initialData={editingReceiptData}
-          onSuccess={() => refetch()}
+          initialTab={receiptModalTab}
+          onSuccess={() => {
+            refetch();
+            refetchReceipts();
+          }}
         />
 
         {/* Modal de Relatório Consolidado de Múltiplos Lotes */}
@@ -699,6 +789,30 @@ export function LotesFinanceiroView() {
                 </SelectItem>
               </SelectContent>
             </Select>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setReceiptModalTab("emitente");
+                setEditingReceiptData({
+                  numero_recibo: "CONFIG",
+                  data_emissao: new Date().toISOString().split("T")[0],
+                  cliente_id: "",
+                  cliente_nome: "",
+                  itens: [],
+                  valor_total: 0,
+                  forma_pagamento: "PIX",
+                  status_pagamento: "QUITADO",
+                });
+                setReceiptModalOpen(true);
+              }}
+              className="h-10 gap-1.5 text-xs font-bold border-emerald-300 text-emerald-800 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300"
+              title="Configurar Dados do Emitente do Recibo (CNPJ, Razão Social e Logo)"
+            >
+              <Building2 className="h-4 w-4 text-emerald-600" />
+              Emitente & Logo
+            </Button>
 
             <Button
               variant="outline"
@@ -902,7 +1016,11 @@ export function LotesFinanceiroView() {
         open={receiptModalOpen}
         onOpenChange={setReceiptModalOpen}
         initialData={editingReceiptData}
-        onSuccess={() => refetch()}
+        initialTab={receiptModalTab}
+        onSuccess={() => {
+          refetch();
+          refetchReceipts();
+        }}
       />
 
       {/* Modal de Relatório Consolidado de Múltiplos Lotes */}
