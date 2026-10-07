@@ -25,11 +25,13 @@ import {
   Loader2,
   Layers,
   Package,
+  GitMerge,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listLotesForBench, advanceLoteBenchStage } from "@/services/prevention.service";
 import type { LoteRecolhimento } from "@/types";
 import { LabelPrinterDialog, type LabelTarget } from "@/components/labels/label-printer-dialog";
+import { LoteMergeDialog } from "@/components/lotes/lote-merge-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -87,9 +89,9 @@ export interface StageDef {
 export const ALL_BENCH_STAGES: StageDef[] = [
   {
     id: "entrada",
-    title: "Entrada",
-    shortLabel: "Entrada",
-    description: "Equipamentos recebidos na oficina e aguardando triagem",
+    title: "Chegada / Descarga",
+    shortLabel: "Chegada",
+    description: "Equipamentos recebidos na oficina e aguardando triagem e descarga",
     color: "text-blue-600",
     badgeClass: "bg-blue-50 text-blue-700 border-blue-200",
     headerBorder: "border-t-blue-500",
@@ -230,6 +232,7 @@ export function BenchBoard() {
   const [search, setSearch] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<BenchRecord | null>(null);
   const [printTarget, setPrintTarget] = useState<LabelTarget | null>(null);
@@ -575,6 +578,16 @@ export function BenchBoard() {
         <div className="flex items-center gap-2 flex-wrap">
           <Button
             variant="outline"
+            onClick={() => setIsMergeModalOpen(true)}
+            className="h-10 gap-2 border-orange-200 hover:border-orange-400 text-orange-700 dark:text-orange-300 font-semibold"
+            title="Juntar ou mesclar múltiplos lotes em um só"
+          >
+            <GitMerge className="h-4 w-4 text-orange-600" />
+            Mesclar Lotes
+          </Button>
+
+          <Button
+            variant="outline"
             onClick={() => setIsConfigOpen(true)}
             className="h-10 gap-2 border-dashed"
             title="Ativar ou desativar etapas do fluxo"
@@ -597,7 +610,7 @@ export function BenchBoard() {
             <Sparkles className="h-4 w-4 text-blue-600 shrink-0" />
             <span>
               <strong>Modo Simplificado Ativo:</strong> O fluxo está operando em 3 etapas essenciais (
-              <strong>Entrada ➔ Na Oficina ➔ Saída</strong>). As etapas técnicas intermediárias estão desativadas conforme sua preferência.
+              <strong>Chegada ➔ Na Oficina ➔ Saída</strong>). As etapas técnicas intermediárias estão desativadas conforme sua preferência.
             </span>
           </div>
           <button
@@ -1458,6 +1471,11 @@ export function BenchBoard() {
         open={!!printTarget}
         onOpenChange={(o) => !o && setPrintTarget(null)}
         target={printTarget}
+      />
+
+      <LoteMergeDialog
+        open={isMergeModalOpen}
+        onOpenChange={setIsMergeModalOpen}
       />
     </div>
   );

@@ -41,7 +41,11 @@ import type {
   OrdemRecolhimentoMotivo,
   LoteRecolhimento,
 } from "@/types";
-import { createOrdemRecolhimento, listLotesRecolhimento } from "@/services/prevention.service";
+import {
+  createOrdemRecolhimento,
+  listLotesRecolhimento,
+  saveLoteRecolhimento,
+} from "@/services/prevention.service";
 import { LoteCreateDialog } from "@/components/lotes/lote-create-dialog";
 import { formatCurrency, formatMonthYear } from "@/lib/utils";
 
@@ -103,9 +107,9 @@ export function OrderPickupModal({
   const [previsaoDevolucao, setPrevisaoDevolucao] = useState<string>(nextWeek);
   const [observacoes, setObservacoes] = useState<string>("");
 
-  // Macro Lotes
+  // Macro Lotes (Obrigatório: vinculado a lote existente ou gerado automaticamente)
   const [lotes, setLotes] = useState<LoteRecolhimento[]>([]);
-  const [selectedLoteId, setSelectedLoteId] = useState<string>("none");
+  const [selectedLoteId, setSelectedLoteId] = useState<string>("auto");
   const [createLoteModalOpen, setCreateLoteModalOpen] = useState(false);
 
   React.useEffect(() => {
@@ -119,7 +123,7 @@ export function OrderPickupModal({
 
   function handleSelectLote(loteId: string) {
     setSelectedLoteId(loteId);
-    if (loteId !== "none") {
+    if (loteId !== "auto") {
       const found = lotes.find((l) => l.id === loteId);
       if (found?.previsao_devolucao) {
         setPrevisaoDevolucao(found.previsao_devolucao);
@@ -161,9 +165,28 @@ export function OrderPickupModal({
 
     setIsSubmitting(true);
     try {
+      let finalLoteId = selectedLoteId;
+
+      // Se for "auto" ou não informado, cria o lote automaticamente com a data de recolhimento
+      if (!finalLoteId || finalLoteId === "auto" || finalLoteId === "none") {
+        const cidade = customer.address?.city || "Geral";
+        const dataFmt = new Date(dataRecolhimento + "T12:00:00").toLocaleDateString("pt-BR");
+        const novoLote = await saveLoteRecolhimento({
+          nome: `Lote ${cidade} - ${dataFmt}`,
+          cidade,
+          regiao: customer.address?.neighborhood || null,
+          data_recolhimento: dataRecolhimento,
+          prazo_dias: 14,
+          previsao_devolucao: previsaoDevolucao,
+          status: "aguardando_descarga",
+          observacoes: `Lote criado automaticamente no recolhimento do cliente ${customer.name}.`,
+        });
+        finalLoteId = novoLote.id;
+      }
+
       const result = await createOrdemRecolhimento({
         clientId: customer.id,
-        loteId: selectedLoteId === "none" ? undefined : selectedLoteId,
+        loteId: finalLoteId,
         motivo,
         deixouReserva,
         detalhesReserva,
@@ -181,7 +204,7 @@ export function OrderPickupModal({
       toast({
         variant: "success",
         title: `OS de Recolhimento nº ${result.numero_ordem} Gerada!`,
-        description: `${extintoresElegiveis.length} extintor(es) foram enviados para a oficina (em bancada com Reaproveitamento).`,
+        description: `${extintoresElegiveis.length} extintor(es) vinculados ao Lote e encaminhados para Chegada / Descarga na oficina.`,
       });
 
       queryClient.invalidateQueries({ queryKey: ["bench_records"] });
@@ -428,21 +451,22 @@ export function OrderPickupModal({
 
             <Select value={selectedLoteId} onValueChange={handleSelectLote}>
               <SelectTrigger className="h-9 text-xs bg-white dark:bg-neutral-800">
-                <SelectValue placeholder="Selecione um lote ou avulso" />
+                <SelectValue placeholder="Selecione um lote ou crie automaticamente" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">Nenhum / Recolhimento Avulso</SelectItem>
+                <SelectItem value="auto">
+                  ✨ Criar Lote Automático ({customer.address?.city || "Geral"} - {new Date(dataRecolhimento + "T12:00:00").toLocaleDateString("pt-BR")})
+                </SelectItem>
                 {lotes.map((l) => (
                   <SelectItem key={l.id} value={l.id}>
-                    [{l.codigo}] {l.nome} — Retorno:{" "}
-                    {new Date(l.previsao_devolucao + "T12:00:00").toLocaleDateString("pt-BR")} (
-                    {l.prazo_dias}d)
+                    [{l.codigo}] {l.nome} ({l.total_extintores || 0} cil.) — Retorno:{" "}
+                    {new Date(l.previsao_devolucao + "T12:00:00").toLocaleDateString("pt-BR")}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <p className="text-[11px] text-muted-foreground">
-              Agrupa os extintores deste cliente no lote da região para cálculo de chegada, saída e romaneio de devolução.
+              Obrigatório: todos os extintores recolhidos entram na oficina vinculados a um Lote (em <strong>Chegada / Descarga</strong>), podendo ser mesclados no Kanban a qualquer momento.
             </p>
           </div>
 

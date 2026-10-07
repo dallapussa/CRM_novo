@@ -80,7 +80,34 @@ export async function listBenchRecords(): Promise<BenchRecord[]> {
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-  return (data || []).map(mapBenchRecord);
+
+  // Busca status atual dos extintores para garantir que extintores que estão no cliente não apareçam na bancada
+  const extIds = (data || []).map((b) => b.extinguisher_id).filter(Boolean);
+  const extStatusMap = new Map<string, string>();
+  if (extIds.length > 0) {
+    const { data: exts } = await supabase
+      .from("extintores")
+      .select("id, status")
+      .in("id", extIds);
+    (exts || []).forEach((e) => extStatusMap.set(e.id, e.status));
+  }
+
+  // Deduplicação: se houver múltiplos registros para o mesmo extintor, mantém apenas o mais recente
+  const seenExts = new Set<string>();
+  const filtered = (data || []).filter((row) => {
+    if (row.extinguisher_id) {
+      const extStatus = extStatusMap.get(row.extinguisher_id);
+      // Se o extintor está no cliente (não foi recolhido ou já devolvido), não deve constar na bancada
+      if (extStatus === "no_cliente") return false;
+
+      // Se já listamos este extintor, ignora duplicatas
+      if (seenExts.has(row.extinguisher_id)) return false;
+      seenExts.add(row.extinguisher_id);
+    }
+    return true;
+  });
+
+  return filtered.map(mapBenchRecord);
 }
 
 export async function saveBenchRecord(input: Partial<BenchRecordInput>, id?: string): Promise<string> {

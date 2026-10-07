@@ -422,9 +422,40 @@ export async function createOrdemRecolhimento(
     }
   }
 
-  // Se tiver loteId, embute tag [LOTE:id] nas observações para garantia caso a coluna lote_id ainda não exista
-  const observacaoComLote = input.loteId
-    ? `${input.observacoes ? input.observacoes + " " : ""}[LOTE:${input.loteId}]`
+  // Garante que todo recolhimento pertença obrigatoriamente a um lote
+  let activeLoteId = input.loteId;
+  if (!activeLoteId) {
+    try {
+      const { data: clientObj } = await supabase
+        .from("clients")
+        .select("razao_social, address_city, address_neighborhood")
+        .eq("id", input.clientId)
+        .maybeSingle();
+
+      const cidade = clientObj?.address_city || "Geral";
+      const dataFmt = input.dataRecolhimento
+        ? new Date(input.dataRecolhimento + "T12:00:00").toLocaleDateString("pt-BR")
+        : new Date().toLocaleDateString("pt-BR");
+
+      const autoLote = await saveLoteRecolhimento({
+        nome: `Lote ${cidade} - ${dataFmt}`,
+        cidade,
+        regiao: clientObj?.address_neighborhood || null,
+        data_recolhimento: input.dataRecolhimento || new Date().toISOString().split("T")[0],
+        prazo_dias: 14,
+        previsao_devolucao: input.previsaoDevolucao || undefined,
+        status: "aguardando_descarga",
+        observacoes: `Lote criado automaticamente no recolhimento do cliente ${clientObj?.razao_social || ""}.`,
+      });
+      activeLoteId = autoLote.id;
+    } catch (autoErr) {
+      console.warn("Falha ao autogerar lote para recolhimento:", autoErr);
+    }
+  }
+
+  // Embute tag [LOTE:id] nas observações para garantia caso a coluna lote_id ainda não exista
+  const observacaoComLote = activeLoteId
+    ? `${input.observacoes ? input.observacoes + " " : ""}[LOTE:${activeLoteId}]`
     : input.observacoes || null;
 
   // 1. Tenta criar a Ordem de Recolhimento com lote_id
@@ -444,8 +475,8 @@ export async function createOrdemRecolhimento(
       status: "recolhido",
       created_by: user?.id || null,
     };
-    if (input.loteId) {
-      payload.lote_id = input.loteId;
+    if (activeLoteId) {
+      payload.lote_id = activeLoteId;
     }
 
     const res = await supabase
@@ -578,6 +609,12 @@ export async function createOrdemRecolhimento(
             created_by: user?.id || null,
           };
         });
+
+        // Remove previamente registros duplicados ou abertos para os mesmos extintores
+        await supabase
+          .from("bench_records")
+          .delete()
+          .in("extinguisher_id", extintorIds);
 
         const { error: insertErr } = await supabase.from("bench_records").insert(benchRows);
         if (insertErr) {
@@ -759,7 +796,10 @@ export async function listLotesRecolhimento(): Promise<LoteRecolhimento[]> {
 
     // Verifica etapa informada em observações se houver tag [ETAPA:xxx]
     const etapaMatch = lote.observacoes?.match(/\[ETAPA:([^\]]+)\]/);
-    const effectiveStatus = (etapaMatch ? etapaMatch[1] : lote.status) as LoteRecolhimentoStatus;
+    let effectiveStatus = (etapaMatch ? etapaMatch[1] : lote.status) as LoteRecolhimentoStatus;
+    if ((effectiveStatus as any) === "recolhendo") {
+      effectiveStatus = "aguardando_descarga";
+    }
 
     return {
       ...lote,
@@ -817,12 +857,17 @@ export async function saveLoteRecolhimento(
     data_recolhimento: dataRecolhimento,
     prazo_dias: prazoDias,
     previsao_devolucao: calcPrevisao(),
-    status: input.status || "em_oficina",
+    status: input.status || "aguardando_descarga",
     observacoes: input.observacoes || null,
     created_at: input.created_at || new Date().toISOString(),
     updated_at: new Date().toISOString(),
     created_by: user?.id || null,
   };
+
+  // Mapeamento compatível de status para a constraint do PostgreSQL
+  let dbStatus = payload.status;
+  if (dbStatus === "aguardando_descarga") dbStatus = "recolhendo";
+  else if (dbStatus === "saida" || dbStatus === "em_devolucao") dbStatus = "pronto_entrega";
 
   // Tenta salvar no Supabase
   if (isEditing) {
@@ -834,7 +879,7 @@ export async function saveLoteRecolhimento(
         regiao: payload.regiao,
         prazo_dias: payload.prazo_dias,
         previsao_devolucao: payload.previsao_devolucao,
-        status: payload.status,
+        status: dbStatus,
         observacoes: payload.observacoes,
         updated_at: payload.updated_at,
       })
@@ -849,11 +894,14 @@ export async function saveLoteRecolhimento(
       saveLocalLotes(updated);
       return payload;
     }
-    return data;
+    return { ...data, status: payload.status };
   } else {
     const { data, error } = await supabase
       .from("lotes_recolhimento")
-      .insert(payload)
+      .insert({
+        ...payload,
+        status: dbStatus,
+      })
       .select("*")
       .single();
 
@@ -863,7 +911,7 @@ export async function saveLoteRecolhimento(
       saveLocalLotes([payload, ...locals]);
       return payload;
     }
-    return data;
+    return { ...data, status: payload.status };
   }
 }
 
@@ -899,8 +947,11 @@ export async function deleteLoteRecolhimento(loteId: string): Promise<void> {
         .in("id", extIds);
     }
 
-    // 3. Remove bench_records (bancada)
-    await supabase.from("bench_records").delete().in("order_id", ordemIds);
+    // 3. Remove bench_records (bancada) usando service_order_id e extinguisher_id
+    await supabase.from("bench_records").delete().in("service_order_id", ordemIds);
+    if (extIds.length > 0) {
+      await supabase.from("bench_records").delete().in("extinguisher_id", extIds);
+    }
     await supabase.from("bench_records").delete().eq("lote_id", loteId);
 
     // 4. Remove itens_recolhimento
@@ -980,11 +1031,38 @@ export async function advanceLoteBenchStage(
   loteId: string,
   targetStage: "aguardando_descarga" | "em_oficina" | "saida" | "liberar_rota"
 ): Promise<void> {
+  const supabase = createClient();
   if (targetStage === "liberar_rota") {
-    // Ao avançar da saída, o lote é excluído do Kanban da oficina e passa a figurar em "Lotes & Rotas" na entrega
+    // Ao avançar da saída, o lote é concluído na bancada e vai para entrega aos clientes
     await updateLoteStatus(loteId, "em_devolucao");
   } else {
     await updateLoteStatus(loteId, targetStage as LoteRecolhimentoStatus);
+  }
+
+  // Sincroniza também os registros individuais de bancada (bench_records) dos extintores deste lote
+  try {
+    const { data: ordens } = await supabase
+      .from("ordens_recolhimento")
+      .select("id")
+      .or(`lote_id.eq.${loteId},observacoes.ilike.%[LOTE:${loteId}]%`);
+
+    const ordemIds = (ordens || []).map((o) => o.id);
+    if (ordemIds.length > 0) {
+      let stageBench = "entrada";
+      if (targetStage === "em_oficina") stageBench = "oficina";
+      else if (targetStage === "saida" || targetStage === "liberar_rota") stageBench = "saida";
+
+      await supabase
+        .from("bench_records")
+        .update({
+          stage: stageBench,
+          moved_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .in("service_order_id", ordemIds);
+    }
+  } catch (syncErr) {
+    console.warn("Falha ao sincronizar bench_records com avanço do lote:", syncErr);
   }
 }
 
@@ -1029,6 +1107,117 @@ export async function removeOrdemFromLote(ordemId: string): Promise<void> {
       await supabase.from("ordens_recolhimento").update({ observacoes: clean }).eq("id", ordemId);
     }
   }
+}
+
+// ============================================================================
+// 3.2 MESCLAR / JUNTAR LOTES NO KANBAN E ROTAS
+// ============================================================================
+
+export async function mergeLotesRecolhimento(
+  targetLoteId: string,
+  sourceLoteIds: string[]
+): Promise<{ success: boolean; totalOrdens: number; totalExtintores: number }> {
+  const supabase = createClient();
+  const validSources = sourceLoteIds.filter((id) => id && id !== targetLoteId);
+  if (validSources.length === 0) {
+    throw new Error("Selecione ao menos um lote de origem para mesclar com o lote principal.");
+  }
+
+  // 1. Busca dados dos lotes de origem para resumo e histórico
+  const { data: sourceLotes } = await supabase
+    .from("lotes_recolhimento")
+    .select("id, codigo, nome")
+    .in("id", validSources);
+
+  const sourceCodigos = (sourceLotes || []).map((l) => l.codigo || l.nome).join(", ");
+
+  // 2. Busca todas as ordens vinculadas aos lotes de origem
+  let ordensToMigrate: string[] = [];
+  for (const sId of validSources) {
+    const { data: ordens } = await supabase
+      .from("ordens_recolhimento")
+      .select("id")
+      .or(`lote_id.eq.${sId},observacoes.ilike.%[LOTE:${sId}]%`);
+
+    if (ordens && ordens.length > 0) {
+      ordensToMigrate.push(...ordens.map((o) => o.id));
+    }
+  }
+
+  ordensToMigrate = Array.from(new Set(ordensToMigrate));
+
+  if (ordensToMigrate.length > 0) {
+    // 3. Reatribui todas as ordens ao targetLoteId
+    await supabase
+      .from("ordens_recolhimento")
+      .update({
+        lote_id: targetLoteId,
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", ordensToMigrate);
+
+    // Atualiza a tag [LOTE:...] nas observações das ordens
+    for (const ordId of ordensToMigrate) {
+      const { data: ord } = await supabase
+        .from("ordens_recolhimento")
+        .select("observacoes")
+        .eq("id", ordId)
+        .maybeSingle();
+
+      if (ord) {
+        let obs = ord.observacoes || "";
+        obs = obs.replace(/\[LOTE:[^\]]+\]/g, "").trim();
+        obs = `${obs} [LOTE:${targetLoteId}]`.trim();
+        await supabase
+          .from("ordens_recolhimento")
+          .update({ observacoes: obs })
+          .eq("id", ordId);
+      }
+    }
+  }
+
+  // 4. Anota no histórico de observações do lote de destino
+  const { data: targetLote } = await supabase
+    .from("lotes_recolhimento")
+    .select("observacoes")
+    .eq("id", targetLoteId)
+    .maybeSingle();
+
+  const mergeTag = `[Mesclado em ${new Date().toLocaleDateString("pt-BR")} com: ${sourceCodigos || validSources.join(", ")}]`;
+  const newObs = targetLote?.observacoes ? `${targetLote.observacoes} ${mergeTag}` : mergeTag;
+
+  await supabase
+    .from("lotes_recolhimento")
+    .update({
+      observacoes: newObs,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", targetLoteId);
+
+  // 5. Exclui os lotes de origem que foram absorvidos
+  await supabase.from("lotes_recolhimento").delete().in("id", validSources);
+
+  try {
+    const locals = getLocalLotes();
+    const updated = locals.filter((l) => !validSources.includes(l.id));
+    saveLocalLotes(updated);
+  } catch {}
+
+  // 6. Calcula total de cilindros afetados
+  let totalExtintores = 0;
+  if (ordensToMigrate.length > 0) {
+    const { data: itens } = await supabase
+      .from("itens_recolhimento")
+      .select("id")
+      .in("ordem_id", ordensToMigrate);
+    totalExtintores = itens?.length || 0;
+  }
+
+  return {
+    success: true,
+    totalOrdens: ordensToMigrate.length,
+    totalExtintores,
+  };
 }
 
 export interface ConfirmDeliveryAndPaymentInput {

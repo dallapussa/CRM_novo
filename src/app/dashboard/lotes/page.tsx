@@ -17,6 +17,7 @@ import {
   Users,
   RefreshCw,
   Trash2,
+  GitMerge,
 } from "lucide-react";
 import {
   Card,
@@ -40,12 +41,14 @@ import type { LoteRecolhimento, LoteRecolhimentoStatus } from "@/types";
 import { listLotesRecolhimento, deleteLoteRecolhimento } from "@/services/prevention.service";
 import { LoteCreateDialog } from "@/components/lotes/lote-create-dialog";
 import { LoteDetailView } from "@/components/lotes/lote-detail-view";
+import { LoteMergeDialog } from "@/components/lotes/lote-merge-dialog";
 
 export default function LotesPage() {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
   const [loteToEdit, setLoteToEdit] = useState<LoteRecolhimento | null>(null);
   const [selectedLoteId, setSelectedLoteId] = useState<string | null>(null);
 
@@ -194,6 +197,17 @@ export default function LotesPage() {
           >
             <RefreshCw className={`h-4 w-4 ${isRefetching ? "animate-spin" : ""}`} />
             Atualizar
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setMergeDialogOpen(true)}
+            className="gap-2 border-orange-200 text-orange-700 hover:border-orange-400 font-semibold"
+            title="Juntar ou mesclar múltiplos lotes em um só"
+          >
+            <GitMerge className="h-4 w-4 text-orange-600" />
+            Mesclar Lotes
           </Button>
 
           <Button
@@ -462,6 +476,13 @@ export default function LotesPage() {
           if (!open) setLoteToEdit(null);
         }}
         loteToEdit={loteToEdit}
+        onSuccess={() => refetch()}
+      />
+
+      {/* Dialog para Mesclar / Juntar Lotes */}
+      <LoteMergeDialog
+        open={mergeDialogOpen}
+        onOpenChange={setMergeDialogOpen}
         onSuccess={() => refetch()}
       />
     </div>
