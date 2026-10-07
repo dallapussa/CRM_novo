@@ -179,8 +179,8 @@ export function ThermalReceipt58mmDialog({
     setIsDownloadingPdf(true);
     try {
       const itensCount = itensAgrupados.length || 1;
-      const baseHeight = 150 + itensCount * 9 + (activeLogo ? 15 : 0);
-      const pageHeight = Math.max(160, baseHeight);
+      const baseHeight = 160 + itensCount * 9 + (activeLogo ? 22 : 0);
+      const pageHeight = Math.max(170, baseHeight);
 
       const doc = new jsPDF({
         orientation: "portrait",
@@ -192,11 +192,39 @@ export function ThermalReceipt58mmDialog({
       const contentWidth = 58 - margin * 2; // 52mm
       let y = 5;
 
-      // 1. Logo
+      // 1. Logo (calculado com proporção para nunca sobrepor o nome da empresa)
       if (activeLogo) {
         try {
-          doc.addImage(activeLogo, "PNG", (58 - 28) / 2, y, 28, 12, undefined, "FAST");
-          y += 14;
+          let logoW = 26;
+          let logoH = 12;
+
+          try {
+            const props = (doc as any).getImageProperties(activeLogo);
+            if (props && props.width && props.height) {
+              const ratio = props.width / props.height;
+              if (ratio >= 1) {
+                logoW = Math.min(26, contentWidth);
+                logoH = logoW / ratio;
+                if (logoH > 13) {
+                  logoH = 13;
+                  logoW = logoH * ratio;
+                }
+              } else {
+                logoH = 13;
+                logoW = logoH * ratio;
+                if (logoW > 26) {
+                  logoW = 26;
+                  logoH = logoW / ratio;
+                }
+              }
+            }
+          } catch (propErr) {
+            console.warn("Usa dimensões padrão do logo:", propErr);
+          }
+
+          const logoX = (58 - logoW) / 2;
+          doc.addImage(activeLogo, "PNG", logoX, y, logoW, logoH, undefined, "FAST");
+          y += logoH + 4.5; // Espaçamento seguro para afastar do nome da empresa
         } catch (e) {
           console.warn("Aviso ao adicionar logo no PDF 58mm:", e);
         }
@@ -231,8 +259,13 @@ export function ThermalReceipt58mmDialog({
 
       // 3. Título do Recibo
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
-      doc.text(`RECIBO DE ENTREGA Nº ${receiptData.numero_recibo}`, 29, y, { align: "center" });
+      doc.setFontSize(9.5);
+      doc.text("RECIBO", 29, y, { align: "center" });
+      y += 4;
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.text(`Nº ${receiptData.numero_recibo}`, 29, y, { align: "center" });
       y += 4;
 
       doc.setFont("helvetica", "normal");
@@ -533,8 +566,9 @@ export function ThermalReceipt58mmDialog({
             <div className="border-t border-dashed border-black my-2" />
 
             {/* IDENTIFICAÇÃO DO RECIBO */}
-            <div className="text-center font-bold text-[11px]">
-              RECIBO DE ENTREGA Nº {receiptData.numero_recibo}
+            <div className="text-center font-bold">
+              <div className="text-xs tracking-wider">RECIBO</div>
+              <div className="text-[10px] font-mono mt-0.5">Nº {receiptData.numero_recibo}</div>
             </div>
 
             <div className="space-y-0.5 text-[10px] mt-1">
