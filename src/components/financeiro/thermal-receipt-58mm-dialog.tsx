@@ -17,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { EditableReceiptData, ReceiptItem } from "@/services/receipt-pdf.service";
 import { buildReceiptPdfDocument, saveReceiptPdfToClientDocuments } from "@/services/receipt-pdf.service";
 import { getCompanySettings } from "@/services/company-settings.service";
+import { jsPDF } from "jspdf";
 
 interface ThermalReceipt58mmDialogProps {
   open: boolean;
@@ -44,6 +45,7 @@ export function ThermalReceipt58mmDialog({
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>("");
   const [activePdfUrl, setActivePdfUrl] = useState<string>(initialPdfUrl || "");
   const [isGeneratingUrl, setIsGeneratingUrl] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [companySettings, setCompanySettings] = useState<any>(null);
 
   useEffect(() => {
@@ -158,24 +160,276 @@ export function ThermalReceipt58mmDialog({
 
   if (!receiptData) return null;
 
-  // Dispara a impressão direta do cupom de 58mm
+  const activeEmpresaNome =
+    receiptData.empresa_nome && !receiptData.empresa_nome.toUpperCase().includes("EXTINCONTROL")
+      ? receiptData.empresa_nome
+      : (companySettings?.nome || "JC Extintores");
+
+  const activeEmpresaCnpj =
+    receiptData.empresa_cnpj || companySettings?.cnpj || "";
+
+  const activeEmpresaTelefone =
+    receiptData.empresa_telefone || companySettings?.telefone || "";
+
+  const activeLogo = receiptData.empresa_logo || companySettings?.logo_url;
+
+  // 1. Gera e baixa o arquivo PDF com dimensões nativas de 58mm (Não depende de spooler, funciona 100% no celular)
+  const handleDownload58mmPdf = async () => {
+    if (!receiptData) return;
+    setIsDownloadingPdf(true);
+    try {
+      const itensCount = itensAgrupados.length || 1;
+      const baseHeight = 150 + itensCount * 9 + (activeLogo ? 15 : 0);
+      const pageHeight = Math.max(160, baseHeight);
+
+      const doc = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: [58, pageHeight],
+      });
+
+      const margin = 3;
+      const contentWidth = 58 - margin * 2; // 52mm
+      let y = 5;
+
+      // 1. Logo
+      if (activeLogo) {
+        try {
+          doc.addImage(activeLogo, "PNG", (58 - 28) / 2, y, 28, 12, undefined, "FAST");
+          y += 14;
+        } catch (e) {
+          console.warn("Aviso ao adicionar logo no PDF 58mm:", e);
+        }
+      }
+
+      // 2. Cabeçalho da Empresa
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(0, 0, 0);
+      doc.text(activeEmpresaNome, 29, y, { align: "center", maxWidth: contentWidth });
+      y += 4;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.text("PREVENÇÃO CONTRA INCÊNDIO", 29, y, { align: "center" });
+      y += 3.5;
+
+      if (activeEmpresaCnpj) {
+        doc.text(`CNPJ: ${activeEmpresaCnpj}`, 29, y, { align: "center" });
+        y += 3.5;
+      }
+      if (activeEmpresaTelefone) {
+        doc.text(`Fone/Zap: ${activeEmpresaTelefone}`, 29, y, { align: "center" });
+        y += 3.5;
+      }
+
+      // Linha tracejada
+      y += 1;
+      doc.setLineDashPattern([1, 1], 0);
+      doc.line(margin, y, 58 - margin, y);
+      y += 4;
+
+      // 3. Título do Recibo
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.text(`RECIBO DE ENTREGA Nº ${receiptData.numero_recibo}`, 29, y, { align: "center" });
+      y += 4;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.text(`Data: ${receiptData.data_emissao}`, margin, y);
+      y += 3.5;
+
+      if (receiptData.lote_codigo) {
+        const splitLote = doc.splitTextToSize(
+          `Lote: ${receiptData.lote_codigo} ${receiptData.ordens_numeros ? `(${receiptData.ordens_numeros})` : ""}`,
+          contentWidth
+        );
+        doc.text(splitLote, margin, y);
+        y += splitLote.length * 3.5;
+      }
+
+      // Linha tracejada
+      doc.line(margin, y, 58 - margin, y);
+      y += 4;
+
+      // 4. Dados do Cliente
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.5);
+      const splitCli = doc.splitTextToSize(receiptData.cliente_nome.toUpperCase(), contentWidth);
+      doc.text(splitCli, margin, y);
+      y += splitCli.length * 3.5;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(6.5);
+      if (receiptData.cliente_documento) {
+        doc.text(`Doc: ${receiptData.cliente_documento}`, margin, y);
+        y += 3.5;
+      }
+      if (receiptData.cliente_endereco) {
+        const splitEnd = doc.splitTextToSize(`End: ${receiptData.cliente_endereco}`, contentWidth);
+        doc.text(splitEnd, margin, y);
+        y += splitEnd.length * 3;
+      }
+
+      // Linha dupla
+      y += 1;
+      doc.setLineDashPattern([], 0);
+      doc.setLineWidth(0.4);
+      doc.line(margin, y, 58 - margin, y);
+      doc.setLineWidth(0.2);
+      doc.setLineDashPattern([1, 1], 0);
+      y += 4;
+
+      // 5. Itens do Recibo
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7);
+      doc.text("ITENS / EXTINTORES", margin, y);
+      doc.text("TOTAL", 58 - margin, y, { align: "right" });
+      y += 3.5;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(6.5);
+
+      itensAgrupados.forEach((it) => {
+        const desc = `${it.qtd}x ${it.tipo} (${it.modalidade.slice(0, 4)}.)`;
+        const valTot = formatMoeda(it.total);
+        doc.text(desc, margin, y, { maxWidth: 35 });
+        doc.text(valTot, 58 - margin, y, { align: "right" });
+        y += 3;
+        doc.setFontSize(5.5);
+        doc.setTextColor(80, 80, 80);
+        doc.text(`Un: ${formatMoeda(it.valorUnit)}`, margin + 2, y);
+        doc.setTextColor(0, 0, 0);
+        doc.setFontSize(6.5);
+        y += 3.5;
+      });
+
+      // Linha dupla
+      doc.setLineDashPattern([], 0);
+      doc.setLineWidth(0.4);
+      doc.line(margin, y, 58 - margin, y);
+      doc.setLineWidth(0.2);
+      doc.setLineDashPattern([1, 1], 0);
+      y += 4;
+
+      // 6. Totais e Pagamento
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.text("VALOR TOTAL:", margin, y);
+      doc.text(formatMoeda(receiptData.valor_total), 58 - margin, y, { align: "right" });
+      y += 4.5;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.text(`Pgto: ${receiptData.forma_pagamento}`, margin, y);
+      y += 3.5;
+
+      doc.setFont("helvetica", "bold");
+      const statusText =
+        receiptData.status_pagamento === "QUITADO"
+          ? "[X] QUITADO / PAGO"
+          : "[ ] PENDENTE / A PRAZO";
+      doc.text(`Status: ${statusText}`, margin, y);
+      y += 4;
+
+      // Linha tracejada
+      doc.line(margin, y, 58 - margin, y);
+      y += 4;
+
+      // 7. QR Code e Autenticação
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7);
+      doc.text("RECIBO DIGITAL & CERTIFICADO", 29, y, { align: "center" });
+      y += 3;
+
+      if (qrCodeDataUrl) {
+        try {
+          doc.addImage(qrCodeDataUrl, "PNG", (58 - 26) / 2, y, 26, 26, undefined, "FAST");
+          y += 28;
+        } catch (qrErr) {
+          console.warn("Aviso ao adicionar QR no PDF 58mm:", qrErr);
+          y += 4;
+        }
+      }
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(5.5);
+      const splitQrHint = doc.splitTextToSize(
+        "Aponte a câmera para abrir o recibo digital completo em PDF.",
+        contentWidth
+      );
+      doc.text(splitQrHint, 29, y, { align: "center" });
+      y += splitQrHint.length * 3;
+
+      // Box Autenticado
+      doc.setLineDashPattern([], 0);
+      doc.rect(margin, y, contentWidth, 7, "S");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(5.5);
+      doc.text("DOCUMENTO AUTENTICADO DIGITALMENTE", 29, y + 2.8, { align: "center" });
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(4.8);
+      doc.text("Emitido via Fire CRM • Segurança anti-adulteração via QR Code", 29, y + 5.5, {
+        align: "center",
+      });
+      y += 10;
+
+      doc.setFontSize(6);
+      doc.text(`Obrigado pela preferência! • ${activeEmpresaNome}`, 29, y, { align: "center" });
+
+      const cleanNum = String(receiptData.numero_recibo || "001").replace(/[^a-zA-Z0-9.-]/g, "_");
+      doc.save(`Cupom_58mm_${cleanNum}.pdf`);
+
+      toast({
+        variant: "success",
+        title: "Cupom 58mm baixado em PDF!",
+        description: `Arquivo Cupom_58mm_${cleanNum}.pdf salvo no formato exato de 58mm.`,
+      });
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao gerar PDF de 58mm",
+        description: err.message || "Tente novamente.",
+      });
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
+
+  // 2. Dispara a impressão direta do cupom de 58mm com iframe invisível sem window.close precipitado
   const handlePrint58mm = () => {
     const printContent = printAreaRef.current;
     if (!printContent) return;
 
-    // Cria janela ou iframe dedicado para impressão em 58mm
-    const printWindow = window.open("", "_blank", "width=320,height=600");
-    if (!printWindow) {
-      // Fallback: imprime a tela direto
+    // Remove qualquer iframe de impressão antigo
+    const oldIframe = document.getElementById("thermal-print-iframe");
+    if (oldIframe) {
+      oldIframe.remove();
+    }
+
+    const iframe = document.createElement("iframe");
+    iframe.id = "thermal-print-iframe";
+    iframe.style.position = "fixed";
+    iframe.style.top = "-9999px";
+    iframe.style.left = "-9999px";
+    iframe.style.width = "58mm";
+    iframe.style.height = "100%";
+    iframe.style.border = "none";
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document || iframe.contentDocument;
+    if (!doc) {
       window.print();
       return;
     }
 
-    printWindow.document.write(`
+    doc.open();
+    doc.write(`
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Recibo 58mm - ${receiptData.numero_recibo}</title>
+          <title>Cupom 58mm - ${receiptData.numero_recibo}</title>
           <meta charset="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
           <style>
@@ -187,7 +441,7 @@ export function ThermalReceipt58mmDialog({
               width: 58mm;
               margin: 0;
               padding: 2mm 3mm;
-              font-family: 'Courier New', Courier, monospace, -apple-system, BlinkMacSystemFont, sans-serif;
+              font-family: 'Courier New', Courier, monospace, -apple-system, sans-serif;
               font-size: 11px;
               line-height: 1.25;
               color: #000;
@@ -209,27 +463,24 @@ export function ThermalReceipt58mmDialog({
             .signature-box { margin-top: 15px; border-top: 1px solid #000; padding-top: 2px; text-align: center; font-size: 10px; }
           </style>
         </head>
-        <body onload="window.focus(); setTimeout(function() { window.print(); setTimeout(function() { window.close(); }, 500); }, 250);">
+        <body>
           ${printContent.innerHTML}
         </body>
       </html>
     `);
+    doc.close();
 
-    printWindow.document.close();
+    // Aguarda carregar elementos e dispara a impressão sem fechar o documento
+    setTimeout(() => {
+      try {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+      } catch (e) {
+        console.warn("Fallback window.print:", e);
+        window.print();
+      }
+    }, 350);
   };
-
-  const activeEmpresaNome =
-    receiptData.empresa_nome && !receiptData.empresa_nome.toUpperCase().includes("EXTINCONTROL")
-      ? receiptData.empresa_nome
-      : (companySettings?.nome || "JC Extintores");
-
-  const activeEmpresaCnpj =
-    receiptData.empresa_cnpj || companySettings?.cnpj || "";
-
-  const activeEmpresaTelefone =
-    receiptData.empresa_telefone || companySettings?.telefone || "";
-
-  const activeLogo = receiptData.empresa_logo || companySettings?.logo_url;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -396,14 +647,29 @@ export function ThermalReceipt58mmDialog({
             </div>
 
             <p className="text-[8px] text-center mt-3">
-              Obrigado pela preferência! • ExtinControl
+              Obrigado pela preferência! • {activeEmpresaNome}
             </p>
           </div>
         </div>
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="gap-2 sm:gap-2 flex-col-reverse sm:flex-row">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Fechar
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleDownload58mmPdf}
+            disabled={isDownloadingPdf}
+            className="gap-2 font-bold text-xs border-emerald-300 text-emerald-800 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-300"
+          >
+            {isDownloadingPdf ? (
+              <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
+            ) : (
+              <Download className="h-4 w-4 text-emerald-600" />
+            )}
+            {isDownloadingPdf ? "Gerando PDF..." : "Baixar PDF (58mm)"}
           </Button>
 
           <Button
