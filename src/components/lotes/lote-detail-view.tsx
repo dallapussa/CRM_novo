@@ -51,6 +51,8 @@ import {
 } from "@/services/prevention.service";
 import { DeliveryReceiptDialog } from "./delivery-receipt-dialog";
 import { LoteProfitReportDialog } from "./lote-profit-report-dialog";
+import { ThermalReceipt58mmDialog } from "@/components/financeiro/thermal-receipt-58mm-dialog";
+import type { EditableReceiptData } from "@/services/receipt-pdf.service";
 import {
   listExtinguisherModels,
   type ExtinguisherModel,
@@ -82,6 +84,51 @@ export function LoteDetailView({
   const [selectedGroupForDelivery, setSelectedGroupForDelivery] = useState<GroupedClientInLote | null>(null);
   const [isProfitReportOpen, setIsProfitReportOpen] = useState(false);
   const [catalogModels, setCatalogModels] = useState<ExtinguisherModel[]>([]);
+  const [thermalReceiptOpen, setThermalReceiptOpen] = useState(false);
+  const [thermalReceiptData, setThermalReceiptData] = useState<EditableReceiptData | null>(null);
+
+  const handleOpenThermalForGroup = (grp: GroupedClientInLote) => {
+    const client = grp.client;
+    const clientName = client?.razao_social || client?.nome_fantasia || client?.name || "Cliente";
+    const osNumeros = grp.ordens.map((o) => `#${o.numero_ordem}`).join(", ");
+    const firstOrdem = grp.ordens[0];
+    const pmMatch = firstOrdem?.observacoes?.match(/\[PAGTO:([^\]]+)\]/);
+    const formaPgto = pmMatch ? pmMatch[1] : "PIX";
+
+    setThermalReceiptData({
+      numero_recibo: `REC-${firstOrdem?.numero_ordem || "001"}`,
+      data_emissao: new Date().toISOString().split("T")[0],
+      cliente_id: grp.clientId,
+      cliente_nome: clientName,
+      cliente_documento: client?.cnpj || client?.cpf || client?.documento || undefined,
+      cliente_telefone: client?.telefone || client?.phone || undefined,
+      cliente_endereco: [
+        client?.address?.street || client?.address_street,
+        client?.address?.number || client?.address_number,
+        client?.address?.neighborhood || client?.address_neighborhood,
+        client?.address?.city || client?.address_city,
+      ]
+        .filter(Boolean)
+        .join(", "),
+      lote_codigo: lote.codigo,
+      lote_nome: lote.nome,
+      ordens_numeros: osNumeros,
+      itens: grp.itens.map((it, idx) => ({
+        identificacao: it.extintor?.identificacao || `CIL-${idx + 1}`,
+        tipo_capacidade: it.extintor?.tipo_capacidade || "Pó ABC - 4kg",
+        modalidade: it.modalidade_recarga || "Normal",
+        localizacao: it.extintor?.localizacao || "Padrão",
+        nova_validade: `${String(new Date().getMonth() + 1).padStart(2, "0")}/${new Date().getFullYear() + 1}`,
+        valor: Number(it.valor_registrado || it.extintor?.valor_servico || 45.0),
+      })),
+      valor_total: grp.valorTotal,
+      forma_pagamento: formaPgto,
+      status_pagamento: "QUITADO",
+      observacoes: firstOrdem?.observacoes || "Garantia de 12 meses nos extintores recarregados.",
+      empresa_nome: "EXTINCONTROL PREVENÇÃO CONTRA INCÊNDIO",
+    });
+    setThermalReceiptOpen(true);
+  };
 
   React.useEffect(() => {
     listExtinguisherModels().then(setCatalogModels).catch(console.error);
@@ -316,14 +363,14 @@ export function LoteDetailView({
       {/* Header do Lote */}
       <Card className="border-2 shadow-sm overflow-hidden">
         <div className="h-2 bg-gradient-to-r from-red-600 via-amber-500 to-emerald-600" />
-        <CardHeader className="pb-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <CardHeader className="p-3.5 sm:p-6 pb-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4">
             <div>
-              <div className="flex items-center gap-2 flex-wrap mb-1">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap mb-1">
                 <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-muted">
                   {lote.codigo}
                 </span>
-                <Badge variant="outline" className={`font-semibold ${statusConfig.color}`}>
+                <Badge variant="outline" className={`font-semibold text-xs ${statusConfig.color}`}>
                   {statusConfig.label}
                 </Badge>
                 {lote.prazo_dias && (
@@ -332,30 +379,30 @@ export function LoteDetailView({
                   </Badge>
                 )}
               </div>
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">{lote.nome}</h1>
-              <div className="flex items-center gap-4 text-xs text-muted-foreground mt-2 flex-wrap">
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground break-words">{lote.nome}</h1>
+              <div className="flex items-center gap-2 sm:gap-4 text-xs text-muted-foreground mt-2 flex-wrap">
                 {lote.cidade && (
                   <span className="flex items-center gap-1 font-medium text-foreground">
-                    <MapPin className="h-3.5 w-3.5 text-red-600" />
+                    <MapPin className="h-3.5 w-3.5 text-red-600 shrink-0" />
                     {lote.cidade} {lote.regiao ? `• ${lote.regiao}` : ""}
                   </span>
                 )}
                 <span className="flex items-center gap-1">
-                  <Calendar className="h-3.5 w-3.5" />
+                  <Calendar className="h-3.5 w-3.5 shrink-0" />
                   Recolhido em:{" "}
                   <strong className="text-foreground">
                     {new Date(lote.data_recolhimento + "T12:00:00").toLocaleDateString("pt-BR")}
                   </strong>
                 </span>
                 <span className="flex items-center gap-1">
-                  <Clock className="h-3.5 w-3.5 text-red-600" />
+                  <Clock className="h-3.5 w-3.5 text-red-600 shrink-0" />
                   Devolução prevista:{" "}
                   <strong className="text-foreground">
                     {new Date(lote.previsao_devolucao + "T12:00:00").toLocaleDateString("pt-BR")}
                   </strong>
                 </span>
                 <span
-                  className={`font-semibold px-2 py-0.5 rounded text-xs ${
+                  className={`font-semibold px-2 py-0.5 rounded text-[11px] sm:text-xs ${
                     diasRestantes < 0
                       ? "bg-red-100 text-red-700"
                       : diasRestantes <= 2
@@ -373,30 +420,30 @@ export function LoteDetailView({
             </div>
 
             {/* Resumo Numérico Rápido & Valores */}
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 bg-muted/40 p-3 rounded-lg border text-center">
-              <div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 bg-muted/40 p-2.5 sm:p-3 rounded-xl border text-center">
+              <div className="p-1.5 sm:p-2 bg-card rounded-lg border">
                 <p className="text-[10px] text-muted-foreground font-medium uppercase">Cilindros</p>
-                <p className="text-lg font-extrabold text-foreground">{totalExtintoresLote}</p>
+                <p className="text-base sm:text-lg font-extrabold text-foreground">{totalExtintoresLote}</p>
               </div>
-              <div className="border-x px-1">
+              <div className="p-1.5 sm:p-2 bg-card rounded-lg border">
                 <p className="text-[10px] text-muted-foreground font-medium uppercase">Clientes</p>
-                <p className="text-lg font-extrabold text-foreground">{clientesAgrupados.length}</p>
+                <p className="text-base sm:text-lg font-extrabold text-foreground">{clientesAgrupados.length}</p>
               </div>
-              <div>
+              <div className="p-1.5 sm:p-2 bg-card rounded-lg border">
                 <p className="text-[10px] text-muted-foreground font-medium uppercase">Total do Lote</p>
-                <p className="text-lg font-extrabold text-foreground">
+                <p className="text-base sm:text-lg font-extrabold text-foreground">
                   {formatCurrency(valorTotalServicos)}
                 </p>
               </div>
-              <div className="border-x px-1">
+              <div className="p-1.5 sm:p-2 bg-card rounded-lg border">
                 <p className="text-[10px] text-muted-foreground font-medium uppercase text-emerald-600">Recebido</p>
-                <p className="text-lg font-extrabold text-emerald-600">
+                <p className="text-base sm:text-lg font-extrabold text-emerald-600">
                   {formatCurrency(lote.valor_recebido || 0)}
                 </p>
               </div>
-              <div>
+              <div className="col-span-2 sm:col-span-1 p-1.5 sm:p-2 bg-card rounded-lg border">
                 <p className="text-[10px] text-muted-foreground font-medium uppercase text-amber-600">Pendente</p>
-                <p className="text-lg font-extrabold text-amber-600">
+                <p className="text-base sm:text-lg font-extrabold text-amber-600">
                   {formatCurrency(Math.max(0, valorTotalServicos - (lote.valor_recebido || 0)))}
                 </p>
               </div>
@@ -411,20 +458,28 @@ export function LoteDetailView({
         onValueChange={(v: string) => setActiveTab(v as any)}
         className="w-full space-y-4"
       >
-        <TabsList className="grid grid-cols-2 h-12 bg-muted/60 p-1 print:hidden rounded-xl">
-          <TabsTrigger value="soma" className="gap-2 font-bold text-sm">
-            <ClipboardList className="h-4 w-4 text-blue-600" />
-            <span>1. SOMA (Cilindros por Tipo e Peso)</span>
-            <Badge variant="secondary" className="text-xs px-2 py-0.5 font-bold">
+        <TabsList className="grid grid-cols-2 h-auto p-1.5 bg-muted/60 print:hidden rounded-xl gap-1">
+          <TabsTrigger
+            value="soma"
+            className="flex items-center justify-center gap-1.5 py-2 px-2 text-xs sm:text-sm font-bold data-[state=active]:shadow-sm min-w-0"
+          >
+            <ClipboardList className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-blue-600 shrink-0" />
+            <span className="hidden sm:inline truncate">1. SOMA (Cilindros por Tipo e Peso)</span>
+            <span className="sm:hidden truncate">1. SOMA</span>
+            <Badge variant="secondary" className="text-[10px] sm:text-xs px-1.5 py-0.2 sm:px-2 font-bold shrink-0">
               {totalExtintoresLote} un
             </Badge>
           </TabsTrigger>
 
-          <TabsTrigger value="romaneio" className="gap-2 font-bold text-sm">
-            <PackageCheck className="h-4 w-4 text-emerald-600" />
-            <span>2. Romaneio de Devolução</span>
-            <Badge variant="secondary" className="text-xs px-2 py-0.5 font-bold">
-              {clientesConcluidos}/{clientesAgrupados.length} clientes
+          <TabsTrigger
+            value="romaneio"
+            className="flex items-center justify-center gap-1.5 py-2 px-2 text-xs sm:text-sm font-bold data-[state=active]:shadow-sm min-w-0"
+          >
+            <PackageCheck className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 shrink-0" />
+            <span className="hidden sm:inline truncate">2. Romaneio de Devolução</span>
+            <span className="sm:hidden truncate">2. Romaneio</span>
+            <Badge variant="secondary" className="text-[10px] sm:text-xs px-1.5 py-0.2 sm:px-2 font-bold shrink-0">
+              {clientesConcluidos}/{clientesAgrupados.length}
             </Badge>
           </TabsTrigger>
         </TabsList>
@@ -567,7 +622,7 @@ export function LoteDetailView({
                         </div>
                       </div>
 
-                      <div className="text-right min-w-[140px] space-y-1">
+                      <div className="text-left sm:text-right min-w-0 sm:min-w-[140px] pt-2 sm:pt-0 border-t sm:border-t-0 space-y-1">
                         <p className="text-xs text-muted-foreground">Volume do cliente:</p>
                         <p className="text-lg font-bold text-foreground">{qtdItens} extintor(es)</p>
                         <p className="text-xs font-semibold text-emerald-600">
@@ -792,31 +847,41 @@ export function LoteDetailView({
                       </div>
 
                       {/* Botão de Ação: Entregar, Cobrar & Recibo Consolidado */}
-                      <div className="print:hidden flex items-center gap-2">
+                      <div className="print:hidden flex items-center gap-2 flex-wrap">
                         {isConcluido ? (
-                          <div className="flex items-center gap-2">
-                            <span className="flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-lg">
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              Entregue & Cobrado
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="flex items-center gap-1 text-[11px] sm:text-xs font-semibold text-emerald-700 bg-emerald-100 px-2 py-1 rounded-lg">
+                              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                              Entregue
                             </span>
                             <Button
                               variant="outline"
                               size="sm"
                               onClick={() => setSelectedGroupForDelivery(grp)}
-                              className="h-8 text-xs border-emerald-300 text-emerald-800 hover:bg-emerald-50 gap-1.5"
+                              className="h-8 text-xs border-emerald-300 text-emerald-800 hover:bg-emerald-50 gap-1 px-2.5"
                             >
                               <Receipt className="h-3.5 w-3.5" />
-                              Ver Recibo
+                              Recibo
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleOpenThermalForGroup(grp)}
+                              className="h-8 text-xs border-neutral-700 bg-neutral-900 text-neutral-100 hover:bg-neutral-800 gap-1 px-2.5 font-bold"
+                              title="Imprimir Cupom Térmico 58mm com QR Code"
+                            >
+                              <Printer className="h-3.5 w-3.5 text-emerald-400" />
+                              58mm
                             </Button>
                           </div>
                         ) : (
                           <Button
                             size="sm"
                             onClick={() => setSelectedGroupForDelivery(grp)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 whitespace-nowrap shadow-sm font-bold text-xs"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 shadow-sm font-bold text-xs w-full sm:w-auto"
                           >
                             <DollarSign className="h-3.5 w-3.5" />
-                            Entregar & Cobrar Cliente ({grp.itens.length} un)
+                            Entregar & Cobrar ({grp.itens.length} un)
                           </Button>
                         )}
                       </div>
@@ -840,8 +905,8 @@ export function LoteDetailView({
 
                   {/* Tabela dos Extintores a deixar no Cliente */}
                   <CardContent className="pt-0">
-                    <div className="rounded-lg border overflow-hidden">
-                      <table className="w-full text-xs">
+                    <div className="rounded-lg border overflow-x-auto">
+                      <table className="w-full text-xs min-w-[550px]">
                         <thead className="bg-muted/70 text-muted-foreground font-semibold border-b">
                           <tr>
                             <th className="py-2 px-3 text-left">Extintor / Patrimônio</th>
@@ -962,6 +1027,13 @@ export function LoteDetailView({
         onOpenChange={setIsProfitReportOpen}
         lote={lote}
         catalogModels={catalogModels}
+      />
+
+      {/* DIÁLOGO DE IMPRESSÃO TÉRMICA 58MM COM QR CODE */}
+      <ThermalReceipt58mmDialog
+        open={thermalReceiptOpen}
+        onOpenChange={setThermalReceiptOpen}
+        receiptData={thermalReceiptData}
       />
     </div>
   );

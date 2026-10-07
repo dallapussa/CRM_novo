@@ -344,27 +344,27 @@ export default function LotesPage() {
       </div>
 
       {/* ABAS PRINCIPAIS DO MENU DE LOTES (Configuração solicitada) */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-2.5">
         {/* ABA 1: Em Coleta */}
         <button
           type="button"
           onClick={() => setActiveTab("em_coleta")}
-          className={`p-3.5 rounded-2xl border-2 text-left transition-all flex flex-col justify-between ${
+          className={`p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl border-2 text-left transition-all flex flex-col justify-between ${
             activeTab === "em_coleta"
               ? "border-blue-600 bg-blue-50/70 dark:bg-blue-950/40 shadow-sm ring-2 ring-blue-600/20"
               : "border-border bg-card hover:bg-muted/40 opacity-80 hover:opacity-100"
           }`}
         >
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Truck className={`h-5 w-5 ${activeTab === "em_coleta" ? "text-blue-600" : "text-muted-foreground"}`} />
-              <span className="font-bold text-sm text-foreground">Em Coleta</span>
+          <div className="flex items-start justify-between gap-1.5">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Truck className={`h-4 w-4 sm:h-5 sm:w-5 shrink-0 ${activeTab === "em_coleta" ? "text-blue-600" : "text-muted-foreground"}`} />
+              <span className="font-bold text-xs sm:text-sm text-foreground truncate">Em Coleta</span>
             </div>
-            <Badge className={`${activeTab === "em_coleta" ? "bg-blue-600 text-white" : "bg-muted text-muted-foreground"} font-bold text-xs`}>
+            <Badge className={`${activeTab === "em_coleta" ? "bg-blue-600 text-white" : "bg-muted text-muted-foreground"} font-bold text-[10px] sm:text-xs px-1.5 py-0.2 sm:px-2 shrink-0`}>
               {countEmColeta}
             </Badge>
           </div>
-          <p className="text-[11px] text-muted-foreground mt-2 line-clamp-1">
+          <p className="text-[10px] sm:text-[11px] text-muted-foreground mt-1.5 sm:mt-2 line-clamp-1 leading-tight">
             Lote na rota de coleta
           </p>
         </button>
@@ -373,22 +373,24 @@ export default function LotesPage() {
         <button
           type="button"
           onClick={() => setActiveTab("na_oficina")}
-          className={`p-3.5 rounded-2xl border-2 text-left transition-all flex flex-col justify-between ${
+          className={`p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl border-2 text-left transition-all flex flex-col justify-between ${
             activeTab === "na_oficina"
               ? "border-amber-600 bg-amber-50/70 dark:bg-amber-950/40 shadow-sm ring-2 ring-amber-600/20"
               : "border-border bg-card hover:bg-muted/40 opacity-80 hover:opacity-100"
           }`}
         >
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Wrench className={`h-5 w-5 ${activeTab === "na_oficina" ? "text-amber-600" : "text-muted-foreground"}`} />
-              <span className="font-bold text-sm text-foreground">Extintores na Oficina</span>
+          <div className="flex items-start justify-between gap-1.5">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Wrench className={`h-4 w-4 sm:h-5 sm:w-5 shrink-0 ${activeTab === "na_oficina" ? "text-amber-600" : "text-muted-foreground"}`} />
+              <span className="font-bold text-xs sm:text-sm text-foreground truncate">
+                <span className="hidden sm:inline">Extintores </span>Na Oficina
+              </span>
             </div>
-            <Badge className={`${activeTab === "na_oficina" ? "bg-amber-600 text-white" : "bg-muted text-muted-foreground"} font-bold text-xs`}>
+            <Badge className={`${activeTab === "na_oficina" ? "bg-amber-600 text-white" : "bg-muted text-muted-foreground"} font-bold text-[10px] sm:text-xs px-1.5 py-0.2 sm:px-2 shrink-0`}>
               {countNaOficina}
             </Badge>
           </div>
-          <p className="text-[11px] text-muted-foreground mt-2 line-clamp-1">
+          <p className="text-[10px] sm:text-[11px] text-muted-foreground mt-1.5 sm:mt-2 line-clamp-1 leading-tight">
             Cilindros em recarga
           </p>
         </button>
@@ -397,23 +399,23 @@ export default function LotesPage() {
         <button
           type="button"
           onClick={() => setActiveTab("em_entrega")}
-          className={`p-3.5 rounded-2xl border-2 text-left transition-all flex flex-col justify-between ${
+          className={`p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl border-2 text-left transition-all flex flex-col justify-between ${
             activeTab === "em_entrega"
               ? "border-purple-600 bg-purple-50/70 dark:bg-purple-950/40 shadow-sm ring-2 ring-purple-600/20"
               : "border-border bg-card hover:bg-muted/40 opacity-80 hover:opacity-100"
           }`}
         >
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <PackageCheck className={`h-5 w-5 ${activeTab === "em_entrega" ? "text-purple-600" : "text-muted-foreground"}`} />
-              <span className="font-bold text-sm text-foreground">Em Entrega</span>
+          <div className="flex items-start justify-between gap-1.5">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <PackageCheck className={`h-4 w-4 sm:h-5 sm:w-5 shrink-0 ${activeTab === "em_entrega" ? "text-purple-600" : "text-muted-foreground"}`} />
+              <span className="font-bold text-xs sm:text-sm text-foreground truncate">Em Entrega</span>
             </div>
-            <Badge className={`${activeTab === "em_entrega" ? "bg-purple-600 text-white" : "bg-muted text-muted-foreground"} font-bold text-xs`}>
+            <Badge className={`${activeTab === "em_entrega" ? "bg-purple-600 text-white" : "bg-muted text-muted-foreground"} font-bold text-[10px] sm:text-xs px-1.5 py-0.2 sm:px-2 shrink-0`}>
               {countEmEntrega}
             </Badge>
           </div>
-          <p className="text-[11px] text-muted-foreground mt-2 line-clamp-1">
-            Lotes carregados em entrega
+          <p className="text-[10px] sm:text-[11px] text-muted-foreground mt-1.5 sm:mt-2 line-clamp-1 leading-tight">
+            Lotes em entrega
           </p>
         </button>
 
@@ -421,30 +423,32 @@ export default function LotesPage() {
         <button
           type="button"
           onClick={() => setActiveTab("concluidos")}
-          className={`p-3.5 rounded-2xl border-2 text-left transition-all flex flex-col justify-between ${
+          className={`p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl border-2 text-left transition-all flex flex-col justify-between ${
             activeTab === "concluidos"
               ? "border-emerald-600 bg-emerald-50/70 dark:bg-emerald-950/40 shadow-sm ring-2 ring-emerald-600/20"
               : "border-border bg-card hover:bg-muted/40 opacity-80 hover:opacity-100"
           }`}
         >
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className={`h-5 w-5 ${activeTab === "concluidos" ? "text-emerald-600" : "text-muted-foreground"}`} />
-              <span className="font-bold text-sm text-foreground">Lotes Concluídos</span>
+          <div className="flex items-start justify-between gap-1.5">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <CheckCircle2 className={`h-4 w-4 sm:h-5 sm:w-5 shrink-0 ${activeTab === "concluidos" ? "text-emerald-600" : "text-muted-foreground"}`} />
+              <span className="font-bold text-xs sm:text-sm text-foreground truncate">
+                <span className="hidden sm:inline">Lotes </span>Concluídos
+              </span>
             </div>
-            <Badge className={`${activeTab === "concluidos" ? "bg-emerald-600 text-white" : "bg-muted text-muted-foreground"} font-bold text-xs`}>
+            <Badge className={`${activeTab === "concluidos" ? "bg-emerald-600 text-white" : "bg-muted text-muted-foreground"} font-bold text-[10px] sm:text-xs px-1.5 py-0.2 sm:px-2 shrink-0`}>
               {countConcluidos}
             </Badge>
           </div>
-          <p className="text-[11px] text-muted-foreground mt-2 line-clamp-1">
-            Rotas entregues e finalizadas
+          <p className="text-[10px] sm:text-[11px] text-muted-foreground mt-1.5 sm:mt-2 line-clamp-1 leading-tight">
+            Rotas finalizadas
           </p>
         </button>
       </div>
 
       {/* BARRA DE PESQUISA & FILTROS POR CLIENTE, CIDADE, MÊS E ANO */}
       <Card className="border shadow-xs">
-        <CardContent className="p-3.5 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        <CardContent className="p-3 sm:p-3.5 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5 sm:gap-3">
           {/* Busca por texto livre (Lote, Cliente, Cidade) */}
           <div className="relative flex-1">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -466,11 +470,11 @@ export default function LotesPage() {
           </div>
 
           {/* Filtros de Mês e Ano */}
-          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+          <div className="grid grid-cols-2 sm:flex sm:items-center gap-2">
             {/* Seletor de Mês */}
             <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-              <SelectTrigger className="w-full sm:w-[150px] h-9 text-xs">
-                <Calendar className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+              <SelectTrigger className="w-full sm:w-[140px] h-9 text-xs">
+                <Calendar className="h-3.5 w-3.5 mr-1 text-muted-foreground shrink-0" />
                 <SelectValue placeholder="Mês" />
               </SelectTrigger>
               <SelectContent>
@@ -484,7 +488,7 @@ export default function LotesPage() {
 
             {/* Seletor de Ano */}
             <Select value={selectedYear} onValueChange={setSelectedYear}>
-              <SelectTrigger className="w-full sm:w-[120px] h-9 text-xs">
+              <SelectTrigger className="w-full sm:w-[110px] h-9 text-xs">
                 <SelectValue placeholder="Ano" />
               </SelectTrigger>
               <SelectContent>
@@ -507,7 +511,7 @@ export default function LotesPage() {
                   setSelectedMonth("all");
                   setSelectedYear("all");
                 }}
-                className="h-9 px-2 text-xs text-muted-foreground hover:text-foreground"
+                className="h-9 px-2 text-xs text-muted-foreground hover:text-foreground col-span-2 sm:col-auto"
                 title="Limpar todos os filtros"
               >
                 <X className="h-3.5 w-3.5 mr-1" />
@@ -604,12 +608,12 @@ export default function LotesPage() {
                 key={lote.id}
                 className="hover:shadow-md transition-all border-2 flex flex-col justify-between rounded-2xl overflow-hidden group"
               >
-                <CardHeader className="pb-3 cursor-pointer" onClick={() => setSelectedLoteId(lote.id)}>
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-muted text-foreground">
+                <CardHeader className="p-3.5 sm:p-5 pb-2.5 sm:pb-3 cursor-pointer" onClick={() => setSelectedLoteId(lote.id)}>
+                  <div className="flex items-start justify-between gap-1.5">
+                    <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-muted text-foreground shrink-0">
                       {lote.codigo}
                     </span>
-                    <Badge variant="outline" className={`font-semibold ${statusConf.color}`}>
+                    <Badge variant="outline" className={`font-semibold text-[10px] sm:text-xs shrink-0 ${statusConf.color}`}>
                       {statusConf.label}
                     </Badge>
                   </div>
@@ -621,7 +625,7 @@ export default function LotesPage() {
                   {lote.cidade && (
                     <CardDescription className="text-xs flex items-center gap-1 font-medium text-foreground">
                       <MapPin className="h-3.5 w-3.5 text-red-600 shrink-0" />
-                      {lote.cidade} {lote.regiao ? `• ${lote.regiao}` : ""}
+                      <span className="truncate">{lote.cidade} {lote.regiao ? `• ${lote.regiao}` : ""}</span>
                     </CardDescription>
                   )}
                 </CardHeader>
@@ -705,22 +709,22 @@ export default function LotesPage() {
 
                   {/* BOTÕES DE AÇÃO DO LOTE (Totalmente Clicáveis e Funcionais) */}
                   <div className="pt-1 space-y-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 sm:gap-2">
                       {/* Botão Principal: Abrir Lote & Romaneio */}
                       <Button
-                        className="flex-1 bg-neutral-900 hover:bg-neutral-800 text-white dark:bg-neutral-100 dark:text-neutral-900 gap-1.5 font-bold text-xs h-9 shadow-xs"
+                        className="flex-1 bg-neutral-900 hover:bg-neutral-800 text-white dark:bg-neutral-100 dark:text-neutral-900 gap-1 sm:gap-1.5 font-bold text-xs h-9 shadow-xs min-w-0"
                         size="sm"
                         onClick={() => setSelectedLoteId(lote.id)}
                       >
-                        <span>Abrir Lote & Romaneio</span>
-                        <ArrowRight className="h-3.5 w-3.5" />
+                        <span className="truncate">Abrir Lote & Romaneio</span>
+                        <ArrowRight className="h-3.5 w-3.5 shrink-0" />
                       </Button>
 
                       {/* Botão de Edição */}
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-9 px-2 text-muted-foreground hover:text-foreground"
+                        className="h-9 w-9 p-0 shrink-0 text-muted-foreground hover:text-foreground"
                         title="Editar Lote"
                         onClick={() => {
                           setLoteToEdit(lote);
@@ -734,7 +738,7 @@ export default function LotesPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-9 px-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                        className="h-9 w-9 p-0 shrink-0 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
                         title="Excluir Lote"
                         onClick={() => handleDeleteLote(lote)}
                       >

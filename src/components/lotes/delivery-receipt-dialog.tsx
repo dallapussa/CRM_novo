@@ -44,6 +44,7 @@ import {
   saveReceiptPdfToClientDocuments,
   type EditableReceiptData,
 } from "@/services/receipt-pdf.service";
+import { ThermalReceipt58mmDialog } from "@/components/financeiro/thermal-receipt-58mm-dialog";
 import type {
   OrdemRecolhimento,
   PaymentMethod,
@@ -121,6 +122,7 @@ export function DeliveryReceiptDialog({
 
   // Itens com preços editáveis
   const [itemPrices, setItemPrices] = useState<Record<string, number>>({});
+  const [thermalReceiptOpen, setThermalReceiptOpen] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -129,10 +131,55 @@ export function DeliveryReceiptDialog({
         map[it.id] = Number(it.valor_registrado || it.extintor?.valor_servico || 45.0);
       });
       setItemPrices(map);
-      setStep("form");
-      setReceiptData(null);
+
+      // Se todas as ordens já estão concluídas, inicializa direto o recibo para conferência/impressão
+      const isAlreadyConcluded =
+        effectiveOrdens.length > 0 &&
+        effectiveOrdens.every((o) => o.status === "concluido");
+
+      if (isAlreadyConcluded) {
+        const total = Object.values(map).reduce((acc, val) => acc + (Number(val) || 0), 0);
+        const firstOrdem = effectiveOrdens[0];
+        const pmMatch = firstOrdem?.observacoes?.match(/\[PAGTO:([^\]]+)\]/);
+        const resolvedPm = (pmMatch ? pmMatch[1] : "PIX") as PaymentMethod;
+
+        setReceiptData({
+          numero_recibo: `REC-${firstOrdem?.numero_ordem || "001"}`,
+          data_emissao: new Date().toISOString().split("T")[0],
+          cliente_nome: clientName,
+          cliente_documento: effectiveClient?.cnpj || effectiveClient?.cpf || undefined,
+          cliente_telefone: effectiveClient?.telefone || effectiveClient?.phone || undefined,
+          cliente_endereco: [
+            effectiveClient?.address?.street || effectiveClient?.address_street,
+            effectiveClient?.address?.number || effectiveClient?.address_number,
+            effectiveClient?.address?.neighborhood || effectiveClient?.address_neighborhood,
+            effectiveClient?.address?.city || effectiveClient?.address_city,
+          ]
+            .filter(Boolean)
+            .join(", "),
+          lote_codigo: loteCodigo || "LOTE",
+          ordem_numero: Number(firstOrdem?.numero_ordem) || 0,
+          ordens_numeros: osNumeros.join(", #"),
+          itens: effectiveItens.map((it) => ({
+            identificacao: it.extintor?.identificacao || "CIL",
+            tipo_capacidade: it.extintor?.tipo_capacidade || "Pó ABC 4kg",
+            modalidade: it.modalidade_recarga || "Normal",
+            localizacao: it.extintor?.localizacao || "Padrão",
+            nova_validade: new Date(Date.now() + 365 * 86400000).toISOString().split("T")[0],
+            valor: map[it.id] || 45.0,
+          })),
+          valor_total: total,
+          forma_pagamento: resolvedPm,
+          status_pagamento: "QUITADO",
+          observacoes: firstOrdem?.observacoes || undefined,
+        });
+        setStep("receipt");
+      } else {
+        setStep("form");
+        setReceiptData(null);
+      }
     }
-  }, [open, effectiveItens]);
+  }, [open, effectiveItens, effectiveOrdens, clientName, effectiveClient, loteCodigo, osNumeros]);
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("PIX");
   const [dueDate, setDueDate] = useState<string>(
@@ -267,6 +314,36 @@ export function DeliveryReceiptDialog({
 
     return `https://wa.me/55${rawPhone}?text=${encodeURIComponent(text)}`;
   }
+
+  const editableReceiptDataForThermal = useMemo<EditableReceiptData | null>(() => {
+    if (!receiptData) return null;
+    return {
+      numero_recibo: String(receiptData.numero_recibo),
+      data_emissao: receiptData.data_emissao,
+      cliente_id: effectiveClientId,
+      cliente_nome: receiptData.cliente_nome,
+      cliente_documento: receiptData.cliente_documento,
+      cliente_telefone: receiptData.cliente_telefone,
+      cliente_endereco: receiptData.cliente_endereco,
+      lote_codigo: receiptData.lote_codigo,
+      ordens_numeros: String(
+        receiptData.ordens_numeros ||
+          (osNumeros.length > 0 ? osNumeros.join(", #") : receiptData.ordem_numero)
+      ),
+      itens: (receiptData.itens || []).map((it) => ({
+        identificacao: it.identificacao,
+        tipo_capacidade: it.tipo_capacidade,
+        modalidade: it.modalidade,
+        nova_validade: formatMonthYear(it.nova_validade),
+        valor: it.valor,
+      })),
+      valor_total: receiptData.valor_total,
+      forma_pagamento: receiptData.forma_pagamento,
+      status_pagamento: receiptData.status_pagamento,
+      observacoes: receiptData.observacoes,
+      empresa_nome: "EXTINCONTROL PREVENÇÃO CONTRA INCÊNDIO",
+    };
+  }, [receiptData, effectiveClientId, osNumeros]);
 
   const clientAddress = [
     effectiveClient?.address?.street || effectiveClient?.address_street,
@@ -715,21 +792,33 @@ export function DeliveryReceiptDialog({
                 </div>
               </div>
 
-              {/* Botão Concluir */}
-              <DialogFooter className="gap-2 sm:gap-0">
+              {/* Botões de Ação do Recibo */}
+              <DialogFooter className="gap-2 sm:gap-2 flex-col sm:flex-row">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => onOpenChange(false)}
+                  className="sm:mr-auto"
                 >
                   Fechar
                 </Button>
 
                 <Button
                   type="button"
+                  variant="outline"
+                  onClick={() => setThermalReceiptOpen(true)}
+                  className="border-neutral-800 bg-neutral-900 text-neutral-100 hover:bg-neutral-800 gap-1.5 font-bold shadow-xs text-xs sm:text-sm"
+                  title="Impressão Direta em Rolo Térmico 58mm com QR Code"
+                >
+                  <Printer className="h-4 w-4 text-emerald-400" />
+                  Imprimir Cupom 58mm
+                </Button>
+
+                <Button
+                  type="button"
                   onClick={handleDownloadPdfAndSaveDocs}
                   disabled={isGeneratingPdf}
-                  className="bg-red-600 text-white hover:bg-red-700 font-bold gap-2 shadow-sm"
+                  className="bg-red-600 text-white hover:bg-red-700 font-bold gap-2 shadow-sm text-xs sm:text-sm"
                 >
                   <Download className="h-4 w-4" />
                   {isGeneratingPdf ? "Gerando PDF..." : "Baixar Recibo em PDF & Salvar nos Documentos"}
@@ -739,6 +828,13 @@ export function DeliveryReceiptDialog({
           )
         )}
       </DialogContent>
+
+      {/* MODAL DE IMPRESSÃO TÉRMICA 58MM COM QR CODE */}
+      <ThermalReceipt58mmDialog
+        open={thermalReceiptOpen}
+        onOpenChange={setThermalReceiptOpen}
+        receiptData={editableReceiptDataForThermal}
+      />
     </Dialog>
   );
 }

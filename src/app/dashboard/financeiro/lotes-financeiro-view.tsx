@@ -42,6 +42,7 @@ import type { LoteRecolhimento, PaymentMethod } from "@/types";
 import { listLotesRecolhimento, groupOrdensByClient } from "@/services/prevention.service";
 import { ReceiptEditorModal } from "@/components/financeiro/receipt-editor-modal";
 import { MultiLoteReportDialog } from "@/components/financeiro/multi-lote-report-dialog";
+import { ThermalReceipt58mmDialog } from "@/components/financeiro/thermal-receipt-58mm-dialog";
 import type { EditableReceiptData, ReceiptItem } from "@/services/receipt-pdf.service";
 import { createClient } from "@/lib/supabase/client";
 
@@ -99,6 +100,10 @@ export function LotesFinanceiroView() {
   // Recibo editável
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
   const [editingReceiptData, setEditingReceiptData] = useState<EditableReceiptData | null>(null);
+
+  // Cupom Térmico 58mm
+  const [thermalReceiptOpen, setThermalReceiptOpen] = useState(false);
+  const [thermalReceiptData, setThermalReceiptData] = useState<EditableReceiptData | null>(null);
 
   // Busca lotes do sistema
   const { data: lotes = [], isLoading, refetch, isRefetching } = useQuery({
@@ -181,8 +186,8 @@ export function LotesFinanceiroView() {
     return groupOrdensByClient(activeLote.ordens || []);
   }, [activeLote]);
 
-  // Abertura do Modal de Recibo para um cliente
-  const handleOpenReceiptForClient = (grupo: any) => {
+  // Constrói objeto de recibo para um cliente do lote
+  const buildReceiptDataForClient = (grupo: any): EditableReceiptData => {
     const client = grupo.client;
     const clientName = client?.razao_social || client?.nome_fantasia || client?.name || "Cliente";
     const ordensNumeros = grupo.ordens.map((o: any) => `#${o.numero_ordem}`).join(", ");
@@ -204,7 +209,7 @@ export function LotesFinanceiroView() {
 
     const isQuitado = grupo.ordens.every((o: any) => o.status === "concluido");
 
-    setEditingReceiptData({
+    return {
       numero_recibo: `REC-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, "0")}-${firstOrdem?.numero_ordem || Math.floor(10 + Math.random() * 90)}`,
       data_emissao: new Date().toISOString().split("T")[0],
       cliente_id: grupo.clientId,
@@ -229,9 +234,21 @@ export function LotesFinanceiroView() {
       status_pagamento: isQuitado ? "QUITADO" : "PENDENTE",
       observacoes: "Garantia de 12 meses contra defeitos de recarga e teste de pressão.",
       empresa_nome: "EXTINCONTROL PREVENÇÃO CONTRA INCÊNDIO",
-    });
+    };
+  };
 
+  // Abertura do Modal de Recibo PDF para um cliente
+  const handleOpenReceiptForClient = (grupo: any) => {
+    const data = buildReceiptDataForClient(grupo);
+    setEditingReceiptData(data);
     setReceiptModalOpen(true);
+  };
+
+  // Abertura do Cupom Térmico 58mm direto para um cliente
+  const handleOpenThermalForClient = (grupo: any) => {
+    const data = buildReceiptDataForClient(grupo);
+    setThermalReceiptData(data);
+    setThermalReceiptOpen(true);
   };
 
   // Alteração rápida da forma de pagamento de um cliente
@@ -506,6 +523,17 @@ export function LotesFinanceiroView() {
                           >
                             <FileText className="h-3.5 w-3.5" />
                             Gerar Recibo (PDF)
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleOpenThermalForClient(grupo)}
+                            className="border-neutral-800 bg-neutral-900 text-neutral-100 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 font-bold gap-1.5 text-xs h-8 shadow-xs"
+                            title="Impressão direta em rolo térmico 58mm com QR Code"
+                          >
+                            <Printer className="h-3.5 w-3.5 text-emerald-400 dark:text-emerald-600" />
+                            Cupom 58mm
                           </Button>
                         </div>
                       </div>
@@ -871,6 +899,13 @@ export function LotesFinanceiroView() {
         open={isMultiReportOpen}
         onOpenChange={setIsMultiReportOpen}
         selectedLotes={selectedLotesList}
+      />
+
+      {/* Modal de Impressão Térmica 58mm */}
+      <ThermalReceipt58mmDialog
+        open={thermalReceiptOpen}
+        onOpenChange={setThermalReceiptOpen}
+        receiptData={thermalReceiptData}
       />
     </div>
   );

@@ -41,6 +41,7 @@ import {
   buildReceiptPdfDocument,
   saveReceiptPdfToClientDocuments,
 } from "@/services/receipt-pdf.service";
+import { ThermalReceipt58mmDialog } from "./thermal-receipt-58mm-dialog";
 
 interface ReceiptEditorModalProps {
   open: boolean;
@@ -69,6 +70,7 @@ export function ReceiptEditorModal({
   const [data, setData] = useState<EditableReceiptData | null>(null);
   const [saveToDocs, setSaveToDocs] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [thermalOpen, setThermalOpen] = useState(false);
 
   useEffect(() => {
     if (initialData && open) {
@@ -456,9 +458,19 @@ export function ReceiptEditorModal({
           </div>
         </div>
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="gap-2 sm:gap-0 flex-wrap">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setThermalOpen(true)}
+            className="gap-2 border-neutral-300 font-bold text-xs"
+          >
+            <Printer className="h-4 w-4 text-neutral-700" />
+            Imprimir Cupom 58mm (QR Code)
           </Button>
 
           <Button
@@ -470,6 +482,13 @@ export function ReceiptEditorModal({
             {isGenerating ? "Gerando PDF..." : "Gerar e Baixar Recibo PDF"}
           </Button>
         </DialogFooter>
+
+        {/* Modal de Impressão Térmica 58mm com QR Code */}
+        <ThermalReceipt58mmDialog
+          open={thermalOpen}
+          onOpenChange={setThermalOpen}
+          receiptData={data}
+        />
       </DialogContent>
     </Dialog>
   );
