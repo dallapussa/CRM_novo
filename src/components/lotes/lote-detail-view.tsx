@@ -74,7 +74,7 @@ export function LoteDetailView({
 }: LoteDetailViewProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<"chegada" | "saida" | "romaneio">("chegada");
+  const [activeTab, setActiveTab] = useState<"soma" | "romaneio">("soma");
   const [confirmingOrdemId, setConfirmingOrdemId] = useState<string | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [selectedGroupForDelivery, setSelectedGroupForDelivery] = useState<GroupedClientInLote | null>(null);
@@ -417,51 +417,43 @@ export function LoteDetailView({
         onValueChange={(v: string) => setActiveTab(v as any)}
         className="w-full space-y-4"
       >
-        <TabsList className="grid grid-cols-3 h-12 bg-muted/60 p-1 print:hidden">
-          <TabsTrigger value="chegada" className="gap-2 font-medium">
+        <TabsList className="grid grid-cols-2 h-12 bg-muted/60 p-1 print:hidden rounded-xl">
+          <TabsTrigger value="soma" className="gap-2 font-bold text-sm">
             <ClipboardList className="h-4 w-4 text-blue-600" />
-            <span>1. Soma de Chegada</span>
-            <Badge variant="secondary" className="text-xs px-1.5 py-0 h-5">
+            <span>1. SOMA (Cilindros por Tipo e Peso)</span>
+            <Badge variant="secondary" className="text-xs px-2 py-0.5 font-bold">
               {totalExtintoresLote} un
             </Badge>
           </TabsTrigger>
 
-          <TabsTrigger value="saida" className="gap-2 font-medium">
-            <Truck className="h-4 w-4 text-purple-600" />
-            <span>2. Soma de Saída (Caminhão)</span>
-            <Badge variant="secondary" className="text-xs px-1.5 py-0 h-5">
-              {clientesPendentes} pend
-            </Badge>
-          </TabsTrigger>
-
-          <TabsTrigger value="romaneio" className="gap-2 font-medium">
+          <TabsTrigger value="romaneio" className="gap-2 font-bold text-sm">
             <PackageCheck className="h-4 w-4 text-emerald-600" />
-            <span>3. Romaneio de Devolução</span>
-            <Badge variant="secondary" className="text-xs px-1.5 py-0 h-5">
-              {clientesConcluidos}/{clientesAgrupados.length}
+            <span>2. Romaneio de Devolução</span>
+            <Badge variant="secondary" className="text-xs px-2 py-0.5 font-bold">
+              {clientesConcluidos}/{clientesAgrupados.length} clientes
             </Badge>
           </TabsTrigger>
         </TabsList>
 
         {/* =========================================================================
-            TAB 1: SOMA DE CHEGADA (Conferência de Entrada no Galpão)
+            TAB 1: SOMA (Total de Cilindros por Tipo e Peso)
             ========================================================================= */}
-        <TabsContent value="chegada" className="space-y-6">
+        <TabsContent value="soma" className="space-y-6">
           {/* Cartões de Agrupamento por Modelo/Capacidade */}
-          <Card>
+          <Card className="border-2 shadow-xs">
             <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
-                  <CardTitle className="text-base font-bold flex items-center gap-2">
+                  <CardTitle className="text-base sm:text-lg font-bold flex items-center gap-2">
                     <ClipboardList className="h-5 w-5 text-blue-600" />
-                    Totais de Extintores Recolhidos por Modelo / Carga
+                    SOMA: Total de Cilindros por Tipo e Peso
                   </CardTitle>
                   <CardDescription className="text-xs">
-                    Soma global de cilindros recolhidos na chegada ao galpão para planejar as recargas e testes.
+                    Soma global de cilindros recolhidos neste lote, agrupados por agente extintor e capacidade/peso.
                   </CardDescription>
                 </div>
-                <Badge variant="outline" className="text-sm px-3 py-1 bg-blue-50 text-blue-700 border-blue-200">
-                  Total Chegada: <strong>{totalExtintoresLote} extintores</strong>
+                <Badge className="text-sm px-3 py-1 bg-blue-600 text-white font-bold w-fit">
+                  Soma Total: {totalExtintoresLote} extintores
                 </Badge>
               </div>
             </CardHeader>
@@ -597,92 +589,7 @@ export function LoteDetailView({
         </TabsContent>
 
         {/* =========================================================================
-            TAB 2: SOMA DE SAÍDA (Carregamento do Caminhão)
-            ========================================================================= */}
-        <TabsContent value="saida" className="space-y-6">
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-base font-bold flex items-center gap-2">
-                    <Truck className="h-5 w-5 text-purple-600" />
-                    Conferência de Carga do Veículo (Soma de Saída)
-                  </CardTitle>
-                  <CardDescription className="text-xs">
-                    Confira a quantidade total de cilindros que devem ser colocados no caminhão para a rota de entrega.
-                  </CardDescription>
-                </div>
-                <Badge className="bg-purple-600 text-white font-bold text-sm px-3 py-1">
-                  Carga Total: {totalExtintoresLote} cilindros
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Checklist de Carregamento por Modelo */}
-              <div className="border rounded-lg overflow-hidden">
-                <div className="bg-muted px-4 py-2 text-xs font-bold uppercase tracking-wider text-muted-foreground flex justify-between">
-                  <span>Modelo / Capacidade</span>
-                  <span>Qtd a Embarcar no Caminhão</span>
-                </div>
-                <div className="divide-y text-sm">
-                  {tiposAgrupados.map((item) => (
-                    <div
-                      key={item.tipoCapacidade}
-                      className="px-4 py-3 flex items-center justify-between hover:bg-muted/10 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="h-8 w-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs">
-                          ✓
-                        </div>
-                        <div>
-                          <p className="font-semibold text-foreground">{item.tipoCapacidade}</p>
-                          <p className="text-xs text-muted-foreground">
-                            Cilindros revisados e testados pela oficina
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-lg font-extrabold text-foreground">
-                          {item.quantidade}
-                        </span>
-                        <span className="text-xs text-muted-foreground ml-1">unidades</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Status do Veículo e Rota */}
-              <div className="p-4 bg-purple-50 rounded-lg border border-purple-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="space-y-1">
-                  <h4 className="font-bold text-sm text-purple-900 flex items-center gap-2">
-                    <Truck className="h-4 w-4" />
-                    Status da Rota de Entrega
-                  </h4>
-                  <p className="text-xs text-purple-700">
-                    Ao finalizar o embarque de todos os cilindros no veículo, altere o status do lote para &quot;Pronto para Entrega&quot;.
-                  </p>
-                </div>
-
-                <Button
-                  onClick={() => handleChangeStatus("pronto_entrega")}
-                  disabled={isUpdatingStatus || lote.status === "pronto_entrega"}
-                  className="bg-purple-600 hover:bg-purple-700 text-white gap-2 whitespace-nowrap"
-                >
-                  {isUpdatingStatus ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="h-4 w-4" />
-                  )}
-                  {lote.status === "pronto_entrega" ? "Caminhão em Rota" : "Confirmar Carga Embarcada"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* =========================================================================
-            TAB 3: ROMANEIO DE DEVOLUÇÃO (Visitas aos Clientes na Rota)
+            TAB 2: ROMANEIO DE DEVOLUÇÃO (Visitas aos Clientes na Rota)
             ========================================================================= */}
         <TabsContent value="romaneio" className="space-y-6">
           <div className="flex items-center justify-between print:hidden">
@@ -844,19 +751,45 @@ export function LoteDetailView({
                           )}
                         </div>
 
-                        {/* Endereço e Contato */}
-                        <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap pt-0.5">
-                          {enderecoCompleto && (
-                            <span className="flex items-center gap-1 font-medium text-foreground">
-                              <MapPin className="h-3.5 w-3.5 text-red-600" />
-                              {enderecoCompleto}
-                            </span>
-                          )}
+                        {/* Endereço Clicável para Google Maps (Grande para Celular) */}
+                        {enderecoCompleto ? (
+                          <div className="pt-2">
+                            <a
+                              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(enderecoCompleto)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-2.5 px-3.5 py-2.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/60 border-2 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 rounded-xl text-sm font-semibold transition-all shadow-xs active:scale-95 group w-full sm:w-auto"
+                              title="Clique para abrir rota no Google Maps (fácil no celular)"
+                            >
+                              <div className="p-2 bg-blue-600 text-white rounded-lg shadow-xs group-hover:scale-110 transition-transform">
+                                <MapPin className="h-4 w-4" />
+                              </div>
+                              <div className="text-left min-w-0">
+                                <span className="block text-sm font-bold text-blue-950 dark:text-blue-100 leading-tight">
+                                  {enderecoCompleto}
+                                </span>
+                                <span className="text-[11px] text-blue-600 dark:text-blue-400 font-medium flex items-center gap-1 mt-0.5">
+                                  🗺️ Abrir rota no Google Maps ➔
+                                </span>
+                              </div>
+                            </a>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground italic flex items-center gap-1 pt-1">
+                            <MapPin className="h-3.5 w-3.5 text-muted-foreground" /> Endereço não cadastrado
+                          </span>
+                        )}
+
+                        {/* Telefone e Volume */}
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap pt-1">
                           {telefone && (
-                            <span className="flex items-center gap-1">
-                              <Phone className="h-3.5 w-3.5 text-muted-foreground" />
+                            <a
+                              href={`tel:${telefone.replace(/\D/g, "")}`}
+                              className="flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-foreground font-medium"
+                            >
+                              <Phone className="h-3.5 w-3.5 text-emerald-600" />
                               {telefone}
-                            </span>
+                            </a>
                           )}
                           <span className="font-semibold text-emerald-600">
                             Volume: {grp.itens.length} extintor(es) • Total: {formatCurrency(grp.valorTotal)}
