@@ -345,10 +345,13 @@ export function ThermalReceipt58mmDialog({
       doc.setLineDashPattern([1, 1], 0);
       y += 5;
 
-      // 6. Totais e Pagamento (Destaque Grande)
+      // 6. Totais e Pagamento (Destaque em linhas separadas para nunca sobrepor)
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
+      doc.setFontSize(10);
       doc.text("VALOR TOTAL:", margin, y);
+      y += 4.5;
+
+      doc.setFontSize(13);
       doc.text(formatMoeda(receiptData.valor_total), 58 - margin, y, { align: "right" });
       y += 5.5;
 
@@ -399,18 +402,20 @@ export function ThermalReceipt58mmDialog({
       doc.text(splitQrHint, 29, y, { align: "center" });
       y += splitQrHint.length * 3.5 + 2;
 
-      // Box Autenticado
-      doc.setLineDashPattern([], 0);
-      doc.rect(margin, y, contentWidth, 9, "S");
+      // Autenticação Digital (Sem box que corta o texto)
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(7);
-      doc.text("DOCUMENTO AUTENTICADO DIGITALMENTE", 29, y + 3.2, { align: "center" });
+      doc.setFontSize(7.5);
+      doc.text("DOCUMENTO AUTENTICADO DIGITALMENTE", 29, y, { align: "center" });
+      y += 3.5;
+
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(6.2);
-      doc.text("Emitido via Fire CRM • Segurança anti-adulteração via QR Code", 29, y + 6.8, {
-        align: "center",
-      });
-      y += 14;
+      doc.setFontSize(6.5);
+      const splitAuth = doc.splitTextToSize(
+        "Emitido via Fire CRM • Segurança anti-adulteração via QR Code",
+        contentWidth
+      );
+      doc.text(splitAuth, 29, y, { align: "center" });
+      y += splitAuth.length * 3.2 + 3;
 
       doc.setFontSize(8);
       doc.text(`Obrigado pela preferência! • ${activeEmpresaNome}`, 29, y, { align: "center" });
@@ -631,10 +636,12 @@ export function ThermalReceipt58mmDialog({
             <div className="border-t-2 border-black my-1.5" />
 
             {/* TOTAIS E PAGAMENTO */}
-            <div className="space-y-0.5 text-[12px]">
-              <div className="flex justify-between font-extrabold text-sm">
-                <span>VALOR TOTAL:</span>
-                <span className="font-mono">{formatMoeda(receiptData.valor_total)}</span>
+            <div className="space-y-1 text-[12px]">
+              <div>
+                <span className="font-extrabold text-xs">VALOR TOTAL:</span>
+                <div className="font-extrabold text-base font-mono text-right">
+                  {formatMoeda(receiptData.valor_total)}
+                </div>
               </div>
               <p className="text-[11px]">
                 <strong>Pgto:</strong> {receiptData.forma_pagamento}
@@ -677,11 +684,11 @@ export function ThermalReceipt58mmDialog({
 
             <div className="border-t border-dashed border-black my-2" />
 
-            {/* AUTENTICAÇÃO DIGITAL & SEGURANÇA */}
-            <div className="border border-black p-1.5 text-center text-[9px] mt-2 rounded">
-              <p className="font-bold uppercase tracking-wider">DOCUMENTO AUTENTICADO DIGITALMENTE</p>
-              <p className="text-[8px] mt-0.5 leading-tight">
-                Emitido via Fire CRM. Dispensa assinatura manual e garante segurança anti-adulteração via QR Code.
+            {/* AUTENTICAÇÃO DIGITAL & SEGURANÇA (SEM BOX APERTADO) */}
+            <div className="text-center space-y-0.5 mt-2">
+              <p className="font-bold text-[9px] uppercase tracking-wider">DOCUMENTO AUTENTICADO DIGITALMENTE</p>
+              <p className="text-[8px] leading-tight text-neutral-700">
+                Emitido via Fire CRM • Segurança anti-adulteração via QR Code
               </p>
             </div>
 
