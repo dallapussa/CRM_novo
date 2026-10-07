@@ -219,7 +219,7 @@ export function ThermalReceipt58mmDialog({
         y += 3.5;
       }
       if (activeEmpresaTelefone) {
-        doc.text(`Fone/Zap: ${activeEmpresaTelefone}`, 29, y, { align: "center" });
+        doc.text(`Fone/Whats: ${activeEmpresaTelefone}`, 29, y, { align: "center" });
         y += 3.5;
       }
 
@@ -526,7 +526,7 @@ export function ThermalReceipt58mmDialog({
                 <p className="text-[9px]">CNPJ: {activeEmpresaCnpj}</p>
               )}
               {activeEmpresaTelefone && (
-                <p className="text-[9px]">Fone/Zap: {activeEmpresaTelefone}</p>
+                <p className="text-[9px]">Fone/Whats: {activeEmpresaTelefone}</p>
               )}
             </div>
 
