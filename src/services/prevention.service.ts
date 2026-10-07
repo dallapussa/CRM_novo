@@ -426,28 +426,37 @@ export async function createOrdemRecolhimento(
   let activeLoteId = input.loteId;
   if (!activeLoteId) {
     try {
-      const { data: clientObj } = await supabase
-        .from("clients")
-        .select("razao_social, address_city, address_neighborhood")
-        .eq("id", input.clientId)
-        .maybeSingle();
+      // 1. Puxa lote automático que ainda está na Chegada / Descarga (independente de data)
+      const existingLotes = await listLotesRecolhimento();
+      const loteDescargaAuto = findActiveAutoDescargaLote(existingLotes);
 
-      const cidade = clientObj?.address_city || "Geral";
-      const dataFmt = input.dataRecolhimento
-        ? new Date(input.dataRecolhimento + "T12:00:00").toLocaleDateString("pt-BR")
-        : new Date().toLocaleDateString("pt-BR");
+      if (loteDescargaAuto) {
+        activeLoteId = loteDescargaAuto.id;
+      } else {
+        // 2. Se não houver lote automático na descarga (ex: avançou para oficina), gera novo lote
+        const { data: clientObj } = await supabase
+          .from("clients")
+          .select("razao_social, address_city, address_neighborhood")
+          .eq("id", input.clientId)
+          .maybeSingle();
 
-      const autoLote = await saveLoteRecolhimento({
-        nome: `Lote ${cidade} - ${dataFmt}`,
-        cidade,
-        regiao: clientObj?.address_neighborhood || null,
-        data_recolhimento: input.dataRecolhimento || new Date().toISOString().split("T")[0],
-        prazo_dias: 14,
-        previsao_devolucao: input.previsaoDevolucao || undefined,
-        status: "aguardando_descarga",
-        observacoes: `Lote criado automaticamente no recolhimento do cliente ${clientObj?.razao_social || ""}.`,
-      });
-      activeLoteId = autoLote.id;
+        const cidade = clientObj?.address_city || "Geral";
+        const dataFmt = input.dataRecolhimento
+          ? new Date(input.dataRecolhimento + "T12:00:00").toLocaleDateString("pt-BR")
+          : new Date().toLocaleDateString("pt-BR");
+
+        const autoLote = await saveLoteRecolhimento({
+          nome: `Lote ${cidade} - ${dataFmt}`,
+          cidade,
+          regiao: clientObj?.address_neighborhood || null,
+          data_recolhimento: input.dataRecolhimento || new Date().toISOString().split("T")[0],
+          prazo_dias: 14,
+          previsao_devolucao: input.previsaoDevolucao || undefined,
+          status: "aguardando_descarga",
+          observacoes: `[ORIGEM:AUTO] Lote criado automaticamente no recolhimento do cliente ${clientObj?.razao_social || ""}.`,
+        });
+        activeLoteId = autoLote.id;
+      }
     } catch (autoErr) {
       console.warn("Falha ao autogerar lote para recolhimento:", autoErr);
     }
@@ -813,6 +822,40 @@ export async function listLotesRecolhimento(): Promise<LoteRecolhimento[]> {
       modelos_agrupados: modelosAgrupados,
     };
   });
+}
+
+/**
+ * Verifica se um lote foi gerado automaticamente pelo sistema de recolhimento.
+ */
+export function isLoteAutomatico(lote: { observacoes?: string | null }): boolean {
+  if (!lote.observacoes) return false;
+  const obs = lote.observacoes.toLowerCase();
+  return (
+    lote.observacoes.includes("[ORIGEM:AUTO]") ||
+    obs.includes("automaticamente") ||
+    obs.includes("lote criado automaticamente")
+  );
+}
+
+/**
+ * Encontra o lote automático ativo que está atualmente na fase de Chegada / Descarga.
+ * Enquanto este lote estiver na descarga (independente de data), novos recolhimentos serão vinculados a ele.
+ * Quando o lote avança para a Oficina, retorna null e um novo lote é gerado no próximo recolhimento.
+ */
+export function findActiveAutoDescargaLote(lotes: LoteRecolhimento[]): LoteRecolhimento | null {
+  const lotesDescarga = lotes.filter((l) => {
+    const isDescarga = l.status === "aguardando_descarga" || (l.status as any) === "recolhendo";
+    return isDescarga && isLoteAutomatico(l);
+  });
+
+  if (lotesDescarga.length === 0) return null;
+
+  // Se houver mais de um, seleciona o mais recente
+  return lotesDescarga.sort((a, b) => {
+    const dateA = new Date(a.created_at || a.data_recolhimento).getTime();
+    const dateB = new Date(b.created_at || b.data_recolhimento).getTime();
+    return dateB - dateA;
+  })[0];
 }
 
 export async function getLoteRecolhimento(loteId: string): Promise<LoteRecolhimento | null> {

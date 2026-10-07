@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import type { LoteRecolhimento } from "@/types";
 import { formatCurrency } from "@/lib/utils";
+import { isLoteAutomatico } from "@/services/prevention.service";
 
 interface LoteInspectDialogProps {
   open: boolean;
@@ -90,6 +91,16 @@ export function LoteInspectDialog({
               <GitMerge className="h-4 w-4 text-purple-600 shrink-0" />
               <span>
                 <strong>Lote Unificado:</strong> {mergeTag[0].replace(/[\[\]]/g, "")}
+              </span>
+            </div>
+          )}
+
+          {/* Indicador de Lote Ativo em Descarga */}
+          {isLoteAutomatico(lote) && (lote.status === "aguardando_descarga" || (lote.status as any) === "recolhendo") && (
+            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs text-emerald-900 dark:text-emerald-200 flex items-center gap-2">
+              <PackageCheck className="h-4 w-4 text-emerald-600 shrink-0" />
+              <span>
+                <strong>Lote Ativo na Descarga:</strong> Novos recolhimentos de clientes serão agrupados automaticamente aqui até que este lote avance para a Oficina.
               </span>
             </div>
           )}

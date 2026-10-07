@@ -45,6 +45,7 @@ import {
   createOrdemRecolhimento,
   listLotesRecolhimento,
   saveLoteRecolhimento,
+  findActiveAutoDescargaLote,
 } from "@/services/prevention.service";
 import { LoteCreateDialog } from "@/components/lotes/lote-create-dialog";
 import { formatCurrency, formatMonthYear } from "@/lib/utils";
@@ -118,21 +119,17 @@ export function OrderPickupModal({
         const abertos = data.filter((l) => l.status !== "concluido");
         setLotes(abertos);
 
-        // Após o primeiro lote criado no dia, puxa diretamente para o próximo recolhimento do dia
-        const hojeIso = new Date().toISOString().split("T")[0];
-        const loteDoDia = abertos.find(
-          (l) =>
-            l.data_recolhimento === hojeIso ||
-            (l.created_at && l.created_at.startsWith(hojeIso)) ||
-            l.status === "aguardando_descarga"
-        );
+        // Puxa o lote que está na descarga e que foi criado automaticamente, independente de data
+        const loteDescargaAuto = findActiveAutoDescargaLote(abertos);
 
-        if (loteDoDia) {
-          setSelectedLoteId(loteDoDia.id);
-          if (loteDoDia.previsao_devolucao) {
-            setPrevisaoDevolucao(loteDoDia.previsao_devolucao);
+        if (loteDescargaAuto) {
+          setSelectedLoteId(loteDescargaAuto.id);
+          if (loteDescargaAuto.previsao_devolucao) {
+            setPrevisaoDevolucao(loteDescargaAuto.previsao_devolucao);
           }
         } else {
+          // Nenhum lote automático na descarga (ex: anterior já avançou para a oficina)
+          // Será gerado um novo lote automaticamente na Descarga ao confirmar o recolhimento.
           setSelectedLoteId("auto");
         }
       });
@@ -185,8 +182,29 @@ export function OrderPickupModal({
     try {
       let finalLoteId = selectedLoteId;
 
-      // Se for "auto" ou não informado, cria o lote automaticamente com a data de recolhimento
+      // Se for "auto" ou não informado, busca lote automático na Descarga ou gera novo
       if (!finalLoteId || finalLoteId === "auto" || finalLoteId === "none") {
+        const existingLotes = await listLotesRecolhimento();
+        const loteDescargaAuto = findActiveAutoDescargaLote(existingLotes);
+
+        if (loteDescargaAuto) {
+          finalLoteId = loteDescargaAuto.id;
+        } else {
+          const cidade = customer.address?.city || "Geral";
+          const dataFmt = new Date(dataRecolhimento + "T12:00:00").toLocaleDateString("pt-BR");
+          const novoLote = await saveLoteRecolhimento({
+            nome: `Lote ${cidade} - ${dataFmt}`,
+            cidade,
+            regiao: customer.address?.neighborhood || null,
+            data_recolhimento: dataRecolhimento,
+            prazo_dias: 14,
+            previsao_devolucao: previsaoDevolucao,
+            status: "aguardando_descarga",
+            observacoes: `[ORIGEM:AUTO] Lote criado automaticamente no recolhimento do cliente ${customer.name}.`,
+          });
+          finalLoteId = novoLote.id;
+        }
+      } else if (finalLoteId === "novo_separado") {
         const cidade = customer.address?.city || "Geral";
         const dataFmt = new Date(dataRecolhimento + "T12:00:00").toLocaleDateString("pt-BR");
         const novoLote = await saveLoteRecolhimento({
@@ -197,7 +215,7 @@ export function OrderPickupModal({
           prazo_dias: 14,
           previsao_devolucao: previsaoDevolucao,
           status: "aguardando_descarga",
-          observacoes: `Lote criado automaticamente no recolhimento do cliente ${customer.name}.`,
+          observacoes: `[ORIGEM:AUTO] Lote criado no recolhimento do cliente ${customer.name} (separado manualmente).`,
         });
         finalLoteId = novoLote.id;
       }
@@ -452,11 +470,11 @@ export function OrderPickupModal({
           </div>
 
           {/* SEÇÃO 4: Lote Geral / Rota de Devolução */}
-          <div className="space-y-2 p-3 bg-neutral-50 dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800">
+          <div className="space-y-2 p-3.5 bg-neutral-50 dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800">
             <div className="flex items-center justify-between">
               <Label className="text-xs font-bold text-neutral-800 dark:text-neutral-200 flex items-center gap-1.5">
                 <Truck className="h-4 w-4 text-orange-600" />
-                Vincular a um Lote Geral / Rota de Cidade
+                Vincular a um Lote Geral (Chegada / Descarga)
               </Label>
               <button
                 type="button"
@@ -467,28 +485,56 @@ export function OrderPickupModal({
               </button>
             </div>
 
-            <Select value={selectedLoteId} onValueChange={handleSelectLote}>
-              <SelectTrigger className="h-9 text-xs bg-white dark:bg-neutral-800">
-                <SelectValue placeholder="Selecione um lote ou crie automaticamente" />
-              </SelectTrigger>
-              <SelectContent>
-                {lotes.map((l) => {
-                  const isDoDia = l.data_recolhimento === today || (l.created_at && l.created_at.startsWith(today));
-                  return (
-                    <SelectItem key={l.id} value={l.id}>
-                      {isDoDia ? "📌 [Lote do Dia] " : ""}[{l.codigo}] {l.nome} ({l.total_extintores || 0} cil.) — Retorno:{" "}
-                      {new Date(l.previsao_devolucao + "T12:00:00").toLocaleDateString("pt-BR")}
-                    </SelectItem>
-                  );
-                })}
-                <SelectItem value="auto">
-                  ✨ Criar um Novo Lote Separado ({customer.address?.city || "Geral"} - {new Date(dataRecolhimento + "T12:00:00").toLocaleDateString("pt-BR")})
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-[11px] text-muted-foreground">
-              Obrigatório: todos os extintores recolhidos entram na oficina vinculados a um Lote (em <strong>Chegada / Descarga</strong>), podendo ser mesclados no Kanban a qualquer momento.
-            </p>
+            {(() => {
+              const currentAutoDescarga = findActiveAutoDescargaLote(lotes);
+              return (
+                <div className="space-y-2">
+                  <Select value={selectedLoteId} onValueChange={handleSelectLote}>
+                    <SelectTrigger className="h-9 text-xs bg-white dark:bg-neutral-800">
+                      <SelectValue placeholder="Selecione um lote ou crie automaticamente" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {currentAutoDescarga && (
+                        <SelectItem key={currentAutoDescarga.id} value={currentAutoDescarga.id}>
+                          📥 [Lote Atual na Descarga] [{currentAutoDescarga.codigo}] {currentAutoDescarga.nome} ({currentAutoDescarga.total_extintores || 0} cil.)
+                        </SelectItem>
+                      )}
+
+                      {lotes
+                        .filter((l) => !currentAutoDescarga || l.id !== currentAutoDescarga.id)
+                        .map((l) => (
+                          <SelectItem key={l.id} value={l.id}>
+                            [{l.codigo}] {l.nome} ({l.total_extintores || 0} cil.) — Retorno:{" "}
+                            {new Date(l.previsao_devolucao + "T12:00:00").toLocaleDateString("pt-BR")}
+                          </SelectItem>
+                        ))}
+
+                      {!currentAutoDescarga && (
+                        <SelectItem value="auto">
+                          ✨ Criar Novo Lote Automático na Chegada / Descarga
+                        </SelectItem>
+                      )}
+
+                      <SelectItem value="novo_separado">
+                        ➕ Criar um Novo Lote Separado ({customer.address?.city || "Geral"} - {new Date(dataRecolhimento + "T12:00:00").toLocaleDateString("pt-BR")})
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  <p className="text-[11px] text-muted-foreground">
+                    {currentAutoDescarga && selectedLoteId === currentAutoDescarga.id ? (
+                      <span className="text-emerald-700 dark:text-emerald-400 font-medium">
+                        ✓ Os extintores serão vinculados diretamente ao Lote que está na Descarga. Um novo lote só será gerado após o avanço deste lote para a Oficina.
+                      </span>
+                    ) : (
+                      <span>
+                        Obrigatório: todos os extintores recolhidos entram na oficina vinculados a um Lote (em <strong>Chegada / Descarga</strong>), podendo ser mesclados no Kanban a qualquer momento.
+                      </span>
+                    )}
+                  </p>
+                </div>
+              );
+            })()}
           </div>
 
           {/* SEÇÃO 5: Dados Operacionais */}

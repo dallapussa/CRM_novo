@@ -30,7 +30,11 @@ import {
   Users,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { listLotesForBench, advanceLoteBenchStage } from "@/services/prevention.service";
+import {
+  listLotesForBench,
+  advanceLoteBenchStage,
+  findActiveAutoDescargaLote,
+} from "@/services/prevention.service";
 import type { LoteRecolhimento } from "@/types";
 import { LabelPrinterDialog, type LabelTarget } from "@/components/labels/label-printer-dialog";
 import { LoteMergeDialog } from "@/components/lotes/lote-merge-dialog";
@@ -749,9 +753,16 @@ export function BenchBoard() {
                           </p>
                         )}
                       </div>
-                      <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-[10px] shrink-0">
-                        Aguardando Descarga
-                      </Badge>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-[10px] shrink-0">
+                          Aguardando Descarga
+                        </Badge>
+                        {findActiveAutoDescargaLote(benchLotes)?.id === lote.id && (
+                          <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[9px] font-bold">
+                            📥 Ativo p/ Recolhimentos
+                          </Badge>
+                        )}
+                      </div>
                     </div>
 
                     {/* Alerta Visual de Mescla se houver */}
