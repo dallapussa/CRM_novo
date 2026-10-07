@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/client";
 import { getTenantContext } from "@/services/tenant.service";
+import { uploadFileToR2, deleteFileFromR2 } from "@/services/storage.service";
+import { buildR2PublicUrl } from "@/lib/r2";
 import type {
   DocumentoCliente,
   DocumentoClienteTipo,
@@ -17,7 +19,7 @@ import type {
 } from "@/types";
 
 // ============================================================================
-// 1. DOCUMENTOS DO CLIENTE (ANEXOS COM STORAGE)
+// 1. DOCUMENTOS DO CLIENTE (ANEXOS COM CLOUDFLARE R2 STORAGE)
 // ============================================================================
 
 export async function listClientDocuments(clientId: string): Promise<DocumentoCliente[]> {
@@ -43,9 +45,7 @@ export async function listClientDocuments(clientId: string): Promise<DocumentoCl
       id: d.id,
       client_id: d.client_id,
       tipo_documento: (d.categoria || "Outro") as DocumentoClienteTipo,
-      file_url: d.storage_path
-        ? supabase.storage.from("client-documents").getPublicUrl(d.storage_path).data.publicUrl
-        : "",
+      file_url: d.url || (d.storage_path ? buildR2PublicUrl(d.storage_path) : ""),
       file_name: d.nome || "Documento",
       storage_path: d.storage_path,
       file_size: d.size_bytes,
@@ -63,29 +63,18 @@ export async function uploadClientDocument(
   customStoragePath?: string
 ): Promise<DocumentoCliente> {
   const supabase = createClient();
-  const fileExt = file.name.split(".").pop();
   const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
   const storagePath = customStoragePath || `${clientId}/${Date.now()}_${cleanName}`;
 
-  // Upload para o bucket "client-documents" (ou fallback "documentos")
-  let bucketName = "client-documents";
-  const { error: uploadError } = await supabase.storage
-    .from(bucketName)
-    .upload(storagePath, file, { cacheControl: "3600", upsert: true });
+  // Upload universal para Cloudflare R2 usando PutObjectCommand via API
+  const uploadResult = await uploadFileToR2({
+    file,
+    key: storagePath,
+    fileName: file.name,
+    contentType: file.type,
+  });
 
-  if (uploadError) {
-    bucketName = "documentos";
-    const { error: retryError } = await supabase.storage
-      .from(bucketName)
-      .upload(storagePath, file, { cacheControl: "3600", upsert: true });
-    if (retryError) throw retryError;
-  }
-
-  const { data: publicUrlData } = supabase.storage
-    .from(bucketName)
-    .getPublicUrl(storagePath);
-
-  const fileUrl = publicUrlData.publicUrl;
+  const fileUrl = uploadResult.url;
 
   // 1. Evita duplicidade: se já existe documento com o mesmo storage_path para o cliente, atualiza o registro
   const { data: existingDoc } = await supabase
@@ -194,8 +183,7 @@ export async function deleteClientDocument(id: string, storagePath?: string | nu
   const supabase = createClient();
   if (storagePath) {
     try {
-      await supabase.storage.from("client-documents").remove([storagePath]);
-      await supabase.storage.from("documentos").remove([storagePath]);
+      await deleteFileFromR2(storagePath);
     } catch {
       // Ignora erro no storage se arquivo não existir
     }

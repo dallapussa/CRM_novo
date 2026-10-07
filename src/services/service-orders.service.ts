@@ -1,4 +1,6 @@
 import { getTenantContext } from "@/services/tenant.service";
+import { uploadFileToR2, deleteFileFromR2 } from "@/services/storage.service";
+import { buildR2PublicUrl } from "@/lib/r2";
 import type { ServiceOrder, ServiceOrderItem } from "@/types";
 
 export type ServiceOrderInput = Omit<ServiceOrder, "id" | "number" | "created_at" | "updated_at" | "customer" | "technician">;
@@ -211,10 +213,10 @@ export async function listServiceOrderPhotos(serviceOrderId: string) {
     .eq("service_order_id", serviceOrderId).eq("service_order.company_id", companyId).is("deleted_at", null)
     .order("created_at", { ascending: false });
   if (error) throw error;
-  return Promise.all((data || []).map(async (photo) => {
-    const { data: signed } = await supabase.storage.from("os-photos").createSignedUrl(photo.storage_path, 60 * 60);
-    return { ...photo, signedUrl: signed?.signedUrl ?? null };
-  }));
+  return (data || []).map((photo) => {
+    const publicUrl = photo.url || (photo.storage_path ? buildR2PublicUrl(photo.storage_path) : null);
+    return { ...photo, signedUrl: publicUrl, url: publicUrl };
+  });
 }
 
 export async function uploadServiceOrderPhoto(serviceOrderId: string, file: File) {
@@ -223,20 +225,30 @@ export async function uploadServiceOrderPhoto(serviceOrderId: string, file: File
   const extension = extensionByType[file.type];
   if (!extension || file.size > 10 * 1024 * 1024) throw new Error("Envie uma imagem JPG, PNG ou WebP de até 10 MB.");
   const storagePath = `${companyId}/${serviceOrderId}/${crypto.randomUUID()}.${extension}`;
-  const { error: uploadError } = await supabase.storage.from("os-photos").upload(storagePath, file, { contentType: file.type, upsert: false });
-  if (uploadError) throw uploadError;
+  
+  // Upload universal para o Cloudflare R2 usando PutObjectCommand via API
+  const uploadResult = await uploadFileToR2({
+    file,
+    key: storagePath,
+    fileName: file.name,
+    contentType: file.type,
+  });
+
+  const fileUrl = uploadResult.url;
+
   const { data: photo, error: insertError } = await supabase.from("os_photos").insert({
     service_order_id: serviceOrderId,
-    storage_path: storagePath,
-    url: null,
+    storage_path: uploadResult.key,
+    url: fileUrl,
     caption: file.name,
     uploaded_by: userId,
     created_by: userId,
   }).select("*").single();
+
   if (insertError) {
-    await supabase.storage.from("os-photos").remove([storagePath]);
+    await deleteFileFromR2(storagePath);
     throw insertError;
   }
-  const { data: signed } = await supabase.storage.from("os-photos").createSignedUrl(storagePath, 60 * 60);
-  return { ...photo, signedUrl: signed?.signedUrl ?? null };
+
+  return { ...photo, signedUrl: fileUrl, url: fileUrl };
 }

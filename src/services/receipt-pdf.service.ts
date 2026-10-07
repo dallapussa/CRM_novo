@@ -3,6 +3,7 @@ import QRCode from "qrcode";
 import type { LoteRecolhimento, PaymentMethod } from "@/types";
 import { uploadClientDocument } from "@/services/prevention.service";
 import { createClient } from "@/lib/supabase/client";
+import { buildR2PublicUrl } from "@/lib/r2";
 
 export interface ReceiptItem {
   id?: string;
@@ -41,7 +42,7 @@ export interface EditableReceiptData {
 }
 
 /**
- * Retorna o caminho de armazenamento e a URL pública definitiva do recibo no Supabase Storage.
+ * Retorna o caminho de armazenamento e a URL pública definitiva do recibo no Cloudflare R2 Storage.
  * Garante caminho determinístico por LOTE para evitar duplicação de arquivos no mesmo lote.
  */
 export function getReceiptPublicUrl(
@@ -55,7 +56,6 @@ export function getReceiptPublicUrl(
   authCode: string;
   fileName: string;
 } {
-  const supabase = createClient();
   const cleanReceipt = String(numeroRecibo || "REC-001").replace(/[^a-zA-Z0-9.-]/g, "_");
   const cleanClient = String(clientName || "cliente").replace(/[^a-zA-Z0-9]/g, "_").slice(0, 30);
   const cleanLote = loteCodigo ? String(loteCodigo).replace(/[^a-zA-Z0-9.-]/g, "_") : "";
@@ -66,9 +66,8 @@ export function getReceiptPublicUrl(
     : `Recibo_${cleanReceipt}_${cleanClient}.pdf`;
   const storagePath = `${clientId || "geral"}/recibo_${cleanLote ? cleanLote + "_" : cleanReceipt + "_"}${cleanClient}.pdf`;
 
-  const { data } = supabase.storage
-    .from("client-documents")
-    .getPublicUrl(storagePath);
+  // URL final de acesso público no formato: ${process.env.R2_PUBLIC_URL}/nome-do-arquivo.extensao
+  const fileUrl = buildR2PublicUrl(storagePath);
 
   // Gera chave de autenticação única e determinística
   const rawSeed = `${cleanLote || numeroRecibo}|${clientId}|${cleanClient}|${storagePath}`;
@@ -79,7 +78,7 @@ export function getReceiptPublicUrl(
   }
   const authCode = `AUTH-${Math.abs(hash).toString(16).toUpperCase().padStart(8, "0")}`;
 
-  return { storagePath, fileUrl: data.publicUrl, authCode, fileName };
+  return { storagePath, fileUrl, authCode, fileName };
 }
 
 /**
