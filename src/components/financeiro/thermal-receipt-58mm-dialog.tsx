@@ -138,7 +138,7 @@ export function ThermalReceipt58mmDialog({
     async function generateQr(url: string) {
       try {
         const qr = await QRCode.toDataURL(url, {
-          width: 140,
+          width: 320,
           margin: 1,
           color: {
             dark: "#000000",
@@ -179,8 +179,8 @@ export function ThermalReceipt58mmDialog({
     setIsDownloadingPdf(true);
     try {
       const itensCount = itensAgrupados.length || 1;
-      const baseHeight = 160 + itensCount * 9 + (activeLogo ? 22 : 0);
-      const pageHeight = Math.max(170, baseHeight);
+      const baseHeight = 220 + itensCount * 13 + (activeLogo ? 24 : 0);
+      const pageHeight = Math.max(235, baseHeight);
 
       const doc = new jsPDF({
         orientation: "portrait",
@@ -188,32 +188,33 @@ export function ThermalReceipt58mmDialog({
         format: [58, pageHeight],
       });
 
-      const margin = 3;
-      const contentWidth = 58 - margin * 2; // 52mm
-      let y = 5;
+      // Área útil da impressora térmica: 44mm centralizados em 58mm (7mm de cada lado)
+      const margin = 7;
+      const contentWidth = 44; // 44mm úteis
+      let y = 6;
 
       // 1. Logo (calculado com proporção para nunca sobrepor o nome da empresa)
       if (activeLogo) {
         try {
-          let logoW = 26;
-          let logoH = 12;
+          let logoW = 28;
+          let logoH = 13;
 
           try {
             const props = (doc as any).getImageProperties(activeLogo);
             if (props && props.width && props.height) {
               const ratio = props.width / props.height;
               if (ratio >= 1) {
-                logoW = Math.min(26, contentWidth);
+                logoW = Math.min(30, contentWidth);
                 logoH = logoW / ratio;
-                if (logoH > 13) {
-                  logoH = 13;
+                if (logoH > 14) {
+                  logoH = 14;
                   logoW = logoH * ratio;
                 }
               } else {
-                logoH = 13;
+                logoH = 14;
                 logoW = logoH * ratio;
-                if (logoW > 26) {
-                  logoW = 26;
+                if (logoW > 30) {
+                  logoW = 30;
                   logoH = logoW / ratio;
                 }
               }
@@ -224,54 +225,54 @@ export function ThermalReceipt58mmDialog({
 
           const logoX = (58 - logoW) / 2;
           doc.addImage(activeLogo, "PNG", logoX, y, logoW, logoH, undefined, "FAST");
-          y += logoH + 4.5; // Espaçamento seguro para afastar do nome da empresa
+          y += logoH + 5; // Espaçamento seguro para afastar do nome da empresa
         } catch (e) {
           console.warn("Aviso ao adicionar logo no PDF 58mm:", e);
         }
       }
 
-      // 2. Cabeçalho da Empresa
+      // 2. Cabeçalho da Empresa (Fontes ampliadas)
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(9);
+      doc.setFontSize(11);
       doc.setTextColor(0, 0, 0);
       doc.text(activeEmpresaNome, 29, y, { align: "center", maxWidth: contentWidth });
-      y += 4;
+      y += 4.5;
 
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
+      doc.setFontSize(8.5);
       doc.text("PREVENÇÃO CONTRA INCÊNDIO", 29, y, { align: "center" });
-      y += 3.5;
+      y += 4;
 
       if (activeEmpresaCnpj) {
         doc.text(`CNPJ: ${activeEmpresaCnpj}`, 29, y, { align: "center" });
-        y += 3.5;
+        y += 4;
       }
       if (activeEmpresaTelefone) {
         doc.text(`Fone/Whats: ${activeEmpresaTelefone}`, 29, y, { align: "center" });
-        y += 3.5;
+        y += 4;
       }
 
-      // Linha tracejada
+      // Linha tracejada (exatamente nos 44mm úteis)
       y += 1;
       doc.setLineDashPattern([1, 1], 0);
       doc.line(margin, y, 58 - margin, y);
-      y += 4;
+      y += 5;
 
-      // 3. Título do Recibo
+      // 3. Título do Recibo (Bem destacado)
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(9.5);
+      doc.setFontSize(13);
       doc.text("RECIBO", 29, y, { align: "center" });
-      y += 4;
+      y += 5.5;
 
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(8.5);
+      doc.setFontSize(10.5);
       doc.text(`Nº ${receiptData.numero_recibo}`, 29, y, { align: "center" });
-      y += 4;
+      y += 5;
 
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
+      doc.setFontSize(8.5);
       doc.text(`Data: ${receiptData.data_emissao}`, margin, y);
-      y += 3.5;
+      y += 4;
 
       if (receiptData.lote_codigo) {
         const splitLote = doc.splitTextToSize(
@@ -279,30 +280,30 @@ export function ThermalReceipt58mmDialog({
           contentWidth
         );
         doc.text(splitLote, margin, y);
-        y += splitLote.length * 3.5;
+        y += splitLote.length * 4;
       }
 
       // Linha tracejada
       doc.line(margin, y, 58 - margin, y);
-      y += 4;
+      y += 5;
 
       // 4. Dados do Cliente
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(7.5);
+      doc.setFontSize(9.5);
       const splitCli = doc.splitTextToSize(receiptData.cliente_nome.toUpperCase(), contentWidth);
       doc.text(splitCli, margin, y);
-      y += splitCli.length * 3.5;
+      y += splitCli.length * 4;
 
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(6.5);
+      doc.setFontSize(8.5);
       if (receiptData.cliente_documento) {
         doc.text(`Doc: ${receiptData.cliente_documento}`, margin, y);
-        y += 3.5;
+        y += 4;
       }
       if (receiptData.cliente_endereco) {
         const splitEnd = doc.splitTextToSize(`End: ${receiptData.cliente_endereco}`, contentWidth);
         doc.text(splitEnd, margin, y);
-        y += splitEnd.length * 3;
+        y += splitEnd.length * 3.5;
       }
 
       // Linha dupla
@@ -312,30 +313,29 @@ export function ThermalReceipt58mmDialog({
       doc.line(margin, y, 58 - margin, y);
       doc.setLineWidth(0.2);
       doc.setLineDashPattern([1, 1], 0);
-      y += 4;
+      y += 5;
 
       // 5. Itens do Recibo
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(7);
+      doc.setFontSize(8.5);
       doc.text("ITENS / EXTINTORES", margin, y);
       doc.text("TOTAL", 58 - margin, y, { align: "right" });
-      y += 3.5;
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(6.5);
+      y += 4.5;
 
       itensAgrupados.forEach((it) => {
         const desc = `${it.qtd}x ${it.tipo} (${it.modalidade.slice(0, 4)}.)`;
         const valTot = formatMoeda(it.total);
-        doc.text(desc, margin, y, { maxWidth: 35 });
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8);
+        doc.text(desc, margin, y, { maxWidth: 28 });
         doc.text(valTot, 58 - margin, y, { align: "right" });
-        y += 3;
-        doc.setFontSize(5.5);
-        doc.setTextColor(80, 80, 80);
+        y += 3.8;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7.5);
+        doc.setTextColor(70, 70, 70);
         doc.text(`Un: ${formatMoeda(it.valorUnit)}`, margin + 2, y);
         doc.setTextColor(0, 0, 0);
-        doc.setFontSize(6.5);
-        y += 3.5;
+        y += 4.2;
       });
 
       // Linha dupla
@@ -344,71 +344,76 @@ export function ThermalReceipt58mmDialog({
       doc.line(margin, y, 58 - margin, y);
       doc.setLineWidth(0.2);
       doc.setLineDashPattern([1, 1], 0);
-      y += 4;
+      y += 5;
 
-      // 6. Totais e Pagamento
+      // 6. Totais e Pagamento (Destaque Grande)
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(8.5);
+      doc.setFontSize(11);
       doc.text("VALOR TOTAL:", margin, y);
       doc.text(formatMoeda(receiptData.valor_total), 58 - margin, y, { align: "right" });
-      y += 4.5;
+      y += 5.5;
 
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
+      doc.setFontSize(8.5);
       doc.text(`Pgto: ${receiptData.forma_pagamento}`, margin, y);
-      y += 3.5;
+      y += 4;
 
       doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
       const statusText =
         receiptData.status_pagamento === "QUITADO"
           ? "[X] QUITADO / PAGO"
           : "[ ] PENDENTE / A PRAZO";
       doc.text(`Status: ${statusText}`, margin, y);
-      y += 4;
+      y += 5;
 
       // Linha tracejada
+      doc.setLineDashPattern([1, 1], 0);
       doc.line(margin, y, 58 - margin, y);
+      y += 5;
+
+      // 7. QR Code Aumentado (38mm de largura nos 44mm úteis)
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.text("RECIBO DIGITAL & CERTIFICADO", 29, y, { align: "center" });
       y += 4;
 
-      // 7. QR Code e Autenticação
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(7);
-      doc.text("RECIBO DIGITAL & CERTIFICADO", 29, y, { align: "center" });
-      y += 3;
+      const qrSize = 38; // 38mm de largura (ocupa quase todos os 44mm úteis)
+      const qrX = (58 - qrSize) / 2; // Centralizado em 10mm
 
       if (qrCodeDataUrl) {
         try {
-          doc.addImage(qrCodeDataUrl, "PNG", (58 - 26) / 2, y, 26, 26, undefined, "FAST");
-          y += 28;
+          doc.addImage(qrCodeDataUrl, "PNG", qrX, y, qrSize, qrSize, undefined, "FAST");
+          y += qrSize + 4;
         } catch (qrErr) {
           console.warn("Aviso ao adicionar QR no PDF 58mm:", qrErr);
-          y += 4;
+          y += 5;
         }
       }
 
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(5.5);
+      doc.setFontSize(7.5);
       const splitQrHint = doc.splitTextToSize(
         "Aponte a câmera para abrir o recibo digital completo em PDF.",
         contentWidth
       );
       doc.text(splitQrHint, 29, y, { align: "center" });
-      y += splitQrHint.length * 3;
+      y += splitQrHint.length * 3.5 + 2;
 
       // Box Autenticado
       doc.setLineDashPattern([], 0);
-      doc.rect(margin, y, contentWidth, 7, "S");
+      doc.rect(margin, y, contentWidth, 9, "S");
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(5.5);
-      doc.text("DOCUMENTO AUTENTICADO DIGITALMENTE", 29, y + 2.8, { align: "center" });
+      doc.setFontSize(7);
+      doc.text("DOCUMENTO AUTENTICADO DIGITALMENTE", 29, y + 3.2, { align: "center" });
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(4.8);
-      doc.text("Emitido via Fire CRM • Segurança anti-adulteração via QR Code", 29, y + 5.5, {
+      doc.setFontSize(6.2);
+      doc.text("Emitido via Fire CRM • Segurança anti-adulteração via QR Code", 29, y + 6.8, {
         align: "center",
       });
-      y += 10;
+      y += 14;
 
-      doc.setFontSize(6);
+      doc.setFontSize(8);
       doc.text(`Obrigado pela preferência! • ${activeEmpresaNome}`, 29, y, { align: "center" });
 
       const cleanNum = String(receiptData.numero_recibo || "001").replace(/[^a-zA-Z0-9.-]/g, "_");
@@ -417,7 +422,7 @@ export function ThermalReceipt58mmDialog({
       toast({
         variant: "success",
         title: "Cupom 58mm baixado em PDF!",
-        description: `Arquivo Cupom_58mm_${cleanNum}.pdf salvo no formato exato de 58mm.`,
+        description: `Arquivo Cupom_58mm_${cleanNum}.pdf salvo no formato exato de 58mm (44mm úteis).`,
       });
     } catch (err: any) {
       toast({
@@ -430,7 +435,7 @@ export function ThermalReceipt58mmDialog({
     }
   };
 
-  // 2. Dispara a impressão direta do cupom de 58mm com iframe invisível sem window.close precipitado
+    // 2. Dispara a impressão direta do cupom de 58mm com iframe invisível sem window.close precipitado
   const handlePrint58mm = () => {
     const printContent = printAreaRef.current;
     if (!printContent) return;
@@ -473,10 +478,10 @@ export function ThermalReceipt58mmDialog({
             body {
               width: 58mm;
               margin: 0;
-              padding: 2mm 3mm;
+              padding: 2.5mm 7mm;
               font-family: 'Courier New', Courier, monospace, -apple-system, sans-serif;
-              font-size: 11px;
-              line-height: 1.25;
+              font-size: 13px;
+              line-height: 1.3;
               color: #000;
               background: #fff;
               box-sizing: border-box;
@@ -491,8 +496,8 @@ export function ThermalReceipt58mmDialog({
             .logo-container { text-align: center; margin-bottom: 4px; }
             .logo-container img { max-height: 44px; max-width: 120px; object-fit: contain; display: inline-block; }
             .qr-container { text-align: center; margin: 6px 0; }
-            .qr-container img { width: 110px; height: 110px; display: inline-block; }
-            .qr-hint { font-size: 9px; line-height: 1.1; margin-top: 2px; text-align: center; }
+            .qr-container img { width: 145px; height: 145px; display: inline-block; }
+            .qr-hint { font-size: 11px; line-height: 1.2; margin-top: 3px; text-align: center; }
             .signature-box { margin-top: 15px; border-top: 1px solid #000; padding-top: 2px; text-align: center; font-size: 10px; }
           </style>
         </head>
@@ -528,7 +533,7 @@ export function ThermalReceipt58mmDialog({
                 Impressão Térmica 58mm
               </DialogTitle>
               <DialogDescription className="text-xs">
-                Cupom resumido em bobina 58mm com QR Code para o recibo digital em PDF.
+                Cupom resumido em bobina 58mm com 44mm úteis e QR Code ampliado.
               </DialogDescription>
             </div>
           </div>
@@ -538,7 +543,7 @@ export function ThermalReceipt58mmDialog({
         <div className="flex justify-center p-2 bg-muted/40 rounded-xl border">
           <div
             ref={printAreaRef}
-            className="w-[58mm] min-w-[58mm] bg-white text-black p-2.5 font-mono text-[11px] leading-tight shadow-sm border border-neutral-300 rounded-sm select-text"
+            className="w-[58mm] min-w-[58mm] bg-white text-black px-[7mm] py-3 font-mono text-[12px] leading-snug shadow-sm border border-neutral-300 rounded-sm select-text"
             style={{ width: "58mm" }}
           >
             {/* CABEÇALHO DA EMPRESA */}
@@ -552,14 +557,15 @@ export function ThermalReceipt58mmDialog({
                   />
                 </div>
               )}
-              <p className="font-extrabold text-xs tracking-tight uppercase">
+              <p className="font-extrabold text-sm tracking-tight uppercase">
                 {activeEmpresaNome}
               </p>
+              <p className="text-[10px] text-neutral-800">PREVENÇÃO CONTRA INCÊNDIO</p>
               {activeEmpresaCnpj && (
-                <p className="text-[9px]">CNPJ: {activeEmpresaCnpj}</p>
+                <p className="text-[11px]">CNPJ: {activeEmpresaCnpj}</p>
               )}
               {activeEmpresaTelefone && (
-                <p className="text-[9px]">Fone/Whats: {activeEmpresaTelefone}</p>
+                <p className="text-[11px]">Fone/Whats: {activeEmpresaTelefone}</p>
               )}
             </div>
 
@@ -567,11 +573,11 @@ export function ThermalReceipt58mmDialog({
 
             {/* IDENTIFICAÇÃO DO RECIBO */}
             <div className="text-center font-bold">
-              <div className="text-xs tracking-wider">RECIBO</div>
-              <div className="text-[10px] font-mono mt-0.5">Nº {receiptData.numero_recibo}</div>
+              <div className="text-sm tracking-wider">RECIBO</div>
+              <div className="text-xs font-mono mt-0.5">Nº {receiptData.numero_recibo}</div>
             </div>
 
-            <div className="space-y-0.5 text-[10px] mt-1">
+            <div className="space-y-0.5 text-[11px] mt-1.5">
               <p>
                 <strong>Data:</strong> {receiptData.data_emissao}
               </p>
@@ -586,8 +592,8 @@ export function ThermalReceipt58mmDialog({
             <div className="border-t border-dashed border-black my-1.5" />
 
             {/* CLIENTE */}
-            <div className="space-y-0.5 text-[10px]">
-              <p className="font-bold uppercase break-words">
+            <div className="space-y-0.5 text-[11px]">
+              <p className="font-bold uppercase break-words text-xs">
                 {receiptData.cliente_nome}
               </p>
               {receiptData.cliente_documento && (
@@ -602,17 +608,17 @@ export function ThermalReceipt58mmDialog({
 
             {/* TABELA RESUMIDA DE ITENS */}
             <div className="space-y-1">
-              <div className="flex justify-between font-bold text-[10px] border-b border-black pb-0.5">
+              <div className="flex justify-between font-bold text-[11px] border-b border-black pb-0.5">
                 <span>QTD DESCRIÇÃO</span>
                 <span className="text-right">TOTAL</span>
               </div>
 
               {itensAgrupados.map((it, idx) => (
-                <div key={idx} className="flex justify-between text-[10px] leading-snug">
+                <div key={idx} className="flex justify-between text-[11px] leading-snug">
                   <span className="break-words max-w-[65%]">
                     <strong>{it.qtd}x</strong> {it.tipo} ({it.modalidade.slice(0, 4)}.)
                     <br />
-                    <span className="text-[9px] text-neutral-600">
+                    <span className="text-[10px] text-neutral-600">
                       Un: {formatMoeda(it.valorUnit)}
                     </span>
                   </span>
@@ -626,15 +632,15 @@ export function ThermalReceipt58mmDialog({
             <div className="border-t-2 border-black my-1.5" />
 
             {/* TOTAIS E PAGAMENTO */}
-            <div className="space-y-0.5 text-[11px]">
-              <div className="flex justify-between font-extrabold text-xs">
+            <div className="space-y-0.5 text-[12px]">
+              <div className="flex justify-between font-extrabold text-sm">
                 <span>VALOR TOTAL:</span>
                 <span className="font-mono">{formatMoeda(receiptData.valor_total)}</span>
               </div>
-              <p className="text-[10px]">
+              <p className="text-[11px]">
                 <strong>Pgto:</strong> {receiptData.forma_pagamento}
               </p>
-              <p className="text-[10px] font-bold">
+              <p className="text-[11px] font-bold">
                 <strong>Status:</strong>{" "}
                 {receiptData.status_pagamento === "QUITADO"
                   ? "[X] QUITADO / PAGO"
@@ -646,7 +652,7 @@ export function ThermalReceipt58mmDialog({
 
             {/* QR CODE PARA ACESSAR O RECIBO DIGITAL EM PDF */}
             <div className="text-center space-y-1 my-2">
-              <p className="font-bold text-[9px] uppercase tracking-wider">
+              <p className="font-bold text-[10px] uppercase tracking-wider">
                 Recibo Digital & Certificado
               </p>
 
@@ -660,12 +666,12 @@ export function ThermalReceipt58mmDialog({
                   <img
                     src={qrCodeDataUrl}
                     alt="QR Code do Recibo Digital"
-                    className="w-28 h-28 mx-auto"
+                    className="w-36 h-36 mx-auto object-contain"
                   />
                 </div>
               ) : null}
 
-              <p className="text-[8.5px] leading-tight text-neutral-800">
+              <p className="text-[10px] leading-tight text-neutral-800">
                 Aponte a câmera do celular para abrir o recibo digital e documento PDF completo.
               </p>
             </div>
@@ -673,14 +679,14 @@ export function ThermalReceipt58mmDialog({
             <div className="border-t border-dashed border-black my-2" />
 
             {/* AUTENTICAÇÃO DIGITAL & SEGURANÇA */}
-            <div className="border border-black p-1.5 text-center text-[8px] mt-2 rounded">
+            <div className="border border-black p-1.5 text-center text-[9px] mt-2 rounded">
               <p className="font-bold uppercase tracking-wider">DOCUMENTO AUTENTICADO DIGITALMENTE</p>
-              <p className="text-[7.5px] mt-0.5 leading-tight">
+              <p className="text-[8px] mt-0.5 leading-tight">
                 Emitido via Fire CRM. Dispensa assinatura manual e garante segurança anti-adulteração via QR Code.
               </p>
             </div>
 
-            <p className="text-[8px] text-center mt-3">
+            <p className="text-[9.5px] text-center mt-3">
               Obrigado pela preferência! • {activeEmpresaNome}
             </p>
           </div>
