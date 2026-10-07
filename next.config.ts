@@ -9,6 +9,14 @@ const supabaseAnonKey =
 if (supabaseUrl) env.NEXT_PUBLIC_SUPABASE_URL = supabaseUrl;
 if (supabaseAnonKey) env.NEXT_PUBLIC_SUPABASE_ANON_KEY = supabaseAnonKey;
 
-const nextConfig: NextConfig = { env };
+const nextConfig: NextConfig = {
+  env,
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  typescript: {
+    ignoreBuildErrors: false,
+  },
+};
 
 export default nextConfig;

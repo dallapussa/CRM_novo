@@ -42,13 +42,13 @@ export function LoteInspectDialog({
   lote,
   onAdvanceStage,
 }: LoteInspectDialogProps) {
+  const clientesAgrupados = React.useMemo(() => {
+    return lote ? groupOrdensByClient(lote.ordens || []) : [];
+  }, [lote]);
+
   if (!lote) return null;
 
   const mergeTag = lote.observacoes?.match(/\[Mesclado[^\]]+\]/);
-
-  const clientesAgrupados = React.useMemo(() => {
-    return groupOrdensByClient(lote.ordens || []);
-  }, [lote.ordens]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

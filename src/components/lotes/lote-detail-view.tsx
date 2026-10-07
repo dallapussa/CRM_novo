@@ -72,7 +72,7 @@ export function LoteDetailView({
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [selectedOrderForDelivery, setSelectedOrderForDelivery] = useState<OrdemRecolhimento | null>(null);
 
-  const ordens = lote.ordens || [];
+  const ordens = useMemo(() => lote.ordens || [], [lote.ordens]);
 
   const clientesAgrupados = useMemo<GroupedClientInLote[]>(() => {
     return groupOrdensByClient(ordens);

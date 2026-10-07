@@ -77,10 +77,8 @@ export function LoteMergeDialog({
       let currentTargetId = "";
       if (initialTargetLoteId && activeLotes.some((l) => l.id === initialTargetLoteId)) {
         currentTargetId = initialTargetLoteId;
-      } else if (!targetLoteId || !activeLotes.some((l) => l.id === targetLoteId)) {
-        currentTargetId = activeLotes[0].id;
       } else {
-        currentTargetId = targetLoteId;
+        currentTargetId = activeLotes[0].id;
       }
       setTargetLoteId(currentTargetId);
 
