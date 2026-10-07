@@ -858,6 +858,79 @@ export function findActiveAutoDescargaLote(lotes: LoteRecolhimento[]): LoteRecol
   })[0];
 }
 
+export interface GroupedClientInLote {
+  clientId: string;
+  client: any;
+  ordens: OrdemRecolhimento[];
+  itens: ItemRecolhimento[];
+  totalExtintores: number;
+  valorTotal: number;
+  reservas: { numero_ordem: number; detalhes: string }[];
+  modelosAgrupados: { modelo: string; count: number }[];
+}
+
+/**
+ * Agrupa as ordens de recolhimento de um lote por cliente,
+ * consolidando todas as OSs (ex: OS 25 e OS 27), cilindros e reservas do mesmo cliente.
+ */
+export function groupOrdensByClient(ordens: OrdemRecolhimento[]): GroupedClientInLote[] {
+  const map = new Map<string, GroupedClientInLote>();
+
+  (ordens || []).forEach((ordem) => {
+    const clientId = ordem.client_id || ordem.client?.id || `unknown-${ordem.id}`;
+    let group = map.get(clientId);
+
+    if (!group) {
+      group = {
+        clientId,
+        client: ordem.client,
+        ordens: [],
+        itens: [],
+        totalExtintores: 0,
+        valorTotal: 0,
+        reservas: [],
+        modelosAgrupados: [],
+      };
+      map.set(clientId, group);
+    } else if (!group.client && ordem.client) {
+      group.client = ordem.client;
+    }
+
+    group.ordens.push(ordem);
+    const ordemItens = ordem.itens || [];
+    group.itens.push(...ordemItens);
+    group.totalExtintores += ordemItens.length;
+
+    const ordemValor = ordemItens.reduce(
+      (sum, it) => sum + Number(it.valor_registrado || it.extintor?.valor_servico || 0),
+      0
+    );
+    group.valorTotal += ordemValor;
+
+    if (ordem.deixou_reserva && ordem.detalhes_reserva) {
+      group.reservas.push({
+        numero_ordem: ordem.numero_ordem,
+        detalhes: ordem.detalhes_reserva,
+      });
+    }
+  });
+
+  return Array.from(map.values()).map((g) => {
+    const modMap = new Map<string, number>();
+    g.itens.forEach((it) => {
+      const mod = it.extintor?.tipo_capacidade || "Pó ABC - 4kg";
+      modMap.set(mod, (modMap.get(mod) || 0) + 1);
+    });
+    return {
+      ...g,
+      modelosAgrupados: Array.from(modMap.entries()).map(([modelo, count]) => ({
+        modelo,
+        count,
+      })),
+    };
+  });
+}
+
 export async function getLoteRecolhimento(loteId: string): Promise<LoteRecolhimento | null> {
   const all = await listLotesRecolhimento();
   return all.find((l) => l.id === loteId) || null;

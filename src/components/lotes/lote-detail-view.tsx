@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Card,
@@ -45,6 +45,8 @@ import { formatCurrency } from "@/lib/utils";
 import {
   confirmClientDevolucao,
   updateLoteStatus,
+  groupOrdensByClient,
+  type GroupedClientInLote,
 } from "@/services/prevention.service";
 import { DeliveryReceiptDialog } from "./delivery-receipt-dialog";
 
@@ -71,6 +73,10 @@ export function LoteDetailView({
   const [selectedOrderForDelivery, setSelectedOrderForDelivery] = useState<OrdemRecolhimento | null>(null);
 
   const ordens = lote.ordens || [];
+
+  const clientesAgrupados = useMemo<GroupedClientInLote[]>(() => {
+    return groupOrdensByClient(ordens);
+  }, [ordens]);
 
   // 1. Agrupamento de Chegada: por Tipo e Capacidade
   const contagemPorTipo: Record<string, { tipoCapacidade: string; quantidade: number; valorTotal: number }> = {};
@@ -426,17 +432,15 @@ export function LoteDetailView({
             </CardHeader>
             <CardContent className="p-0">
               <div className="divide-y text-sm">
-                {ordens.map((ordem) => {
-                  const clientName = ordem.client?.name || "Cliente";
-                  const qtdItens = ordem.itens?.length || 0;
-                  const totalOrdem = (ordem.itens || []).reduce(
-                    (acc, i) => acc + (i.valor_registrado || i.extintor?.valor_servico || 0),
-                    0
-                  );
+                {clientesAgrupados.map((grp) => {
+                  const clientName = grp.client?.name || grp.client?.razao_social || "Cliente";
+                  const qtdItens = grp.totalExtintores;
+                  const totalCliente = grp.valorTotal;
+                  const allConcluido = grp.ordens.every((o) => o.status === "concluido");
 
                   return (
                     <div
-                      key={ordem.id}
+                      key={grp.clientId}
                       className="p-4 hover:bg-muted/20 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4"
                     >
                       <div className="space-y-1">
@@ -444,51 +448,54 @@ export function LoteDetailView({
                           <span className="font-bold text-base text-foreground">
                             {clientName}
                           </span>
-                          <span className="text-xs text-muted-foreground font-mono">
-                            OS #{ordem.numero_ordem}
-                          </span>
-                          {ordem.deixou_reserva && (
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {grp.ordens.map((o) => (
+                              <span key={o.id} className="text-xs text-muted-foreground font-mono bg-muted px-1.5 py-0.5 rounded">
+                                OS #{o.numero_ordem}
+                              </span>
+                            ))}
+                          </div>
+                          {grp.reservas.length > 0 && (
                             <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-[11px] gap-1">
                               <AlertTriangle className="h-3 w-3" />
-                              Deixou Reserva ({ordem.detalhes_reserva || "Sim"})
+                              Deixou Reserva
                             </Badge>
                           )}
                           <Badge
                             variant="outline"
                             className={
-                              ordem.status === "concluido"
+                              allConcluido
                                 ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                                 : "bg-blue-50 text-blue-700 border-blue-200"
                             }
                           >
-                            {ordem.status === "concluido" ? "Devolvido ao cliente" : "Na oficina"}
+                            {allConcluido ? "Devolvido ao cliente" : "Na oficina"}
                           </Badge>
                         </div>
 
                         <div className="text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
-                          {ordem.client?.address?.city && (
+                          {grp.client?.address?.city && (
                             <span>
-                              📍 {ordem.client.address.city}
-                              {ordem.client.address.neighborhood ? ` (${ordem.client.address.neighborhood})` : ""}
+                              📍 {grp.client.address.city}
+                              {grp.client.address.neighborhood ? ` (${grp.client.address.neighborhood})` : ""}
                             </span>
                           )}
-                          {ordem.client?.telefone && (
-                            <span>📞 {ordem.client.telefone}</span>
+                          {grp.client?.telefone && (
+                            <span>📞 {grp.client.telefone}</span>
                           )}
-                          <span>Técnico: {ordem.tecnico_responsavel || "Oficina"}</span>
                         </div>
 
                         {/* Pílulas dos extintores do cliente */}
                         <div className="flex flex-wrap gap-1.5 pt-1.5">
-                          {(ordem.itens || []).map((it) => (
+                          {grp.itens.map((it, idx) => (
                             <span
-                              key={it.id}
+                              key={it.id || idx}
                               className="inline-flex items-center gap-1 text-[11px] bg-muted px-2 py-0.5 rounded border text-foreground"
                             >
                               <strong>{it.extintor?.identificacao || "Ext"}</strong>
                               <span className="text-muted-foreground">({it.extintor?.tipo_capacidade})</span>
                               <span className="text-[10px] text-blue-600 uppercase font-semibold">
-                                [{it.modalidade_recarga}]
+                                [{it.modalidade_recarga || "Reaproveitamento"}]
                               </span>
                             </span>
                           ))}
@@ -496,10 +503,10 @@ export function LoteDetailView({
                       </div>
 
                       <div className="text-right min-w-[140px] space-y-1">
-                        <p className="text-xs text-muted-foreground">Volume recolhido:</p>
+                        <p className="text-xs text-muted-foreground">Volume do cliente:</p>
                         <p className="text-lg font-bold text-foreground">{qtdItens} extintor(es)</p>
                         <p className="text-xs font-semibold text-emerald-600">
-                          {formatCurrency(totalOrdem)}
+                          {formatCurrency(totalCliente)}
                         </p>
                       </div>
                     </div>

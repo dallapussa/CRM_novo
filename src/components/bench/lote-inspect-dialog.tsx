@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import type { LoteRecolhimento } from "@/types";
 import { formatCurrency } from "@/lib/utils";
-import { isLoteAutomatico } from "@/services/prevention.service";
+import { isLoteAutomatico, groupOrdensByClient } from "@/services/prevention.service";
 
 interface LoteInspectDialogProps {
   open: boolean;
@@ -45,6 +45,10 @@ export function LoteInspectDialog({
   if (!lote) return null;
 
   const mergeTag = lote.observacoes?.match(/\[Mesclado[^\]]+\]/);
+
+  const clientesAgrupados = React.useMemo(() => {
+    return groupOrdensByClient(lote.ordens || []);
+  }, [lote.ordens]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -114,7 +118,7 @@ export function LoteInspectDialog({
 
             <div className="p-3 rounded-xl border bg-neutral-50 dark:bg-neutral-800/50">
               <span className="text-muted-foreground text-[10px] uppercase font-semibold block">Total de Clientes</span>
-              <strong className="text-xl font-black text-foreground">{lote.total_clientes || 0}</strong>
+              <strong className="text-xl font-black text-foreground">{clientesAgrupados.length}</strong>
             </div>
 
             <div className="p-3 rounded-xl border bg-neutral-50 dark:bg-neutral-800/50 col-span-2 sm:col-span-1">
@@ -145,38 +149,42 @@ export function LoteInspectDialog({
             </div>
           )}
 
-          {/* Lista de Clientes e Extintores Recolhidos */}
+          {/* Lista de Clientes e Extintores Recolhidos (Agrupados por Cliente) */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
                 <Users className="h-4 w-4 text-blue-600" />
-                Clientes e Extintores deste Lote ({lote.ordens?.length || 0} OS)
+                Clientes Recolhidos ({clientesAgrupados.length} cliente{clientesAgrupados.length !== 1 ? "s" : ""} • {lote.ordens?.length || 0} OS)
               </h4>
             </div>
 
-            {(!lote.ordens || lote.ordens.length === 0) ? (
+            {clientesAgrupados.length === 0 ? (
               <div className="p-8 text-center border-2 border-dashed rounded-xl text-muted-foreground text-xs">
                 Nenhum cliente ou ordem de recolhimento vinculada a este lote ainda.
               </div>
             ) : (
               <div className="space-y-3">
-                {lote.ordens.map((ordem) => {
-                  const client = ordem.client;
-                  const itens = ordem.itens || [];
+                {clientesAgrupados.map((grp) => {
+                  const client = grp.client;
+                  const itens = grp.itens || [];
                   return (
                     <div
-                      key={ordem.id}
+                      key={grp.clientId}
                       className="p-4 rounded-xl border bg-white dark:bg-neutral-900 space-y-3 shadow-xs hover:border-orange-300 transition-all"
                     >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-2">
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <h5 className="font-bold text-sm text-foreground">
-                              {client?.name || "Cliente"}
+                              {client?.name || client?.razao_social || "Cliente"}
                             </h5>
-                            <Badge variant="outline" className="font-mono text-[10px]">
-                              OS nº {ordem.numero_ordem}
-                            </Badge>
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {grp.ordens.map((o) => (
+                                <Badge key={o.id} variant="outline" className="font-mono text-[10px] bg-neutral-100 dark:bg-neutral-800">
+                                  OS #{o.numero_ordem}
+                                </Badge>
+                              ))}
+                            </div>
                           </div>
                           {(client?.telefone || client?.document) && (
                             <p className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
@@ -186,24 +194,45 @@ export function LoteInspectDialog({
                                   <Phone className="h-3 w-3" /> {client.telefone}
                                 </span>
                               )}
+                              {client.address?.city && (
+                                <span className="flex items-center gap-1">
+                                  <MapPin className="h-3 w-3" /> {client.address.city}
+                                </span>
+                              )}
                             </p>
                           )}
                         </div>
 
-                        <Badge className="bg-orange-100 text-orange-800 border-orange-200 text-xs font-bold self-start sm:self-center">
-                          {itens.length} extintor(es)
-                        </Badge>
+                        <div className="flex items-center gap-2 self-start sm:self-center">
+                          <Badge className="bg-orange-100 text-orange-800 border-orange-200 text-xs font-bold">
+                            {grp.totalExtintores} extintor(es)
+                          </Badge>
+                          <Badge variant="outline" className="text-emerald-700 bg-emerald-50 border-emerald-200 text-xs font-bold">
+                            {formatCurrency(grp.valorTotal)}
+                          </Badge>
+                        </div>
                       </div>
 
-                      {/* Lista de cilindros da OS */}
+                      {/* Resumo de tipos e capacidades deste cliente */}
+                      {grp.modelosAgrupados.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-0.5">
+                          {grp.modelosAgrupados.map((m, idx) => (
+                            <Badge key={idx} variant="secondary" className="text-[10px] py-0 px-2 font-medium">
+                              {m.count}x {m.modelo}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Lista unificada de cilindros do cliente */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                         {itens.map((it, idx) => (
                           <div
                             key={it.id || idx}
-                            className="p-2 bg-neutral-50 dark:bg-neutral-800/60 rounded-lg border flex items-center justify-between"
+                            className="p-2 bg-neutral-50 dark:bg-neutral-800/60 rounded-lg border flex items-center justify-between gap-1.5"
                           >
                             <div className="flex items-center gap-2 truncate">
-                              <span className="font-mono font-bold text-neutral-800 dark:text-neutral-200">
+                              <span className="font-mono font-bold text-neutral-800 dark:text-neutral-200 shrink-0">
                                 {it.extintor?.identificacao || `Cilindro #${idx + 1}`}
                               </span>
                               <span className="text-muted-foreground truncate">
@@ -211,17 +240,23 @@ export function LoteInspectDialog({
                               </span>
                             </div>
 
-                            <Badge variant="outline" className="text-[10px] shrink-0 font-medium">
-                              {it.modalidade_recarga || "Reaproveitamento"}
-                            </Badge>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <Badge variant="outline" className="text-[9px] font-medium">
+                                {it.modalidade_recarga || "Reaproveitamento"}
+                              </Badge>
+                            </div>
                           </div>
                         ))}
                       </div>
 
-                      {ordem.deixou_reserva && (
-                        <p className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/20 p-2 rounded-lg border border-amber-200">
-                          Reserva no local: {ordem.detalhes_reserva || "Sim"}
-                        </p>
+                      {grp.reservas.length > 0 && (
+                        <div className="space-y-1">
+                          {grp.reservas.map((res, rIdx) => (
+                            <p key={rIdx} className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/20 p-2 rounded-lg border border-amber-200">
+                              Reserva (OS #{res.numero_ordem}): {res.detalhes}
+                            </p>
+                          ))}
+                        </div>
                       )}
                     </div>
                   );

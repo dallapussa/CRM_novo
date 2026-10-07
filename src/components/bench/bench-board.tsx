@@ -791,7 +791,7 @@ export function BenchBoard() {
                       </div>
                       <p className="text-xs font-semibold text-foreground truncate">
                         {lote.ordens && lote.ordens.length > 0
-                          ? lote.ordens.map((o) => o.client?.name || "Cliente").join(", ")
+                          ? Array.from(new Set(lote.ordens.map((o) => o.client?.name || "Cliente"))).join(", ")
                           : "Sem clientes vinculados"}
                       </p>
                     </div>
@@ -951,7 +951,7 @@ export function BenchBoard() {
                       </div>
                       <p className="text-xs font-semibold text-foreground truncate">
                         {lote.ordens && lote.ordens.length > 0
-                          ? lote.ordens.map((o) => o.client?.name || "Cliente").join(", ")
+                          ? Array.from(new Set(lote.ordens.map((o) => o.client?.name || "Cliente"))).join(", ")
                           : "Sem clientes vinculados"}
                       </p>
                     </div>
@@ -1121,7 +1121,7 @@ export function BenchBoard() {
                       </div>
                       <p className="text-xs font-semibold text-foreground truncate">
                         {lote.ordens && lote.ordens.length > 0
-                          ? lote.ordens.map((o) => o.client?.name || "Cliente").join(", ")
+                          ? Array.from(new Set(lote.ordens.map((o) => o.client?.name || "Cliente"))).join(", ")
                           : "Sem clientes vinculados"}
                       </p>
                     </div>
