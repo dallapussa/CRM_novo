@@ -4,6 +4,7 @@ import type { LoteRecolhimento, PaymentMethod } from "@/types";
 import { uploadClientDocument } from "@/services/prevention.service";
 import { createClient } from "@/lib/supabase/client";
 import { buildR2PublicUrl } from "@/lib/r2";
+import { getCompanySettings, DEFAULT_COMPANY_SETTINGS } from "@/services/company-settings.service";
 
 export interface ReceiptItem {
   id?: string;
@@ -95,7 +96,7 @@ function formatMoeda(val: number): string {
  * Gera o documento PDF do recibo utilizando jsPDF com layout profissional
  */
 export async function buildReceiptPdfDocument(
-  data: EditableReceiptData,
+  rawReceiptData: EditableReceiptData,
   options?: {
     receiptUrl?: string;
     qrCodeDataUrl?: string;
@@ -107,6 +108,36 @@ export async function buildReceiptPdfDocument(
   receiptUrl: string;
   authCode: string;
 }> {
+  // Carrega configurações oficiais salvas da empresa emitente
+  const companySettings = await getCompanySettings().catch(() => null);
+
+  // Garante que o nome salvo pelo usuário (ex: JC Extintores) tenha prioridade total sobre valores antigos
+  const resolvedEmpresaNome =
+    rawReceiptData.empresa_nome && !rawReceiptData.empresa_nome.toUpperCase().includes("EXTINCONTROL")
+      ? rawReceiptData.empresa_nome
+      : (companySettings?.nome || DEFAULT_COMPANY_SETTINGS.nome);
+
+  const resolvedEmpresaCnpj =
+    rawReceiptData.empresa_cnpj || companySettings?.cnpj || DEFAULT_COMPANY_SETTINGS.cnpj;
+
+  const resolvedEmpresaTelefone =
+    rawReceiptData.empresa_telefone || companySettings?.telefone || DEFAULT_COMPANY_SETTINGS.telefone;
+
+  const resolvedEmpresaEndereco =
+    rawReceiptData.empresa_endereco || companySettings?.endereco || DEFAULT_COMPANY_SETTINGS.endereco;
+
+  const resolvedEmpresaLogo =
+    rawReceiptData.empresa_logo || companySettings?.logo_url || undefined;
+
+  const data: EditableReceiptData = {
+    ...rawReceiptData,
+    empresa_nome: resolvedEmpresaNome,
+    empresa_cnpj: resolvedEmpresaCnpj,
+    empresa_telefone: resolvedEmpresaTelefone,
+    empresa_endereco: resolvedEmpresaEndereco,
+    empresa_logo: resolvedEmpresaLogo,
+  };
+
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
@@ -141,7 +172,7 @@ export async function buildReceiptPdfDocument(
   doc.setFontSize(15);
   doc.setTextColor(30, 41, 59); // Slate-800
   const maxCompanyWidth = data.empresa_logo ? contentWidth - 32 : contentWidth;
-  doc.text(data.empresa_nome || "EXTINCONTROL MANUTENÇÃO DE EXTINTORES", margin, y);
+  doc.text(data.empresa_nome || "JC Extintores", margin, y);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);

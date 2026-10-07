@@ -44,17 +44,15 @@ export function ThermalReceipt58mmDialog({
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>("");
   const [activePdfUrl, setActivePdfUrl] = useState<string>(initialPdfUrl || "");
   const [isGeneratingUrl, setIsGeneratingUrl] = useState(false);
-  const [companyLogo, setCompanyLogo] = useState<string | null>(null);
+  const [companySettings, setCompanySettings] = useState<any>(null);
 
   useEffect(() => {
-    if (!receiptData?.empresa_logo) {
-      getCompanySettings()
-        .then((s) => {
-          if (s.logo_url) setCompanyLogo(s.logo_url);
-        })
-        .catch(() => {});
-    }
-  }, [receiptData?.empresa_logo]);
+    getCompanySettings()
+      .then((s) => {
+        setCompanySettings(s);
+      })
+      .catch(() => {});
+  }, []);
 
   // Agrupa os itens do recibo por Modelo/Capacidade + Modalidade para o resumo em 58mm
   const itensAgrupados = useMemo(() => {
@@ -220,7 +218,18 @@ export function ThermalReceipt58mmDialog({
     printWindow.document.close();
   };
 
-  const activeLogo = receiptData.empresa_logo || companyLogo;
+  const activeEmpresaNome =
+    receiptData.empresa_nome && !receiptData.empresa_nome.toUpperCase().includes("EXTINCONTROL")
+      ? receiptData.empresa_nome
+      : (companySettings?.nome || "JC Extintores");
+
+  const activeEmpresaCnpj =
+    receiptData.empresa_cnpj || companySettings?.cnpj || "";
+
+  const activeEmpresaTelefone =
+    receiptData.empresa_telefone || companySettings?.telefone || "";
+
+  const activeLogo = receiptData.empresa_logo || companySettings?.logo_url;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -260,14 +269,13 @@ export function ThermalReceipt58mmDialog({
                 </div>
               )}
               <p className="font-extrabold text-xs tracking-tight uppercase">
-                {receiptData.empresa_nome || "EXTINCONTROL"}
+                {activeEmpresaNome}
               </p>
-              <p className="text-[9px]">PREVENÇÃO CONTRA INCÊNDIO</p>
-              {receiptData.empresa_cnpj && (
-                <p className="text-[9px]">CNPJ: {receiptData.empresa_cnpj}</p>
+              {activeEmpresaCnpj && (
+                <p className="text-[9px]">CNPJ: {activeEmpresaCnpj}</p>
               )}
-              {receiptData.empresa_telefone && (
-                <p className="text-[9px]">Fone/Zap: {receiptData.empresa_telefone}</p>
+              {activeEmpresaTelefone && (
+                <p className="text-[9px]">Fone/Zap: {activeEmpresaTelefone}</p>
               )}
             </div>
 

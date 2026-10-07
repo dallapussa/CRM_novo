@@ -28,6 +28,7 @@ import {
   Layers,
 } from "lucide-react";
 import { formatCurrency, formatMonthYear } from "@/lib/utils";
+import { getCompanySettings } from "@/services/company-settings.service";
 import type { LoteRecolhimento } from "@/types";
 import {
   calculateItemCostAndProfit,
@@ -48,6 +49,12 @@ export function LoteProfitReportDialog({
   lote,
   catalogModels = DEFAULT_EXTINGUISHER_MODELS,
 }: LoteProfitReportDialogProps) {
+  const [companySettings, setCompanySettings] = React.useState<any>(null);
+
+  React.useEffect(() => {
+    getCompanySettings().then(setCompanySettings).catch(() => {});
+  }, []);
+
   // Processa cada item do lote com o custo real baseado na modalidade (Normal vs Reaproveitamento)
   const reportData = useMemo(() => {
     const ordens = lote.ordens || [];
@@ -446,7 +453,7 @@ export function LoteProfitReportDialog({
           <div className="hidden print:block mt-8 pt-6 border-t border-neutral-400 space-y-6 text-xs text-black">
             <div className="flex justify-between items-start border-b pb-4">
               <div>
-                <h2 className="text-base font-black uppercase">EXTINCONTROL PREVENÇÃO CONTRA INCÊNDIO</h2>
+                <h2 className="text-base font-black uppercase">{companySettings?.nome || "JC Extintores"}</h2>
                 <p className="text-[11px]">Relatório Gerencial de Rentabilidade & Lucro por Lote de Recarga</p>
                 <p className="text-[10px] text-neutral-600">Lote: {lote.codigo} • {lote.nome}</p>
               </div>

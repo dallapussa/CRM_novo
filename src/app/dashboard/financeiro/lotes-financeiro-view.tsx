@@ -46,6 +46,7 @@ import { MultiLoteReportDialog } from "@/components/financeiro/multi-lote-report
 import { ThermalReceipt58mmDialog } from "@/components/financeiro/thermal-receipt-58mm-dialog";
 import type { EditableReceiptData, ReceiptItem } from "@/services/receipt-pdf.service";
 import { createClient } from "@/lib/supabase/client";
+import { getCompanySettings } from "@/services/company-settings.service";
 
 function formatMoeda(val: number): string {
   return Number(val || 0).toLocaleString("pt-BR", {
@@ -111,6 +112,12 @@ export function LotesFinanceiroView() {
   const { data: lotes = [], isLoading, refetch, isRefetching } = useQuery({
     queryKey: ["lotes_recolhimento"],
     queryFn: listLotesRecolhimento,
+  });
+
+  // Busca dados oficiais da empresa emitente
+  const { data: companySettings } = useQuery({
+    queryKey: ["company_settings"],
+    queryFn: getCompanySettings,
   });
 
   // Filtragem dos lotes
@@ -269,7 +276,11 @@ export function LotesFinanceiroView() {
       forma_pagamento: initialPm,
       status_pagamento: isQuitado ? "QUITADO" : "PENDENTE",
       observacoes: "Garantia de 12 meses contra defeitos de recarga e teste de pressão.",
-      empresa_nome: "EXTINCONTROL PREVENÇÃO CONTRA INCÊNDIO",
+      empresa_nome: companySettings?.nome || "JC Extintores",
+      empresa_cnpj: companySettings?.cnpj || undefined,
+      empresa_telefone: companySettings?.telefone || undefined,
+      empresa_endereco: companySettings?.endereco || undefined,
+      empresa_logo: companySettings?.logo_url || undefined,
     };
   };
 

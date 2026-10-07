@@ -47,6 +47,7 @@ import {
 } from "@/services/receipt-pdf.service";
 import QRCode from "qrcode";
 import { ThermalReceipt58mmDialog } from "@/components/financeiro/thermal-receipt-58mm-dialog";
+import { getCompanySettings } from "@/services/company-settings.service";
 import type {
   OrdemRecolhimento,
   PaymentMethod,
@@ -87,6 +88,11 @@ export function DeliveryReceiptDialog({
   const [step, setStep] = useState<"form" | "receipt">("form");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [receiptData, setReceiptData] = useState<DeliveryReceiptData | null>(null);
+  const [companySettings, setCompanySettings] = useState<any>(null);
+
+  useEffect(() => {
+    getCompanySettings().then(setCompanySettings).catch(() => {});
+  }, []);
 
   const effectiveClient = clientGroup?.client || ordem?.client;
   const effectiveClientId = clientGroup?.clientId || ordem?.client_id || "";
@@ -292,6 +298,11 @@ export function DeliveryReceiptDialog({
         forma_pagamento: receiptData.forma_pagamento,
         status_pagamento: receiptData.status_pagamento,
         observacoes: receiptData.observacoes,
+        empresa_nome: companySettings?.nome || "JC Extintores",
+        empresa_cnpj: companySettings?.cnpj || undefined,
+        empresa_telefone: companySettings?.telefone || undefined,
+        empresa_endereco: companySettings?.endereco || undefined,
+        empresa_logo: companySettings?.logo_url || undefined,
       };
 
       const { doc, fileName } = await buildReceiptPdfDocument(pdfData);
@@ -343,7 +354,8 @@ export function DeliveryReceiptDialog({
       receiptData.cliente_nome
     );
 
-    const text = `Olá, *${receiptData.cliente_nome}*! 👋\n\nAqui é da equipe da *ExtinControl Prevenção Contra Incêndio*.\n\nConfirmamos a devolução e reinstalação dos seus extintores referente à *${osLabel}* (Lote ${receiptData.lote_codigo}).\n\n📄 *Recibo de Devolução nº ${receiptData.numero_recibo}*\n💰 *Valor Total:* ${formatCurrency(receiptData.valor_total)}\n💳 *Forma de Pagamento:* ${receiptData.forma_pagamento} (${receiptData.status_pagamento})\n\nTodos os extintores foram revisados, recarregados e têm garantia com nova validade estendida até o próximo ano.\n\n🔒 *Recibo Digital Autenticado (QR Code):*\n${fileUrl}\n\nAgradecemos a preferência e parceria! 🚒🔥`;
+    const companyName = companySettings?.nome || "JC Extintores";
+    const text = `Olá, *${receiptData.cliente_nome}*! 👋\n\nAqui é da equipe da *${companyName}*.\n\nConfirmamos a devolução e reinstalação dos seus extintores referente à *${osLabel}* (Lote ${receiptData.lote_codigo}).\n\n📄 *Recibo de Devolução nº ${receiptData.numero_recibo}*\n💰 *Valor Total:* ${formatCurrency(receiptData.valor_total)}\n💳 *Forma de Pagamento:* ${receiptData.forma_pagamento} (${receiptData.status_pagamento})\n\nTodos os extintores foram revisados, recarregados e têm garantia com nova validade estendida até o próximo ano.\n\n🔒 *Recibo Digital Autenticado (QR Code):*\n${fileUrl}\n\nAgradecemos a preferência e parceria! 🚒🔥`;
 
     return `https://wa.me/55${rawPhone}?text=${encodeURIComponent(text)}`;
   }
@@ -374,7 +386,6 @@ export function DeliveryReceiptDialog({
       forma_pagamento: receiptData.forma_pagamento,
       status_pagamento: receiptData.status_pagamento,
       observacoes: receiptData.observacoes,
-      empresa_nome: "EXTINCONTROL PREVENÇÃO CONTRA INCÊNDIO",
     };
   }, [receiptData, effectiveClientId, osNumeros]);
 
@@ -705,17 +716,28 @@ export function DeliveryReceiptDialog({
               >
                 {/* Cabeçalho da Empresa */}
                 <div className="flex items-start justify-between border-b pb-4">
-                  <div>
-                    <h2 className="text-lg font-black tracking-tight text-neutral-900 dark:text-neutral-100 flex items-center gap-1.5">
-                      <Flame className="h-5 w-5 text-red-600" />
-                      EXTINCONTROL
-                    </h2>
-                    <p className="text-[11px] text-muted-foreground font-medium">
-                      Prevenção e Combate a Incêndio • Recargas, Testes & PPCI
-                    </p>
-                    <p className="text-[10px] text-muted-foreground">
-                      CNPJ: 00.000.000/0001-00 • Fone: (55) 3322-0000
-                    </p>
+                  <div className="flex items-center gap-3">
+                    {companySettings?.logo_url && (
+                      <img
+                        src={companySettings.logo_url}
+                        alt="Logo"
+                        className="max-h-12 max-w-[120px] object-contain rounded"
+                      />
+                    )}
+                    <div>
+                      <h2 className="text-lg font-black tracking-tight text-neutral-900 dark:text-neutral-100 flex items-center gap-1.5">
+                        <Flame className="h-5 w-5 text-red-600" />
+                        {companySettings?.nome || "JC Extintores"}
+                      </h2>
+                      <p className="text-[11px] text-muted-foreground font-medium">
+                        Prevenção e Combate a Incêndio • Recargas, Testes & PPCI
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {companySettings?.cnpj ? `CNPJ: ${companySettings.cnpj}` : ""}
+                        {companySettings?.telefone ? ` • Fone: ${companySettings.telefone}` : ""}
+                        {companySettings?.endereco ? ` • ${companySettings.endereco}` : ""}
+                      </p>
+                    </div>
                   </div>
 
                   <div className="text-right">

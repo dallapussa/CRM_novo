@@ -125,7 +125,6 @@ export function LoteDetailView({
       forma_pagamento: formaPgto,
       status_pagamento: "QUITADO",
       observacoes: firstOrdem?.observacoes || "Garantia de 12 meses nos extintores recarregados.",
-      empresa_nome: "EXTINCONTROL PREVENÇÃO CONTRA INCÊNDIO",
     });
     setThermalReceiptOpen(true);
   };

@@ -138,11 +138,16 @@ export function ReceiptEditorModal({
             observacoes:
               initialData.observacoes ||
               "Garantia de 12 meses contra defeitos de recarga e teste de pressão.",
-            empresa_nome: initialData.empresa_nome || settings.nome,
-            empresa_cnpj: initialData.empresa_cnpj || settings.cnpj,
-            empresa_telefone: initialData.empresa_telefone || settings.telefone,
-            empresa_endereco: initialData.empresa_endereco || settings.endereco,
-            empresa_logo: initialData.empresa_logo || settings.logo_url || undefined,
+            empresa_nome:
+              (settings.nome && !settings.nome.toUpperCase().includes("EXTINCONTROL"))
+                ? settings.nome
+                : (initialData.empresa_nome && !initialData.empresa_nome.toUpperCase().includes("EXTINCONTROL"))
+                ? initialData.empresa_nome
+                : settings.nome || DEFAULT_COMPANY_SETTINGS.nome,
+            empresa_cnpj: settings.cnpj || initialData.empresa_cnpj || DEFAULT_COMPANY_SETTINGS.cnpj,
+            empresa_telefone: settings.telefone || initialData.empresa_telefone || DEFAULT_COMPANY_SETTINGS.telefone,
+            empresa_endereco: settings.endereco || initialData.empresa_endereco || DEFAULT_COMPANY_SETTINGS.endereco,
+            empresa_logo: settings.logo_url || initialData.empresa_logo || undefined,
           });
         }
       });
@@ -456,7 +461,7 @@ export function ReceiptEditorModal({
                     <Building2 className="h-4 w-4 text-red-600" />
                   )}
                   <span>
-                    Emitente: <strong>{data.empresa_nome || "Extincontrol"}</strong> ({data.empresa_cnpj || "CNPJ não informado"})
+                    Emitente: <strong>{data.empresa_nome || companySettings.nome || "JC Extintores"}</strong> ({data.empresa_cnpj || companySettings.cnpj || "CNPJ"})
                   </span>
                 </div>
                 <Button

@@ -11,11 +11,11 @@ export interface CompanySettings {
 }
 
 export const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
-  nome: "EXTINCONTROL PREVENÇÃO CONTRA INCÊNDIO",
-  cnpj: "42.721.439/0001-53",
-  telefone: "(55) 99158-0512",
-  email: "extincontrolcrm@gmail.com",
-  endereco: "Pedro Bonini - Cruz Alta, RS",
+  nome: "JC Extintores",
+  cnpj: "45.573.027/0001-01",
+  telefone: "(55) 99965-7943",
+  email: "jc.extintores.rs@gmail.com",
+  endereco: "Cruz Alta, RS",
   logo_url: null,
 };
 
