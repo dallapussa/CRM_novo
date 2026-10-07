@@ -61,6 +61,7 @@ interface LoteDetailViewProps {
   lote: LoteRecolhimento;
   onBack: () => void;
   onRefresh?: () => void;
+  onConcluded?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
 }
@@ -69,6 +70,7 @@ export function LoteDetailView({
   lote,
   onBack,
   onRefresh,
+  onConcluded,
   onEdit,
   onDelete,
 }: LoteDetailViewProps) {
@@ -218,12 +220,17 @@ export function LoteDetailView({
       await updateLoteStatus(lote.id, nextStatus);
       toast({
         title: "Status do Lote atualizado!",
-        description: `Lote marcado como "${statusLabels[nextStatus]?.label || nextStatus}".`,
+        description: nextStatus === "concluido"
+          ? "Lote concluído com sucesso e movido para Lotes Concluídos!"
+          : `Lote marcado como "${statusLabels[nextStatus]?.label || nextStatus}".`,
       });
       queryClient.invalidateQueries({ queryKey: ["lotes_recolhimento"] });
+      queryClient.invalidateQueries({ queryKey: ["ordens_recolhimento"] });
+      queryClient.invalidateQueries({ queryKey: ["extintores"] });
       onRefresh?.();
       if (nextStatus === "concluido") {
         setIsProfitReportOpen(true);
+        onConcluded?.();
       }
     } catch (err: any) {
       toast({
@@ -272,26 +279,13 @@ export function LoteDetailView({
             Imprimir Romaneio
           </Button>
 
-          {lote.status !== "pronto_entrega" && lote.status !== "concluido" && (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={isUpdatingStatus}
-              onClick={() => handleChangeStatus("pronto_entrega")}
-              className="gap-2 border-purple-300 text-purple-700 hover:bg-purple-50"
-            >
-              <Truck className="h-4 w-4" />
-              Liberar p/ Caminhão (Pronto Entrega)
-            </Button>
-          )}
-
           {lote.status !== "concluido" && (
             <Button
               variant="outline"
               size="sm"
               disabled={isUpdatingStatus}
               onClick={() => handleChangeStatus("concluido")}
-              className="gap-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+              className="gap-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-bold"
             >
               <CheckCircle2 className="h-4 w-4" />
               Concluir Todo o Lote

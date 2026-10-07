@@ -203,9 +203,14 @@ export default function LotesPage() {
       toast({
         variant: "success",
         title: "Status do lote atualizado!",
-        description: `Lote movido para "${statusLabels[nextStatus]?.label || nextStatus}".`,
+        description: nextStatus === "concluido"
+          ? "Lote finalizado com sucesso e movido para Lotes Concluídos!"
+          : `Lote movido para "${statusLabels[nextStatus]?.label || nextStatus}".`,
       });
       await refetch();
+      if (nextStatus === "concluido") {
+        setActiveTab("concluidos");
+      }
     } catch (err: any) {
       toast({
         variant: "destructive",
@@ -255,6 +260,11 @@ export default function LotesPage() {
           lote={selectedLote}
           onBack={() => setSelectedLoteId(null)}
           onRefresh={() => refetch()}
+          onConcluded={() => {
+            setSelectedLoteId(null);
+            setActiveTab("concluidos");
+            refetch();
+          }}
           onEdit={() => {
             setLoteToEdit(selectedLote);
             setCreateDialogOpen(true);
@@ -742,7 +752,7 @@ export default function LotesPage() {
                         className="w-full text-xs font-bold border-amber-300 text-amber-800 hover:bg-amber-50 gap-1.5 h-8"
                       >
                         <Wrench className="h-3.5 w-3.5 text-amber-600" />
-                        Avançar: Descarregar na Oficina ➔
+                        Avançar: Enviar p/ Oficina ➔
                       </Button>
                     )}
 
@@ -755,7 +765,7 @@ export default function LotesPage() {
                         className="w-full text-xs font-bold border-purple-300 text-purple-800 hover:bg-purple-50 gap-1.5 h-8"
                       >
                         <PackageCheck className="h-3.5 w-3.5 text-purple-600" />
-                        Avançar: Liberar p/ Caminhão (Entrega) ➔
+                        Avançar: Liberar p/ Entrega ➔
                       </Button>
                     )}
 

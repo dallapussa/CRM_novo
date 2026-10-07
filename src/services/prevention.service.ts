@@ -803,9 +803,14 @@ export async function listLotesRecolhimento(): Promise<LoteRecolhimento[]> {
       count,
     }));
 
-    // Verifica etapa informada em observações se houver tag [ETAPA:xxx]
-    const etapaMatch = lote.observacoes?.match(/\[ETAPA:([^\]]+)\]/);
-    let effectiveStatus = (etapaMatch ? etapaMatch[1] : lote.status) as LoteRecolhimentoStatus;
+    // Se o status for concluído, nunca deve ser sobrescrito por tags antigas
+    let effectiveStatus = (lote.status as LoteRecolhimentoStatus) || "aguardando_descarga";
+    if (lote.status !== "concluido") {
+      const etapaMatch = lote.observacoes?.match(/\[ETAPA:([^\]]+)\]/);
+      if (etapaMatch) {
+        effectiveStatus = etapaMatch[1] as LoteRecolhimentoStatus;
+      }
+    }
     if ((effectiveStatus as any) === "recolhendo") {
       effectiveStatus = "aguardando_descarga";
     }
@@ -1097,40 +1102,101 @@ export async function updateLoteStatus(
 ): Promise<void> {
   const supabase = createClient();
 
-  // Mapeamento compatível caso o PostgreSQL tenha restrição restrita de status
+  // Mapeamento compatível para a constraint do PostgreSQL
   let dbStatus = status;
   if (status === "aguardando_descarga") dbStatus = "recolhendo";
   else if (status === "saida") dbStatus = "em_oficina";
   else if (status === "em_devolucao") dbStatus = "pronto_entrega";
 
-  // Tenta gravar o status diretamente
-  let { error } = await supabase
-    .from("lotes_recolhimento")
-    .update({ status: status as any, updated_at: new Date().toISOString() })
-    .eq("id", loteId);
-
-  // Se der erro de constraint, grava dbStatus e a tag [ETAPA:status] nas observações
-  if (error) {
+  // Busca observações atuais para limpar ou atualizar tags [ETAPA:...]
+  let cleanObs = "";
+  try {
     const { data: current } = await supabase
       .from("lotes_recolhimento")
       .select("observacoes")
       .eq("id", loteId)
       .maybeSingle();
+    cleanObs = (current?.observacoes || "").replace(/\[ETAPA:[^\]]+\]/g, "").trim();
+  } catch {}
 
-    const cleanObs = (current?.observacoes || "").replace(/\[ETAPA:[^\]]+\]/g, "").trim();
-    const newObs = `${cleanObs} [ETAPA:${status}]`.trim();
+  // Se concluído, NÃO deve ter tag [ETAPA:...]. Se for um sub-estágio diferente da coluna do banco, inclui tag
+  const newObs = status === "concluido"
+    ? (cleanObs || null)
+    : (dbStatus !== status ? `${cleanObs} [ETAPA:${status}]`.trim() : (cleanObs || null));
 
-    const { error: err2 } = await supabase
-      .from("lotes_recolhimento")
-      .update({ status: dbStatus as any, observacoes: newObs, updated_at: new Date().toISOString() })
-      .eq("id", loteId);
+  // Tenta atualizar no Supabase com dbStatus e observações atualizadas
+  const { error } = await supabase
+    .from("lotes_recolhimento")
+    .update({
+      status: dbStatus as any,
+      observacoes: newObs,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", loteId);
 
-    if (err2) {
-      const locals = getLocalLotes();
-      const updated = locals.map((l) => (l.id === loteId ? { ...l, status, updated_at: new Date().toISOString() } : l));
-      saveLocalLotes(updated);
+  if (error) {
+    console.error("Erro ao atualizar status do lote no Supabase:", error);
+  }
+
+  // Se o lote foi concluído, conclui também todas as ordens vinculadas e devolve extintores ao cliente
+  if (status === "concluido") {
+    try {
+      const { data: ordens } = await supabase
+        .from("ordens_recolhimento")
+        .select("id")
+        .or(`lote_id.eq.${loteId},observacoes.ilike.%[LOTE:${loteId}]%`);
+
+      const ordemIds = (ordens || []).map((o) => o.id);
+      if (ordemIds.length > 0) {
+        await supabase
+          .from("ordens_recolhimento")
+          .update({ status: "concluido", updated_at: new Date().toISOString() })
+          .in("id", ordemIds);
+
+        const { data: itens } = await supabase
+          .from("itens_recolhimento")
+          .select("extintor_id")
+          .in("ordem_id", ordemIds);
+
+        const extIds = (itens || []).map((i) => i.extintor_id).filter(Boolean);
+        if (extIds.length > 0) {
+          const today = new Date().toISOString().split("T")[0];
+          const nextYear = new Date(Date.now() + 365 * 86400000).toISOString().split("T")[0];
+
+          await supabase
+            .from("extintores")
+            .update({
+              status: "no_cliente",
+              data_ultima_recarga: today,
+              data_vencimento: nextYear,
+              updated_at: new Date().toISOString(),
+            })
+            .in("id", extIds);
+
+          await supabase
+            .from("extinguishers")
+            .update({
+              status: "Em uso",
+              updated_at: new Date().toISOString(),
+            })
+            .in("id", extIds);
+        }
+      }
+    } catch (syncErr) {
+      console.warn("Aviso ao sincronizar conclusão do lote:", syncErr);
     }
   }
+
+  // Sincroniza cache local
+  try {
+    const locals = getLocalLotes();
+    const updated = locals.map((l) =>
+      l.id === loteId
+        ? { ...l, status, observacoes: newObs, updated_at: new Date().toISOString() }
+        : l
+    );
+    saveLocalLotes(updated);
+  } catch {}
 }
 
 export async function listLotesForBench(): Promise<LoteRecolhimento[]> {
