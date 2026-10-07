@@ -656,7 +656,7 @@ export function LoteDetailView({
                 variant="outline"
                 size="sm"
                 onClick={() => setIsProfitReportOpen(true)}
-                className="gap-2 border-emerald-300 text-emerald-800 hover:bg-emerald-50 font-bold"
+                className="hidden md:inline-flex gap-2 border-emerald-300 text-emerald-800 hover:bg-emerald-50 font-bold"
               >
                 <TrendingUp className="h-4 w-4 text-emerald-600" />
                 Relatório de Lucro
@@ -668,8 +668,8 @@ export function LoteDetailView({
             </div>
           </div>
 
-          {/* BANNER DE LUCRO & CUSTOS DO LOTE */}
-          <Card className="print:hidden bg-gradient-to-br from-slate-900 via-neutral-900 to-slate-950 border-emerald-500/30 text-white overflow-hidden shadow-lg rounded-2xl">
+          {/* BANNER DE LUCRO & CUSTOS DO LOTE - Oculto em dispositivos móveis (visível a partir de telas médias/desktop) */}
+          <Card className="print:hidden hidden md:block bg-gradient-to-br from-slate-900 via-neutral-900 to-slate-950 border-emerald-500/30 text-white overflow-hidden shadow-lg rounded-2xl">
             <CardContent className="p-4 sm:p-5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="space-y-1">

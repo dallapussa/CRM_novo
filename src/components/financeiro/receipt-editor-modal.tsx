@@ -490,14 +490,14 @@ export function ReceiptEditorModal({
             {isGenerating ? "Gerando PDF..." : "Gerar e Baixar Recibo PDF"}
           </Button>
         </DialogFooter>
-
-        {/* Modal de Impressão Térmica 58mm com QR Code */}
-        <ThermalReceipt58mmDialog
-          open={thermalOpen}
-          onOpenChange={setThermalOpen}
-          receiptData={data}
-        />
       </DialogContent>
+
+      {/* Modal de Impressão Térmica 58mm com QR Code */}
+      <ThermalReceipt58mmDialog
+        open={thermalOpen}
+        onOpenChange={setThermalOpen}
+        receiptData={data}
+      />
     </Dialog>
   );
 }

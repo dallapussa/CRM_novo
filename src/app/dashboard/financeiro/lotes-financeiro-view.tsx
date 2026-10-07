@@ -209,27 +209,31 @@ export function LotesFinanceiroView() {
 
     const isQuitado = grupo.ordens.every((o: any) => o.status === "concluido");
 
+    const cleanDoc = client?.cnpj || client?.cpf || client?.documento || undefined;
+    const cleanPhone = client?.telefone || client?.phone || client?.telefone2 || undefined;
+    const cleanAddress = [
+      client?.address?.street || client?.address_street,
+      client?.address?.number || client?.address_number,
+      client?.address?.neighborhood || client?.address_neighborhood,
+      client?.address?.city || client?.address_city,
+      client?.address?.state || client?.address_state,
+    ]
+      .filter(Boolean)
+      .join(", ") || undefined;
+
     return {
-      numero_recibo: `REC-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, "0")}-${firstOrdem?.numero_ordem || Math.floor(10 + Math.random() * 90)}`,
+      numero_recibo: `REC-${firstOrdem?.numero_ordem || new Date().toISOString().slice(2, 10).replace(/-/g, "")}`,
       data_emissao: new Date().toISOString().split("T")[0],
       cliente_id: grupo.clientId,
       cliente_nome: clientName,
-      cliente_documento: client?.cnpj || client?.cpf || client?.documento || undefined,
-      cliente_telefone: client?.telefone || client?.telefone2 || undefined,
-      cliente_endereco: [
-        client?.address_street,
-        client?.address_number,
-        client?.address_neighborhood,
-        client?.address_city,
-        client?.address_state,
-      ]
-        .filter(Boolean)
-        .join(", ") || undefined,
+      cliente_documento: cleanDoc,
+      cliente_telefone: cleanPhone,
+      cliente_endereco: cleanAddress,
       lote_codigo: activeLote?.codigo,
       lote_nome: activeLote?.nome,
       ordens_numeros: ordensNumeros,
       itens: receiptItens,
-      valor_total: grupo.valorTotal,
+      valor_total: Number(grupo.valorTotal || receiptItens.reduce((sum, it) => sum + it.valor, 0)),
       forma_pagamento: initialPm,
       status_pagamento: isQuitado ? "QUITADO" : "PENDENTE",
       observacoes: "Garantia de 12 meses contra defeitos de recarga e teste de pressão.",
@@ -558,6 +562,13 @@ export function LotesFinanceiroView() {
           open={isMultiReportOpen}
           onOpenChange={setIsMultiReportOpen}
           selectedLotes={selectedLotesList}
+        />
+
+        {/* Modal de Impressão Térmica 58mm com QR Code */}
+        <ThermalReceipt58mmDialog
+          open={thermalReceiptOpen}
+          onOpenChange={setThermalReceiptOpen}
+          receiptData={thermalReceiptData}
         />
       </div>
     );

@@ -88,24 +88,27 @@ export function ThermalReceipt58mmDialog({
         if (!receiptData) return;
         const currentData = receiptData;
         const { doc, receiptUrl } = await buildReceiptPdfDocument(currentData);
+        
+        // Exibe o link e gera o QR Code imediatamente para agilidade total
+        if (isMounted) {
+          setActivePdfUrl(receiptUrl);
+          await generateQr(receiptUrl);
+        }
+
+        // Salva nos documentos do cliente em segundo plano se tiver cliente_id
         if (currentData.cliente_id) {
-          const uploadedUrl = await saveReceiptPdfToClientDocuments(
-            currentData.cliente_id,
-            currentData,
-            doc
-          );
-          if (isMounted) {
-            const finalUrl = uploadedUrl.startsWith("http")
-              ? uploadedUrl
-              : `${window.location.origin}/dashboard/clientes/${currentData.cliente_id}`;
-            setActivePdfUrl(finalUrl);
-            generateQr(finalUrl);
-          }
-        } else {
-          const fallbackUrl = `${window.location.origin}/dashboard/financeiro`;
-          if (isMounted) {
-            setActivePdfUrl(fallbackUrl);
-            generateQr(fallbackUrl);
+          try {
+            const uploadedUrl = await saveReceiptPdfToClientDocuments(
+              currentData.cliente_id,
+              currentData,
+              doc
+            );
+            if (isMounted && uploadedUrl && uploadedUrl !== receiptUrl) {
+              setActivePdfUrl(uploadedUrl);
+              generateQr(uploadedUrl);
+            }
+          } catch (uploadErr) {
+            console.warn("Aviso ao salvar PDF em segundo plano:", uploadErr);
           }
         }
       } catch (err) {
@@ -194,7 +197,7 @@ export function ThermalReceipt58mmDialog({
             .signature-box { margin-top: 15px; border-top: 1px solid #000; padding-top: 2px; text-align: center; font-size: 10px; }
           </style>
         </head>
-        <body onload="window.focus(); window.print(); window.close();">
+        <body onload="window.focus(); setTimeout(function() { window.print(); setTimeout(function() { window.close(); }, 500); }, 250);">
           ${printContent.innerHTML}
         </body>
       </html>
