@@ -43,6 +43,7 @@ interface LoteMergeDialogProps {
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
   initialTargetLoteId?: string;
+  initialSourceLoteIds?: string[];
 }
 
 export function LoteMergeDialog({
@@ -50,6 +51,7 @@ export function LoteMergeDialog({
   onOpenChange,
   onSuccess,
   initialTargetLoteId,
+  initialSourceLoteIds,
 }: LoteMergeDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -69,17 +71,26 @@ export function LoteMergeDialog({
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [isMerging, setIsMerging] = useState(false);
 
-  // Inicializa o targetLoteId quando abre
+  // Inicializa o targetLoteId e selectedSourceIds quando abre
   React.useEffect(() => {
     if (open && activeLotes.length > 0) {
+      let currentTargetId = "";
       if (initialTargetLoteId && activeLotes.some((l) => l.id === initialTargetLoteId)) {
-        setTargetLoteId(initialTargetLoteId);
+        currentTargetId = initialTargetLoteId;
       } else if (!targetLoteId || !activeLotes.some((l) => l.id === targetLoteId)) {
-        setTargetLoteId(activeLotes[0].id);
+        currentTargetId = activeLotes[0].id;
+      } else {
+        currentTargetId = targetLoteId;
       }
-      setSelectedSourceIds([]);
+      setTargetLoteId(currentTargetId);
+
+      if (initialSourceLoteIds && initialSourceLoteIds.length > 0) {
+        setSelectedSourceIds(initialSourceLoteIds.filter((id) => id !== currentTargetId));
+      } else {
+        setSelectedSourceIds([]);
+      }
     }
-  }, [open, activeLotes, initialTargetLoteId]);
+  }, [open, activeLotes, initialTargetLoteId, initialSourceLoteIds]);
 
   const targetLote = useMemo(() => {
     return activeLotes.find((l) => l.id === targetLoteId) || null;

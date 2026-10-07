@@ -117,6 +117,24 @@ export function OrderPickupModal({
       listLotesRecolhimento().then((data) => {
         const abertos = data.filter((l) => l.status !== "concluido");
         setLotes(abertos);
+
+        // Após o primeiro lote criado no dia, puxa diretamente para o próximo recolhimento do dia
+        const hojeIso = new Date().toISOString().split("T")[0];
+        const loteDoDia = abertos.find(
+          (l) =>
+            l.data_recolhimento === hojeIso ||
+            (l.created_at && l.created_at.startsWith(hojeIso)) ||
+            l.status === "aguardando_descarga"
+        );
+
+        if (loteDoDia) {
+          setSelectedLoteId(loteDoDia.id);
+          if (loteDoDia.previsao_devolucao) {
+            setPrevisaoDevolucao(loteDoDia.previsao_devolucao);
+          }
+        } else {
+          setSelectedLoteId("auto");
+        }
       });
     }
   }, [open]);
@@ -454,15 +472,18 @@ export function OrderPickupModal({
                 <SelectValue placeholder="Selecione um lote ou crie automaticamente" />
               </SelectTrigger>
               <SelectContent>
+                {lotes.map((l) => {
+                  const isDoDia = l.data_recolhimento === today || (l.created_at && l.created_at.startsWith(today));
+                  return (
+                    <SelectItem key={l.id} value={l.id}>
+                      {isDoDia ? "📌 [Lote do Dia] " : ""}[{l.codigo}] {l.nome} ({l.total_extintores || 0} cil.) — Retorno:{" "}
+                      {new Date(l.previsao_devolucao + "T12:00:00").toLocaleDateString("pt-BR")}
+                    </SelectItem>
+                  );
+                })}
                 <SelectItem value="auto">
-                  ✨ Criar Lote Automático ({customer.address?.city || "Geral"} - {new Date(dataRecolhimento + "T12:00:00").toLocaleDateString("pt-BR")})
+                  ✨ Criar um Novo Lote Separado ({customer.address?.city || "Geral"} - {new Date(dataRecolhimento + "T12:00:00").toLocaleDateString("pt-BR")})
                 </SelectItem>
-                {lotes.map((l) => (
-                  <SelectItem key={l.id} value={l.id}>
-                    [{l.codigo}] {l.nome} ({l.total_extintores || 0} cil.) — Retorno:{" "}
-                    {new Date(l.previsao_devolucao + "T12:00:00").toLocaleDateString("pt-BR")}
-                  </SelectItem>
-                ))}
               </SelectContent>
             </Select>
             <p className="text-[11px] text-muted-foreground">

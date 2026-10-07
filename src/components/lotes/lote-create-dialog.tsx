@@ -119,7 +119,7 @@ export function LoteCreateDialog({
         prazo_dias: prazoDias,
         previsao_devolucao: previsaoDevolucao,
         observacoes: observacoes.trim() || null,
-        status: loteToEdit?.status || "em_oficina",
+        status: loteToEdit?.status || "aguardando_descarga",
       });
 
       toast({

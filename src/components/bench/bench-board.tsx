@@ -26,12 +26,15 @@ import {
   Layers,
   Package,
   GitMerge,
+  ChevronRight,
+  Users,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listLotesForBench, advanceLoteBenchStage } from "@/services/prevention.service";
 import type { LoteRecolhimento } from "@/types";
 import { LabelPrinterDialog, type LabelTarget } from "@/components/labels/label-printer-dialog";
 import { LoteMergeDialog } from "@/components/lotes/lote-merge-dialog";
+import { LoteInspectDialog } from "./lote-inspect-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -233,9 +236,17 @@ export function BenchBoard() {
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
+  const [inspectingLote, setInspectingLote] = useState<LoteRecolhimento | null>(null);
+  const [selectedLoteIdsForMerge, setSelectedLoteIdsForMerge] = useState<string[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<BenchRecord | null>(null);
   const [printTarget, setPrintTarget] = useState<LabelTarget | null>(null);
+
+  function toggleLoteSelectionForMerge(loteId: string) {
+    setSelectedLoteIdsForMerge((prev) =>
+      prev.includes(loteId) ? prev.filter((id) => id !== loteId) : [...prev, loteId]
+    );
+  }
 
   // Formulário de novo item / edição
   const [formValues, setFormValues] = useState({
@@ -698,17 +709,39 @@ export function BenchBoard() {
                 chegadaLotes.map((lote) => (
                   <Card
                     key={lote.id}
-                    className="p-4 rounded-xl border shadow-sm hover:shadow-md transition-all space-y-3 bg-white dark:bg-neutral-900"
+                    className={`p-4 rounded-xl border shadow-sm hover:shadow-md transition-all space-y-3 bg-white dark:bg-neutral-900 ${
+                      selectedLoteIdsForMerge.includes(lote.id)
+                        ? "border-orange-500 ring-2 ring-orange-400/20"
+                        : ""
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <Badge
-                          variant="outline"
-                          className="font-mono text-xs font-bold bg-neutral-100 dark:bg-neutral-800"
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={selectedLoteIdsForMerge.includes(lote.id)}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              toggleLoteSelectionForMerge(lote.id);
+                            }}
+                            className="h-4 w-4 rounded text-orange-600 focus:ring-orange-500 cursor-pointer shrink-0"
+                            title="Selecionar lote para mesclar"
+                          />
+                          <Badge
+                            variant="outline"
+                            className="font-mono text-xs font-bold bg-neutral-100 dark:bg-neutral-800"
+                          >
+                            {lote.codigo}
+                          </Badge>
+                        </div>
+                        <h4
+                          onClick={() => setInspectingLote(lote)}
+                          className="font-bold text-sm text-foreground mt-1.5 hover:text-orange-600 cursor-pointer transition-colors"
+                          title="Clique para ver os clientes e extintores deste lote"
                         >
-                          {lote.codigo}
-                        </Badge>
-                        <h4 className="font-bold text-sm text-foreground mt-1.5">{lote.nome}</h4>
+                          {lote.nome}
+                        </h4>
                         {lote.cidade && (
                           <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                             <MapPin className="h-3 w-3 text-red-500" /> {lote.cidade}{" "}
@@ -716,9 +749,40 @@ export function BenchBoard() {
                           </p>
                         )}
                       </div>
-                      <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-[10px]">
+                      <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-[10px] shrink-0">
                         Aguardando Descarga
                       </Badge>
+                    </div>
+
+                    {/* Alerta Visual de Mescla se houver */}
+                    {lote.observacoes && lote.observacoes.includes("[Mesclado") && (
+                      <div className="flex items-center gap-1.5 px-2 py-1 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 rounded-md text-[10px] text-purple-700 dark:text-purple-300 font-medium">
+                        <GitMerge className="h-3 w-3 shrink-0 text-purple-600" />
+                        <span className="truncate">
+                          {lote.observacoes.match(/\[Mesclado[^\]]+\]/)?.[0]?.replace(/[\[\]]/g, "") || "Lote Unificado"}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Resumo Clicável de Clientes do Lote */}
+                    <div
+                      onClick={() => setInspectingLote(lote)}
+                      className="p-2.5 bg-neutral-50 dark:bg-neutral-800/60 rounded-lg text-xs cursor-pointer hover:bg-orange-50/70 dark:hover:bg-neutral-800 hover:border-orange-300 transition-all border border-neutral-200 dark:border-neutral-700/80 space-y-1"
+                      title="Clique para ver a lista de clientes e extintores deste lote"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold uppercase text-neutral-500 flex items-center gap-1">
+                          <Users className="h-3 w-3 text-blue-600" /> Clientes Recolhidos:
+                        </span>
+                        <span className="text-[10px] text-blue-600 dark:text-blue-400 font-bold hover:underline">
+                          Ver extintores ➔
+                        </span>
+                      </div>
+                      <p className="text-xs font-semibold text-foreground truncate">
+                        {lote.ordens && lote.ordens.length > 0
+                          ? lote.ordens.map((o) => o.client?.name || "Cliente").join(", ")
+                          : "Sem clientes vinculados"}
+                      </p>
                     </div>
 
                     {/* Resumo de Cilindros & Clientes */}
@@ -805,17 +869,39 @@ export function BenchBoard() {
                 oficinaLotes.map((lote) => (
                   <Card
                     key={lote.id}
-                    className="p-4 rounded-xl border shadow-sm hover:shadow-md transition-all space-y-3 bg-white dark:bg-neutral-900"
+                    className={`p-4 rounded-xl border shadow-sm hover:shadow-md transition-all space-y-3 bg-white dark:bg-neutral-900 ${
+                      selectedLoteIdsForMerge.includes(lote.id)
+                        ? "border-orange-500 ring-2 ring-orange-400/20"
+                        : ""
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <Badge
-                          variant="outline"
-                          className="font-mono text-xs font-bold bg-neutral-100 dark:bg-neutral-800"
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={selectedLoteIdsForMerge.includes(lote.id)}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              toggleLoteSelectionForMerge(lote.id);
+                            }}
+                            className="h-4 w-4 rounded text-orange-600 focus:ring-orange-500 cursor-pointer shrink-0"
+                            title="Selecionar lote para mesclar"
+                          />
+                          <Badge
+                            variant="outline"
+                            className="font-mono text-xs font-bold bg-neutral-100 dark:bg-neutral-800"
+                          >
+                            {lote.codigo}
+                          </Badge>
+                        </div>
+                        <h4
+                          onClick={() => setInspectingLote(lote)}
+                          className="font-bold text-sm text-foreground mt-1.5 hover:text-orange-600 cursor-pointer transition-colors"
+                          title="Clique para ver os clientes e extintores deste lote"
                         >
-                          {lote.codigo}
-                        </Badge>
-                        <h4 className="font-bold text-sm text-foreground mt-1.5">{lote.nome}</h4>
+                          {lote.nome}
+                        </h4>
                         {lote.cidade && (
                           <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                             <MapPin className="h-3 w-3 text-red-500" /> {lote.cidade}{" "}
@@ -823,9 +909,40 @@ export function BenchBoard() {
                           </p>
                         )}
                       </div>
-                      <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px]">
+                      <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] shrink-0">
                         Em Manutenção
                       </Badge>
+                    </div>
+
+                    {/* Alerta Visual de Mescla se houver */}
+                    {lote.observacoes && lote.observacoes.includes("[Mesclado") && (
+                      <div className="flex items-center gap-1.5 px-2 py-1 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 rounded-md text-[10px] text-purple-700 dark:text-purple-300 font-medium">
+                        <GitMerge className="h-3 w-3 shrink-0 text-purple-600" />
+                        <span className="truncate">
+                          {lote.observacoes.match(/\[Mesclado[^\]]+\]/)?.[0]?.replace(/[\[\]]/g, "") || "Lote Unificado"}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Resumo Clicável de Clientes do Lote */}
+                    <div
+                      onClick={() => setInspectingLote(lote)}
+                      className="p-2.5 bg-neutral-50 dark:bg-neutral-800/60 rounded-lg text-xs cursor-pointer hover:bg-orange-50/70 dark:hover:bg-neutral-800 hover:border-orange-300 transition-all border border-neutral-200 dark:border-neutral-700/80 space-y-1"
+                      title="Clique para ver a lista de clientes e extintores deste lote"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold uppercase text-neutral-500 flex items-center gap-1">
+                          <Users className="h-3 w-3 text-blue-600" /> Clientes Recolhidos:
+                        </span>
+                        <span className="text-[10px] text-blue-600 dark:text-blue-400 font-bold hover:underline">
+                          Ver extintores ➔
+                        </span>
+                      </div>
+                      <p className="text-xs font-semibold text-foreground truncate">
+                        {lote.ordens && lote.ordens.length > 0
+                          ? lote.ordens.map((o) => o.client?.name || "Cliente").join(", ")
+                          : "Sem clientes vinculados"}
+                      </p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 bg-neutral-50 dark:bg-neutral-800/50 p-2.5 rounded-lg text-xs">
@@ -922,17 +1039,39 @@ export function BenchBoard() {
                 saidaLotes.map((lote) => (
                   <Card
                     key={lote.id}
-                    className="p-4 rounded-xl border shadow-sm hover:shadow-md transition-all space-y-3 bg-white dark:bg-neutral-900 border-purple-200"
+                    className={`p-4 rounded-xl border shadow-sm hover:shadow-md transition-all space-y-3 bg-white dark:bg-neutral-900 border-purple-200 ${
+                      selectedLoteIdsForMerge.includes(lote.id)
+                        ? "border-orange-500 ring-2 ring-orange-400/20"
+                        : ""
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <Badge
-                          variant="outline"
-                          className="font-mono text-xs font-bold bg-neutral-100 dark:bg-neutral-800"
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={selectedLoteIdsForMerge.includes(lote.id)}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              toggleLoteSelectionForMerge(lote.id);
+                            }}
+                            className="h-4 w-4 rounded text-orange-600 focus:ring-orange-500 cursor-pointer shrink-0"
+                            title="Selecionar lote para mesclar"
+                          />
+                          <Badge
+                            variant="outline"
+                            className="font-mono text-xs font-bold bg-neutral-100 dark:bg-neutral-800"
+                          >
+                            {lote.codigo}
+                          </Badge>
+                        </div>
+                        <h4
+                          onClick={() => setInspectingLote(lote)}
+                          className="font-bold text-sm text-foreground mt-1.5 hover:text-orange-600 cursor-pointer transition-colors"
+                          title="Clique para ver os clientes e extintores deste lote"
                         >
-                          {lote.codigo}
-                        </Badge>
-                        <h4 className="font-bold text-sm text-foreground mt-1.5">{lote.nome}</h4>
+                          {lote.nome}
+                        </h4>
                         {lote.cidade && (
                           <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                             <MapPin className="h-3 w-3 text-red-500" /> {lote.cidade}{" "}
@@ -940,9 +1079,40 @@ export function BenchBoard() {
                           </p>
                         )}
                       </div>
-                      <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[10px]">
+                      <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[10px] shrink-0">
                         Revisado & Aprovado
                       </Badge>
+                    </div>
+
+                    {/* Alerta Visual de Mescla se houver */}
+                    {lote.observacoes && lote.observacoes.includes("[Mesclado") && (
+                      <div className="flex items-center gap-1.5 px-2 py-1 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 rounded-md text-[10px] text-purple-700 dark:text-purple-300 font-medium">
+                        <GitMerge className="h-3 w-3 shrink-0 text-purple-600" />
+                        <span className="truncate">
+                          {lote.observacoes.match(/\[Mesclado[^\]]+\]/)?.[0]?.replace(/[\[\]]/g, "") || "Lote Unificado"}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Resumo Clicável de Clientes do Lote */}
+                    <div
+                      onClick={() => setInspectingLote(lote)}
+                      className="p-2.5 bg-neutral-50 dark:bg-neutral-800/60 rounded-lg text-xs cursor-pointer hover:bg-orange-50/70 dark:hover:bg-neutral-800 hover:border-orange-300 transition-all border border-neutral-200 dark:border-neutral-700/80 space-y-1"
+                      title="Clique para ver a lista de clientes e extintores deste lote"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold uppercase text-neutral-500 flex items-center gap-1">
+                          <Users className="h-3 w-3 text-blue-600" /> Clientes Recolhidos:
+                        </span>
+                        <span className="text-[10px] text-blue-600 dark:text-blue-400 font-bold hover:underline">
+                          Ver extintores ➔
+                        </span>
+                      </div>
+                      <p className="text-xs font-semibold text-foreground truncate">
+                        {lote.ordens && lote.ordens.length > 0
+                          ? lote.ordens.map((o) => o.client?.name || "Cliente").join(", ")
+                          : "Sem clientes vinculados"}
+                      </p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 bg-neutral-50 dark:bg-neutral-800/50 p-2.5 rounded-lg text-xs">
@@ -1467,6 +1637,36 @@ export function BenchBoard() {
         </DialogContent>
       </Dialog>
 
+      {/* Barra Flutuante de Seleção de Lotes para Mesclagem */}
+      {selectedLoteIdsForMerge.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-neutral-900 text-white px-5 py-3 rounded-2xl shadow-2xl border border-neutral-700 flex items-center gap-4 animate-in slide-in-from-bottom">
+          <div className="flex items-center gap-2">
+            <span className="w-6 h-6 rounded-full bg-orange-600 text-white flex items-center justify-center text-xs font-bold">
+              {selectedLoteIdsForMerge.length}
+            </span>
+            <span className="text-xs font-bold">Lote(s) selecionado(s) para mesclagem</span>
+          </div>
+
+          <Button
+            size="sm"
+            onClick={() => setIsMergeModalOpen(true)}
+            className="bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs gap-1.5 shadow-sm"
+          >
+            <GitMerge className="h-3.5 w-3.5" />
+            Mesclar Lotes Selecionados
+          </Button>
+
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setSelectedLoteIdsForMerge([])}
+            className="text-neutral-400 hover:text-white text-xs h-8"
+          >
+            Limpar
+          </Button>
+        </div>
+      )}
+
       <LabelPrinterDialog
         open={!!printTarget}
         onOpenChange={(o) => !o && setPrintTarget(null)}
@@ -1475,7 +1675,23 @@ export function BenchBoard() {
 
       <LoteMergeDialog
         open={isMergeModalOpen}
-        onOpenChange={setIsMergeModalOpen}
+        onOpenChange={(o) => {
+          setIsMergeModalOpen(o);
+          if (!o) setSelectedLoteIdsForMerge([]);
+        }}
+        initialTargetLoteId={selectedLoteIdsForMerge[0]}
+        initialSourceLoteIds={selectedLoteIdsForMerge.slice(1)}
+        onSuccess={() => {
+          setSelectedLoteIdsForMerge([]);
+          refetchLotes();
+        }}
+      />
+
+      <LoteInspectDialog
+        open={!!inspectingLote}
+        onOpenChange={(o) => !o && setInspectingLote(null)}
+        lote={inspectingLote}
+        onAdvanceStage={handleAdvanceLote}
       />
     </div>
   );
