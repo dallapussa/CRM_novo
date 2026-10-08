@@ -359,6 +359,137 @@ export async function deleteExtinguisherModel(id: string): Promise<void> {
 }
 
 /**
+ * Salva múltiplos modelos de extintores em lote.
+ */
+export async function saveExtinguisherModelsBatch(
+  modelsToUpdate: Partial<ExtinguisherModel>[]
+): Promise<ExtinguisherModel[]> {
+  const local = getLocalModels();
+  const updatedLocal = [...local];
+  const savedModels: ExtinguisherModel[] = [];
+
+  for (const input of modelsToUpdate) {
+    const agente = input.agente?.trim() || "Pó ABC";
+    const capacidade = input.capacidade?.trim() || "4kg";
+    const nome = input.nome?.trim() || `${agente} - ${capacidade}`;
+    const custo_normal = Number(input.custo_normal) >= 0 ? Number(input.custo_normal) : 18.0;
+    const custo_reaproveitamento =
+      Number(input.custo_reaproveitamento) >= 0 ? Number(input.custo_reaproveitamento) : 6.0;
+    const preco_padrao = Number(input.preco_padrao) >= 0 ? Number(input.preco_padrao) : 45.0;
+
+    const id = input.id || crypto.randomUUID();
+
+    const model: ExtinguisherModel = {
+      id,
+      nome,
+      agente,
+      capacidade,
+      custo_normal,
+      custo_reaproveitamento,
+      preco_padrao,
+      ativo: input.ativo !== false,
+      updated_at: new Date().toISOString(),
+      created_at: input.created_at || new Date().toISOString(),
+    };
+
+    savedModels.push(model);
+
+    const existingIdx = updatedLocal.findIndex(
+      (m) => m.id === id || m.nome.toLowerCase() === nome.toLowerCase()
+    );
+    if (existingIdx >= 0) {
+      updatedLocal[existingIdx] = { ...updatedLocal[existingIdx], ...model };
+    } else {
+      updatedLocal.push(model);
+    }
+  }
+
+  setLocalModels(updatedLocal);
+
+  // Sincroniza em lote com Supabase
+  try {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    let companyId: string | null = null;
+    if (user?.id) {
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("company_id")
+        .eq("id", user.id)
+        .maybeSingle();
+      companyId = profile?.company_id || null;
+    }
+    if (!companyId) {
+      const { data: comp } = await supabase.from("companies").select("id").limit(1).maybeSingle();
+      companyId = comp?.id || null;
+    }
+
+    const payloads = savedModels.map((model) => {
+      const descricao = JSON.stringify({
+        agente: model.agente,
+        capacidade: model.capacidade,
+        custo_normal: model.custo_normal,
+        custo_reaproveitamento: model.custo_reaproveitamento,
+        preco_padrao: model.preco_padrao,
+      });
+
+      return {
+        id: model.id,
+        company_id: companyId,
+        nome: model.nome,
+        tipo: "servico",
+        categoria: "Extintor",
+        unidade: "un",
+        custo_unitario: model.custo_normal,
+        preco_venda: model.preco_padrao,
+        descricao,
+        ativo: model.ativo,
+        updated_at: new Date().toISOString(),
+      };
+    });
+
+    for (const p of payloads) {
+      if (p.id && !p.id.startsWith("preset-")) {
+        await supabase.from("catalog_items").upsert(p);
+      } else if (companyId) {
+        await supabase.from("catalog_items").insert(p);
+      }
+    }
+  } catch (err) {
+    console.warn("Erro ao sincronizar modelos em lote no Supabase:", err);
+  }
+
+  return savedModels;
+}
+
+/**
+ * Exclui múltiplos modelos de extintores em lote.
+ */
+export async function deleteExtinguisherModelsBatch(ids: string[]): Promise<void> {
+  const local = getLocalModels();
+  const idSet = new Set(ids);
+  const filtered = local.filter((m) => !idSet.has(m.id));
+  setLocalModels(filtered);
+
+  try {
+    const supabase = createClient();
+    const validDbIds = ids.filter((id) => !id.startsWith("preset-"));
+    if (validDbIds.length > 0) {
+      await supabase
+        .from("catalog_items")
+        .update({ deleted_at: new Date().toISOString(), ativo: false })
+        .in("id", validDbIds);
+    }
+  } catch (err) {
+    console.warn("Erro ao excluir modelos em lote no Supabase:", err);
+  }
+}
+
+
+/**
  * Encontra o modelo de extintor mais próximo correspondente à string de tipo_capacidade.
  * Ex: "PÓ ABC - 4kg" -> acha o modelo com agente ABC e capacidade 4kg.
  */
