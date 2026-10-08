@@ -1,7 +1,7 @@
 -- ============================================================================
--- EXTINCONTROL / FIRE CRM — MIGRAÇÃO 004
--- Configurações Globais (PIN & Menus), Modelos de Orçamento, Catálogo Sincronizado,
--- Extensões de Orçamento & Vínculo do Portal do Cliente
+-- EXTINCONTROL / FIRE CRM — MIGRAÇÃO 004 COMPLETA E DEFINITIVA
+-- Criação e Atualização de Tabelas: Orçamentos, Catálogo, Ordens de Serviço,
+-- Configurações Globais / PIN de Segurança e Portal do Cliente.
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
@@ -32,21 +32,42 @@ create policy app_settings_authenticated on public.app_settings
   with check (true);
 
 -- ----------------------------------------------------------------------------
--- 2. ADEQUAÇÃO DA TABELA DE MODELOS DE ORÇAMENTO (quote_templates)
+-- 2. TABELA DE MODELOS DE ORÇAMENTO (quote_templates)
 -- ----------------------------------------------------------------------------
--- Flexibiliza id para tipo TEXT (suportando IDs amigáveis como 'tpl-simplificado' ou UUIDs)
-alter table public.quotes drop constraint if exists quotes_template_id_fkey;
-alter table public.quotes alter column template_id type text;
-alter table public.quote_templates alter column id type text;
-alter table public.quotes add constraint quotes_template_id_fkey foreign key (template_id) references public.quote_templates(id) on delete set null;
+create table if not exists public.quote_templates (
+  id text primary key,
+  company_id uuid references public.companies(id) on delete cascade,
+  nome text not null,
+  descricao text,
+  tipo text default 'personalizado',
+  validade_dias integer default 15,
+  condicoes_pagamento text default 'À vista ou 30 dias no boleto.',
+  termos_garantia text,
+  clausula_ppci text,
+  itens_padrao jsonb not null default '[]'::jsonb,
+  ativo boolean not null default true,
+  is_system boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
 
--- Adiciona campos estruturados para modelos de orçamento
+alter table public.quote_templates add column if not exists company_id uuid references public.companies(id) on delete cascade;
 alter table public.quote_templates add column if not exists tipo text default 'personalizado';
 alter table public.quote_templates add column if not exists validade_dias integer default 15;
 alter table public.quote_templates add column if not exists condicoes_pagamento text default 'À vista ou 30 dias no boleto.';
 alter table public.quote_templates add column if not exists termos_garantia text;
 alter table public.quote_templates add column if not exists clausula_ppci text;
 alter table public.quote_templates add column if not exists itens_padrao jsonb not null default '[]'::jsonb;
+alter table public.quote_templates add column if not exists ativo boolean not null default true;
+alter table public.quote_templates add column if not exists is_system boolean not null default false;
+
+alter table public.quote_templates enable row level security;
+
+drop policy if exists quote_templates_all on public.quote_templates;
+create policy quote_templates_all on public.quote_templates
+  for all to authenticated
+  using (true)
+  with check (true);
 
 -- Popula os 3 modelos de orçamento padrão do sistema
 insert into public.quote_templates (
@@ -102,14 +123,44 @@ on conflict (id) do update set
   itens_padrao = excluded.itens_padrao;
 
 -- ----------------------------------------------------------------------------
--- 3. ADEQUAÇÃO DO CATÁLOGO DE PRODUTOS & SERVIÇOS (catalog_items)
+-- 3. TABELA DE CATÁLOGO DE PRODUTOS & SERVIÇOS (catalog_items)
 -- ----------------------------------------------------------------------------
+create table if not exists public.catalog_items (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid references public.companies(id) on delete cascade,
+  nome text not null,
+  descricao text,
+  categoria text default 'Outros',
+  tipo text default 'servico',
+  type text default 'servico',
+  unidade text default 'un',
+  preco_venda numeric(12,2) default 0,
+  preco numeric(12,2) default 0,
+  custo_unitario numeric(12,2) default 0,
+  custo numeric(12,2) default 0,
+  custo_reaproveitamento numeric(12,2) default 0,
+  agente text,
+  capacidade text,
+  sku text,
+  ativo boolean default true,
+  is_system boolean default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
+  created_by uuid references auth.users(id) on delete set null
+);
+
+alter table public.catalog_items add column if not exists company_id uuid references public.companies(id) on delete cascade;
 alter table public.catalog_items add column if not exists tipo text default 'servico';
-alter table public.catalog_items add column if not exists preco_venda numeric(12,2);
-alter table public.catalog_items add column if not exists custo_unitario numeric(12,2);
+alter table public.catalog_items add column if not exists type text default 'servico';
+alter table public.catalog_items add column if not exists preco_venda numeric(12,2) default 0;
+alter table public.catalog_items add column if not exists preco numeric(12,2) default 0;
+alter table public.catalog_items add column if not exists custo_unitario numeric(12,2) default 0;
+alter table public.catalog_items add column if not exists custo numeric(12,2) default 0;
 alter table public.catalog_items add column if not exists custo_reaproveitamento numeric(12,2) default 0;
 alter table public.catalog_items add column if not exists agente text;
 alter table public.catalog_items add column if not exists capacidade text;
+alter table public.catalog_items add column if not exists is_system boolean default false;
 
 -- Sincronizar registros existentes
 update public.catalog_items
@@ -152,9 +203,61 @@ for each row
 execute function public.sync_catalog_items_columns();
 
 -- ----------------------------------------------------------------------------
--- 4. ADEQUAÇÃO DA TABELA DE ORÇAMENTOS (quotes)
+-- 4. TABELAS DE ORÇAMENTOS (quotes & quote_items)
 -- ----------------------------------------------------------------------------
+create table if not exists public.quotes (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  client_id uuid not null references public.clients(id) on delete cascade,
+  template_id text,
+  numero bigint generated by default as identity,
+  status text not null default 'Rascunho',
+  issued_at date not null default current_date,
+  expires_at date,
+  subtotal numeric(12,2) not null default 0 check (subtotal >= 0),
+  discount numeric(12,2) not null default 0 check (discount >= 0),
+  total numeric(12,2) not null default 0 check (total >= 0),
+  notes text,
+  observacoes text,
+  validade_dias integer default 15,
+  condicoes_pagamento text,
+  termos_garantia text,
+  clausula_ppci text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
+  created_by uuid references auth.users(id) on delete set null
+);
+
+create table if not exists public.quote_items (
+  id uuid primary key default gen_random_uuid(),
+  quote_id uuid not null references public.quotes(id) on delete cascade,
+  catalog_item_id uuid references public.catalog_items(id) on delete set null,
+  descricao text not null,
+  quantidade numeric(12,2) not null default 1 check (quantidade > 0),
+  unidade text not null default 'un',
+  unit_price numeric(12,2) not null default 0 check (unit_price >= 0),
+  total numeric(12,2) not null default 0 check (total >= 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
+  created_by uuid references auth.users(id) on delete set null
+);
+
+-- Flexibiliza template_id para text caso tenha sido criado como uuid anteriormente
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns 
+    where table_name = 'quotes' and column_name = 'template_id' and data_type = 'uuid'
+  ) then
+    alter table public.quotes drop constraint if exists quotes_template_id_fkey;
+    alter table public.quotes alter column template_id type text;
+  end if;
+end $$;
+
 alter table public.quotes add column if not exists notes text;
+alter table public.quotes add column if not exists observacoes text;
 alter table public.quotes add column if not exists validade_dias integer default 15;
 alter table public.quotes add column if not exists condicoes_pagamento text;
 alter table public.quotes add column if not exists termos_garantia text;
@@ -182,18 +285,105 @@ execute function public.sync_quotes_notes();
 update public.quotes set notes = observacoes where notes is null and observacoes is not null;
 
 -- ----------------------------------------------------------------------------
--- 5. ADEQUAÇÃO DA TABELA DE EMPRESAS EMITENTES (companies)
+-- 5. TABELA DE ORDENS DE SERVIÇO & VISTORIAS (service_orders & items)
 -- ----------------------------------------------------------------------------
+create table if not exists public.service_orders (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  client_id uuid not null references public.clients(id) on delete cascade,
+  quote_id uuid references public.quotes(id) on delete set null,
+  assigned_to uuid references public.user_profiles(id) on delete set null,
+  numero bigint generated by default as identity,
+  tipo text not null default 'Vistoria Técnica',
+  descricao text,
+  status text not null default 'Pendente',
+  priority text not null default 'Normal',
+  scheduled_at timestamptz,
+  scheduled_period text default 'manha',
+  started_at timestamptz,
+  arrival_time timestamptz,
+  departure_time timestamptz,
+  completed_at timestamptz,
+  technical_report text,
+  signature_url text,
+  signature_name text,
+  subtotal numeric(12,2) not null default 0,
+  discount numeric(12,2) not null default 0,
+  total numeric(12,2) not null default 0,
+  cancellation_reason text,
+  observacoes text,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
+  created_by uuid references auth.users(id) on delete set null
+);
+
+alter table public.service_orders add column if not exists quote_id uuid references public.quotes(id) on delete set null;
+alter table public.service_orders add column if not exists assigned_to uuid references public.user_profiles(id) on delete set null;
+alter table public.service_orders add column if not exists tipo text default 'Vistoria Técnica';
+alter table public.service_orders add column if not exists priority text default 'Normal';
+alter table public.service_orders add column if not exists scheduled_at timestamptz;
+alter table public.service_orders add column if not exists scheduled_period text default 'manha';
+alter table public.service_orders add column if not exists started_at timestamptz;
+alter table public.service_orders add column if not exists arrival_time timestamptz;
+alter table public.service_orders add column if not exists departure_time timestamptz;
+alter table public.service_orders add column if not exists completed_at timestamptz;
+alter table public.service_orders add column if not exists technical_report text;
+alter table public.service_orders add column if not exists signature_url text;
+alter table public.service_orders add column if not exists signature_name text;
+alter table public.service_orders add column if not exists discount numeric(12,2) default 0;
+alter table public.service_orders add column if not exists cancellation_reason text;
+alter table public.service_orders add column if not exists observacoes text;
+alter table public.service_orders add column if not exists notes text;
+
+create table if not exists public.service_order_items (
+  id uuid primary key default gen_random_uuid(),
+  service_order_id uuid not null references public.service_orders(id) on delete cascade,
+  catalog_item_id uuid references public.catalog_items(id) on delete set null,
+  descricao text not null,
+  quantidade numeric(12,2) not null default 1,
+  unidade text not null default 'un',
+  item_type text default 'servico',
+  unit_price numeric(12,2) not null default 0,
+  total numeric(12,2) not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
+  created_by uuid references auth.users(id) on delete set null
+);
+
+alter table public.service_order_items add column if not exists catalog_item_id uuid references public.catalog_items(id) on delete set null;
+alter table public.service_order_items add column if not exists unidade text default 'un';
+alter table public.service_order_items add column if not exists item_type text default 'servico';
+alter table public.service_order_items add column if not exists unit_price numeric(12,2) default 0;
+alter table public.service_order_items add column if not exists total numeric(12,2) default 0;
+alter table public.service_order_items add column if not exists created_by uuid references auth.users(id) on delete set null;
+alter table public.service_order_items add column if not exists deleted_at timestamptz;
+
+-- ----------------------------------------------------------------------------
+-- 6. CAMPOS AUXILIARES: CLIENTES & EMPRESAS EMITENTES
+-- ----------------------------------------------------------------------------
+alter table public.clients add column if not exists whatsapp text;
+alter table public.clients add column if not exists ppci_isento boolean default false;
+alter table public.clients add column if not exists metragem numeric(10,2);
+alter table public.clients add column if not exists cpf_responsavel varchar(20);
+alter table public.clients add column if not exists contato_responsavel varchar(30);
+alter table public.clients add column if not exists senha_gov varchar(100);
+alter table public.clients add column if not exists ppci_enquadramento text;
+alter table public.clients add column if not exists ppci_expires_at date;
+alter table public.clients add column if not exists ppci_number text;
+
 alter table public.companies add column if not exists logo_url text;
 alter table public.companies add column if not exists endereco text;
 
 -- ----------------------------------------------------------------------------
--- 6. VÍNCULO DE USUÁRIOS AO CLIENTE (PORTAL DO CLIENTE) & RLS
+-- 7. VÍNCULO DE USUÁRIOS AO CLIENTE (PORTAL DO CLIENTE) & POLÍTICAS RLS
 -- ----------------------------------------------------------------------------
-alter table public.user_profiles add column if not exists client_id uuid references public.clients(id) on delete cascade;
+alter table public.user_profiles add column if not exists client_id uuid references public.clients(id) on delete set null;
 create index if not exists idx_user_profiles_client_id on public.user_profiles(client_id);
 
--- Função auxiliar segura para obter o client_id do usuário logado
+-- Função auxiliar segura para obter o client_id do usuário autenticado
 create or replace function public.get_my_client_id()
 returns uuid
 language sql
@@ -210,7 +400,8 @@ drop policy if exists clients_cliente_select on public.clients;
 create policy clients_cliente_select on public.clients
   for select to authenticated
   using (
-    id = public.get_my_client_id()
+    id = public.get_my_client_id() or
+    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role <> 'Cliente')
   );
 
 -- B) Acesso ao inventário de extintores do cliente
@@ -218,64 +409,69 @@ drop policy if exists extintores_cliente_select on public.extintores;
 create policy extintores_cliente_select on public.extintores
   for select to authenticated
   using (
-    client_id = public.get_my_client_id()
+    client_id = public.get_my_client_id() or
+    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role <> 'Cliente')
   );
 
--- C) Acesso aos documentos do cliente (Anexo D, PPCI, fotos)
+-- C) Acesso aos documentos do cliente (Anexo D, PPCI, laudos)
 drop policy if exists documentos_cliente_cliente_select on public.documentos_cliente;
 create policy documentos_cliente_cliente_select on public.documentos_cliente
   for select to authenticated
   using (
-    client_id = public.get_my_client_id()
+    client_id = public.get_my_client_id() or
+    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role <> 'Cliente')
   );
 
--- D) Acesso aos dados de PPCI
-drop policy if exists cliente_ppci_cliente_select on public.cliente_ppci;
-create policy cliente_ppci_cliente_select on public.cliente_ppci
-  for select to authenticated
-  using (
-    client_id = public.get_my_client_id()
-  );
-
--- E) Acesso e aprovação de orçamentos
+-- D) Acesso e aprovação de orçamentos
 drop policy if exists quotes_cliente_select on public.quotes;
 create policy quotes_cliente_select on public.quotes
   for select to authenticated
   using (
-    client_id = public.get_my_client_id()
+    client_id = public.get_my_client_id() or
+    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role <> 'Cliente')
   );
 
 drop policy if exists quotes_cliente_update on public.quotes;
 create policy quotes_cliente_update on public.quotes
   for update to authenticated
   using (
-    client_id = public.get_my_client_id()
+    client_id = public.get_my_client_id() or
+    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role <> 'Cliente')
   )
   with check (
-    client_id = public.get_my_client_id() and
-    status in ('Aprovado', 'Rejeitado')
+    client_id = public.get_my_client_id() or
+    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role <> 'Cliente')
   );
 
--- F) Acesso aos itens do orçamento
+-- E) Acesso aos itens do orçamento
 drop policy if exists quote_items_cliente_select on public.quote_items;
 create policy quote_items_cliente_select on public.quote_items
   for select to authenticated
   using (
-    quote_id in (select id from public.quotes where client_id = public.get_my_client_id())
+    quote_id in (select id from public.quotes where client_id = public.get_my_client_id()) or
+    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role <> 'Cliente')
   );
 
--- G) Acesso às ordens de recolhimento
-drop policy if exists ordens_recolhimento_cliente_select on public.ordens_recolhimento;
-create policy ordens_recolhimento_cliente_select on public.ordens_recolhimento
+-- F) Acesso às vistorias e ordens de serviço
+drop policy if exists service_orders_cliente_select on public.service_orders;
+create policy service_orders_cliente_select on public.service_orders
   for select to authenticated
   using (
-    client_id = public.get_my_client_id()
+    client_id = public.get_my_client_id() or
+    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role <> 'Cliente')
   );
 
--- H) Acesso aos itens das ordens de recolhimento
-drop policy if exists itens_recolhimento_cliente_select on public.itens_recolhimento;
-create policy itens_recolhimento_cliente_select on public.itens_recolhimento
+drop policy if exists service_order_items_cliente_select on public.service_order_items;
+create policy service_order_items_cliente_select on public.service_order_items
   for select to authenticated
   using (
-    ordem_id in (select id from public.ordens_recolhimento where client_id = public.get_my_client_id())
+    service_order_id in (select id from public.service_orders where client_id = public.get_my_client_id()) or
+    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role <> 'Cliente')
   );
+
+-- Habilita RLS nas tabelas centrais
+alter table public.quotes enable row level security;
+alter table public.quote_items enable row level security;
+alter table public.service_orders enable row level security;
+alter table public.service_order_items enable row level security;
+alter table public.catalog_items enable row level security;
