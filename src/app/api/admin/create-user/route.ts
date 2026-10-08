@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 
@@ -57,6 +56,8 @@ export async function POST(request: Request) {
     let role = typeof body.role === "string" ? body.role.trim() : "Cliente";
     const telefone = typeof body.telefone === "string" ? body.telefone.replace(/\D/g, "") : null;
 
+    const clientId = typeof body.client_id === "string" && body.client_id.trim() ? body.client_id.trim() : null;
+
     if (!email.includes("@") || nome.length < 2) {
       return NextResponse.json({ error: "Informe um e-mail válido e o nome do usuário." }, { status: 400 });
     }
@@ -77,6 +78,7 @@ export async function POST(request: Request) {
         nome,
         role,
         telefone,
+        client_id: clientId,
       },
     });
 
@@ -84,31 +86,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: createError?.message || "Erro ao criar usuário no banco." }, { status: 400 });
     }
 
-    // 4. Vincular a empresa (company_id) no user_profiles usando o contexto do admin autenticado
-    const supabaseUrl =
-      process.env.NEXT_PUBLIC_SUPABASE_URL ||
-      process.env.VITE_SUPABASE_URL ||
-      "https://hzmxwbxbidnvclkoozaw.supabase.co";
-    const supabaseAnonKey =
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-      process.env.VITE_SUPABASE_ANON_KEY ||
-      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6bXh3YnhiaWRudmNsa29vemF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2NTQxODksImV4cCI6MjEwNjIzMDE4OX0.AHJjEaO2sV5KMKpzc_mv9gqsrTSjxhlw0CL2bZZMIcg";
-    const updaterClient = token
-      ? createSupabaseClient(supabaseUrl, supabaseAnonKey, {
-          global: { headers: { Authorization: `Bearer ${token}` } },
-        })
-      : supabase;
+    // 4. Vincular a empresa (company_id) e client_id no user_profiles
+    const profileUpdate: Record<string, any> = {
+      company_id: currentProfile.company_id,
+      telefone,
+    };
+    if (clientId) {
+      profileUpdate.client_id = clientId;
+    }
 
-    const { error: companyLinkError } = await updaterClient
+    const { error: companyLinkError } = await adminClient
       .from("user_profiles")
-      .update({
-        company_id: currentProfile.company_id,
-        telefone,
-      })
+      .update(profileUpdate)
       .eq("id", createdUser.user.id);
 
     if (companyLinkError) {
-      console.error("Aviso ao vincular empresa:", companyLinkError);
+      console.error("Aviso ao vincular empresa/cliente no perfil:", companyLinkError);
     }
 
     // 5. Retornar perfil e senha temporária

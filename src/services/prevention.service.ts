@@ -560,30 +560,42 @@ export async function createOrdemRecolhimento(
   }
 
   let ordemId = ordem?.id;
-  let numeroOrdem = ordem?.numero_ordem || Math.floor(1000 + Math.random() * 9000);
-
+  let numeroOrdem: number = ordem?.numero_ordem ? Number(ordem.numero_ordem) : 1;
   if (ordemError || !ordemId) {
-    // Fallback: cria como uma Ordem de Serviço padrão no CRM com status pendente
-    const { data: os, error: osErr } = await supabase
-      .from("service_orders")
-      .insert({
-        customer_id: input.clientId,
-        type: `Recolhimento (${input.motivo})`,
-        description: `Recolhimento de ${input.itens.length} extintores para oficina. Reserva: ${input.deixouReserva ? "Sim - " + (input.detalhesReserva || "") : "Não"} ${observacaoComLote || ""}`,
-        scheduled_date: input.dataRecolhimento,
-        status: "pendente",
-        priority: "media",
-        subtotal: input.itens.reduce((acc, i) => acc + i.valorRegistrado, 0),
-        discount: 0,
-        total: input.itens.reduce((acc, i) => acc + i.valorRegistrado, 0),
-        created_by: user?.id || "",
-      })
-      .select("id, number")
-      .single();
+    // Fallback: cria como uma Ordem de Serviço padrão no CRM com status Pendente
+    const { data: clientRow } = await supabase
+      .from("clients")
+      .select("company_id")
+      .eq("id", input.clientId)
+      .maybeSingle();
 
-    if (osErr) throw ordemError || osErr;
-    ordemId = os.id;
-    numeroOrdem = os.number;
+    const companyId = clientRow?.company_id;
+
+    if (companyId) {
+      const { data: os, error: osErr } = await supabase
+        .from("service_orders")
+        .insert({
+          company_id: companyId,
+          client_id: input.clientId,
+          tipo: `Recolhimento (${input.motivo})`,
+          descricao: `Recolhimento de ${input.itens.length} extintores para oficina. Reserva: ${input.deixouReserva ? "Sim - " + (input.detalhesReserva || "") : "Não"} ${observacaoComLote || ""}`,
+          scheduled_at: input.dataRecolhimento ? `${input.dataRecolhimento}T12:00:00Z` : null,
+          status: "Pendente",
+          priority: "Normal",
+          subtotal: input.itens.reduce((acc, i) => acc + i.valorRegistrado, 0),
+          discount: 0,
+          total: input.itens.reduce((acc, i) => acc + i.valorRegistrado, 0),
+          created_by: user?.id || null,
+        })
+        .select("id, numero")
+        .single();
+
+      if (osErr) throw ordemError || osErr;
+      ordemId = os?.id;
+      numeroOrdem = Number(os?.numero || 1);
+    } else {
+      throw ordemError || new Error("Empresa não vinculada ao cliente para criação de ordem.");
+    }
   }
 
   // 2. Insere os itens de recolhimento
@@ -690,6 +702,171 @@ export async function createOrdemRecolhimento(
 
   return { id: ordemId, numero_ordem: numeroOrdem };
 }
+
+export interface ProcessarTrocaInput {
+  clientId: string;
+  extintorIds: string[];
+  dataTroca: string; // YYYY-MM-DD
+  formaPagamento: string; // PIX, Dinheiro, Cartão de Débito, Cartão de Crédito, Boleto, A Prazo (30 dias)
+  statusPagamento?: "pago" | "pendente";
+  tecnicoResponsavel?: string;
+  observacoes?: string;
+  valoresIndividuais?: Record<string, number>;
+}
+
+/**
+ * Processa a Troca Imediata de Extintores:
+ * - Renova automaticamente a validade dos extintores (+1 ano) mantendo status 'no_cliente';
+ * - Não cria registros na bancada nem envia para oficina/romaneio;
+ * - Cria ou anexa a ordem de faturamento no 'Faturamento do Dia' (caixa diário da entrega).
+ */
+export async function processarTrocaExtintores(input: ProcessarTrocaInput): Promise<{
+  id: string;
+  numero_ordem: number;
+  lote_id: string;
+  lote_nome: string;
+  total_renovados: number;
+}> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const dataTroca = input.dataTroca || new Date().toISOString().split("T")[0];
+  const nextYearDate = new Date(dataTroca + "T12:00:00");
+  nextYearDate.setFullYear(nextYearDate.getFullYear() + 1);
+  const nextYear = nextYearDate.toISOString().split("T")[0];
+
+  // 1. RENOVAÇÃO AUTOMÁTICA DOS EXTINTORES NO INVENTÁRIO DO CLIENTE
+  if (input.extintorIds.length > 0) {
+    const { error: renewErr } = await supabase
+      .from("extintores")
+      .update({
+        data_ultima_recarga: dataTroca,
+        data_vencimento: nextYear,
+        status: "no_cliente",
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", input.extintorIds);
+
+    if (renewErr) {
+      console.warn("Aviso ao renovar extintores na tabela principal:", renewErr);
+      await supabase
+        .from("extinguishers")
+        .update({
+          last_recharge_at: dataTroca,
+          expires_at: nextYear,
+          updated_at: new Date().toISOString(),
+        })
+        .in("id", input.extintorIds);
+    }
+  }
+
+  // 2. OBTÉM OU CRIA O FATURAMENTO DO DIA (CAIXA DIÁRIO)
+  const existingLotes = await listLotesRecolhimento();
+  const dataFmt = new Date(dataTroca + "T12:00:00").toLocaleDateString("pt-BR");
+
+  let loteDia = existingLotes.find((l) => {
+    const isSameDate = l.data_recolhimento === dataTroca;
+    const isFat =
+      (l.nome || "").toLowerCase().includes("faturamento") ||
+      (l.observacoes || "").includes("[FATURAMENTO_DIARIO]");
+    return isSameDate && isFat;
+  });
+
+  if (!loteDia) {
+    const novoLote = await saveLoteRecolhimento({
+      nome: `Faturamento do Dia - ${dataFmt}`,
+      codigo: `FAT-${dataTroca.replace(/-/g, "")}`,
+      cidade: "Geral",
+      regiao: null,
+      data_recolhimento: dataTroca,
+      prazo_dias: 0,
+      previsao_devolucao: dataTroca,
+      status: "concluido",
+      observacoes: `[ORIGEM:AUTO][FATURAMENTO_DIARIO] Caixa diário do dia ${dataFmt}.`,
+    });
+    loteDia = novoLote;
+  }
+
+  // 3. CRIA A ORDEM DE SERVIÇO / TROCA VINCULADA AO FATURAMENTO DO DIA
+  const isPago = input.statusPagamento !== "pendente";
+  const formaPagtoTag = `[PAGTO:${input.formaPagamento || "PIX"}]`;
+  const obsComTags = `[TROCA_DIRETA]${formaPagtoTag} Troca direta realizada no local. Extintores renovados até ${dataFmt.slice(3)}. ${input.observacoes || ""}`.trim();
+
+  const payload: Record<string, any> = {
+    client_id: input.clientId,
+    lote_id: loteDia.id,
+    motivo: "Troca",
+    deixou_reserva: false,
+    detalhes_reserva: null,
+    tecnico_responsavel: input.tecnicoResponsavel || "Técnico de Campo",
+    data_recolhimento: dataTroca,
+    previsao_devolucao: dataTroca,
+    observacoes: obsComTags,
+    status: isPago ? "concluido" : "recolhido",
+    created_by: user?.id || null,
+  };
+
+  let ordem: any = null;
+  let ordemError: any = null;
+
+  try {
+    const res = await supabase
+      .from("ordens_recolhimento")
+      .insert(payload)
+      .select("id, numero_ordem")
+      .single();
+
+    if (res.error && res.error.message?.includes("lote_id")) {
+      delete payload.lote_id;
+      const retryRes = await supabase
+        .from("ordens_recolhimento")
+        .insert(payload)
+        .select("id, numero_ordem")
+        .single();
+      ordem = retryRes.data;
+      ordemError = retryRes.error;
+    } else {
+      ordem = res.data;
+      ordemError = res.error;
+    }
+  } catch (err) {
+    ordemError = err;
+  }
+
+  let ordemId = ordem?.id;
+  let numeroOrdem = ordem?.numero_ordem || Math.floor(1000 + Math.random() * 9000);
+
+  if (ordemError || !ordemId) {
+    ordemId = crypto.randomUUID();
+  }
+
+  // 4. INSERE OS ITENS VINCULADOS À ORDEM (SEM COLOCAR NA BANCADA DA OFICINA!)
+  if (input.extintorIds.length > 0 && ordemId) {
+    const itemRows = input.extintorIds.map((extId) => ({
+      ordem_id: ordemId,
+      extintor_id: extId,
+      modalidade_recarga: "Normal",
+      valor_registrado: input.valoresIndividuais?.[extId] || 45.0,
+    }));
+
+    try {
+      await supabase.from("itens_recolhimento").insert(itemRows);
+    } catch (itErr) {
+      console.warn("Aviso ao inserir itens_recolhimento para troca:", itErr);
+    }
+  }
+
+  return {
+    id: ordemId,
+    numero_ordem: numeroOrdem,
+    lote_id: loteDia.id,
+    lote_nome: loteDia.nome,
+    total_renovados: input.extintorIds.length,
+  };
+}
+
 
 export async function listOrdensRecolhimento(clientId?: string, loteId?: string): Promise<OrdemRecolhimento[]> {
   const supabase = createClient();
@@ -1498,73 +1675,116 @@ export async function confirmClientDeliveryAndPayment(
 
   const extIds = (itens || []).map((i) => i.extintor_id).filter(Boolean);
 
-  // 3. Atualiza os extintores do cliente em public.extintores: volta para 'no_cliente' e renova validade em +1 ano
-  if (extIds.length > 0) {
-    await supabase
-      .from("extintores")
-      .update({
-        status: "no_cliente",
-        data_ultima_recarga: today,
-        data_vencimento: nextYear,
-        updated_at: new Date().toISOString(),
-      })
-      .in("id", extIds);
-  }
-
-  // 4. Conclui todas as ordens de recolhimento
-  await supabase
-    .from("ordens_recolhimento")
-    .update({
-      status: "concluido",
-      updated_at: new Date().toISOString(),
-    })
-    .in("id", targetOrderIds);
-
-  // 5. Identifica company_id para lançamento no Financeiro
+  // 3. Identifica company_id para lançamento no Financeiro e lote
   let companyId = client?.company_id;
   if (!companyId) {
     const { data: firstComp } = await supabase.from("companies").select("id").limit(1).maybeSingle();
     companyId = firstComp?.id;
   }
 
-  // 6. Lança transação em public.receipts (FINANCEIRO & RELATÓRIOS)
+  const loteId = input.loteId || firstOrdem?.lote_id;
   const numerosOS = (ordensData || []).map((o) => o.numero_ordem).filter(Boolean).join(", #");
   let receiptNumero: number = firstOrdem?.numero_ordem || Math.floor(1000 + Math.random() * 9000);
-  try {
-    const { data: authUser } = await supabase.auth.getUser();
-    if (companyId) {
-      const receiptPayload = {
-        company_id: companyId,
-        client_id: input.clientId,
-        invoice_type: "receber",
-        status: input.isPaid ? "Recebido" : "Pendente",
-        amount: input.amount,
-        amount_paid: input.isPaid ? input.amountPaid : 0,
-        due_at: input.dueDate || today,
-        issued_at: today,
-        received_at: input.isPaid ? new Date().toISOString() : null,
-        payment_method: input.paymentMethod,
-        description: `Recarga de ${(itens || []).length} extintor(es) - OS #${numerosOS || receiptNumero} - ${clientName}`,
-        notes: input.notes || `Cobrança de devolução via ${input.paymentMethod}`,
-        created_by: authUser.user?.id || null,
-      };
+  let atomicExecuted = false;
 
-      const { data: recData, error: recErr } = await supabase
-        .from("receipts")
-        .insert(receiptPayload)
-        .select("id, numero")
-        .single();
+  // 4. Executa baixa e faturamento de forma atômica via RPC no PostgreSQL
+  if (companyId) {
+    try {
+      const { data: rpcData, error: rpcError } = await (supabase.rpc as any)(
+        "confirmar_devolucao_e_gerar_recibo",
+        {
+          p_order_ids: targetOrderIds,
+          p_client_id: input.clientId,
+          p_company_id: companyId,
+          p_amount: input.amount,
+          p_amount_paid: input.amountPaid,
+          p_payment_method: input.paymentMethod,
+          p_is_paid: input.isPaid,
+          p_notes: input.notes || "",
+          p_due_date: input.dueDate || today,
+          p_lote_id: loteId || null,
+        }
+      );
 
-      if (!recErr && recData?.numero) {
-        receiptNumero = Number(recData.numero);
+      if (!rpcError && rpcData?.receipt_numero) {
+        atomicExecuted = true;
+        receiptNumero = Number(rpcData.receipt_numero);
+      }
+    } catch {
+      // Fallback para operações individuais caso RPC ainda não aplicada
+    }
+  }
+
+  // 5. Fallback sequencial se RPC não foi executado
+  if (!atomicExecuted) {
+    if (extIds.length > 0) {
+      await supabase
+        .from("extintores")
+        .update({
+          status: "no_cliente",
+          data_ultima_recarga: today,
+          data_vencimento: nextYear,
+          updated_at: new Date().toISOString(),
+        })
+        .in("id", extIds);
+    }
+
+    await supabase
+      .from("ordens_recolhimento")
+      .update({
+        status: "concluido",
+        forma_pagamento: input.paymentMethod,
+        status_pagamento: input.isPaid ? "QUITADO" : "PENDENTE",
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", targetOrderIds);
+
+    try {
+      const { data: authUser } = await supabase.auth.getUser();
+      if (companyId) {
+        const receiptPayload = {
+          company_id: companyId,
+          client_id: input.clientId,
+          lote_id: loteId || null,
+          invoice_type: "receber",
+          status: input.isPaid ? "Recebido" : "Pendente",
+          amount: input.amount,
+          amount_paid: input.isPaid ? input.amountPaid : 0,
+          due_at: input.dueDate || today,
+          issued_at: today,
+          received_at: input.isPaid ? new Date().toISOString() : null,
+          payment_method: input.paymentMethod,
+          description: `Recarga de ${(itens || []).length} extintor(es) - OS #${numerosOS || receiptNumero} - ${clientName}`,
+          notes: input.notes || `Cobrança de devolução via ${input.paymentMethod}`,
+          created_by: authUser.user?.id || null,
+        };
+
+        const { data: recData, error: recErr } = await supabase
+          .from("receipts")
+          .insert(receiptPayload)
+          .select("id, numero")
+          .single();
+
+        if (!recErr && recData?.numero) {
+          receiptNumero = Number(recData.numero);
+        }
+      }
+    } catch (recEx) {
+      console.warn("Lançamento financeiro em receipts:", recEx);
+    }
+
+    if (loteId) {
+      const allOrdensDoLote = await listOrdensRecolhimento(undefined, loteId);
+      const pendentes = allOrdensDoLote.filter(
+        (o) => !targetOrderIds.includes(o.id) && o.status !== "concluido"
+      );
+      if (pendentes.length === 0) {
+        await updateLoteStatus(loteId, "concluido");
       }
     }
-  } catch (recEx) {
-    console.warn("Lançamento financeiro em receipts:", recEx);
   }
 
   // 7. Se pertencer a um lote, verifica se todas as outras ordens do lote foram concluídas
-  const loteId = input.loteId || firstOrdem?.lote_id;
   let loteCodigo = "LOTE-GERAL";
   if (loteId) {
     const { data: loteData } = await supabase

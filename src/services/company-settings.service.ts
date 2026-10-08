@@ -39,11 +39,25 @@ export async function getCompanySettings(): Promise<CompanySettings> {
 
   try {
     const supabase = createClient();
-    const { data, error } = await supabase
-      .from("companies")
-      .select("*")
-      .limit(1)
-      .maybeSingle();
+    const { data: authData } = await supabase.auth.getUser();
+    let companyId: string | null = null;
+
+    if (authData?.user) {
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("company_id")
+        .eq("id", authData.user.id)
+        .maybeSingle();
+      if (profile?.company_id) {
+        companyId = profile.company_id;
+      }
+    }
+
+    let query = supabase.from("companies").select("*");
+    if (companyId) {
+      query = query.eq("id", companyId);
+    }
+    const { data, error } = await query.limit(1).maybeSingle();
 
     if (!error && data) {
       const enderecoComposto = [
@@ -66,7 +80,7 @@ export async function getCompanySettings(): Promise<CompanySettings> {
         telefone: data.telefone || localData.telefone || DEFAULT_COMPANY_SETTINGS.telefone,
         email: data.email || localData.email || DEFAULT_COMPANY_SETTINGS.email,
         endereco: resolvedEndereco,
-        logo_url: localData.logo_url || data.logo_url || null,
+        logo_url: data.logo_url || localData.logo_url || null,
       };
 
       if (typeof window !== "undefined") {
@@ -99,7 +113,7 @@ export async function saveCompanySettings(
     ...settings,
   };
 
-  // Salva no localStorage imediatamente
+  // Salva no localStorage imediatamente para UX rápida
   if (typeof window !== "undefined") {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
@@ -108,10 +122,24 @@ export async function saveCompanySettings(
     }
   }
 
-  // Tenta persistir no Supabase (tabela companies)
+  // Persiste no Supabase (tabela companies)
   try {
     const supabase = createClient();
-    if (updated.id) {
+    let targetCompanyId = updated.id;
+
+    if (!targetCompanyId) {
+      const { data: authData } = await supabase.auth.getUser();
+      if (authData?.user) {
+        const { data: profile } = await supabase
+          .from("user_profiles")
+          .select("company_id")
+          .eq("id", authData.user.id)
+          .maybeSingle();
+        targetCompanyId = profile?.company_id || undefined;
+      }
+    }
+
+    if (targetCompanyId) {
       await supabase
         .from("companies")
         .update({
@@ -123,7 +151,8 @@ export async function saveCompanySettings(
           logo_url: updated.logo_url,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", updated.id);
+        .eq("id", targetCompanyId);
+      updated.id = targetCompanyId;
     } else {
       const { data } = await supabase
         .from("companies")
@@ -140,11 +169,6 @@ export async function saveCompanySettings(
 
       if (data?.id) {
         updated.id = data.id;
-        if (typeof window !== "undefined") {
-          try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-          } catch {}
-        }
       }
     }
   } catch (err) {

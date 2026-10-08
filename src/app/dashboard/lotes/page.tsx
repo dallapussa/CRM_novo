@@ -118,18 +118,25 @@ export default function LotesPage() {
   const isConcluido = (status: LoteRecolhimentoStatus) =>
     status === "concluido";
 
+  // Lotes de faturamento diário (troca) não devem fazer parte dos lotes operacionais de oficina/romaneio
+  const isFaturamentoDiario = (l: LoteRecolhimento) =>
+    (l.observacoes || "").includes("[FATURAMENTO_DIARIO]") ||
+    (l.codigo || "").startsWith("FAT-");
+
+  const lotesOficina = useMemo(() => lotes.filter((l) => !isFaturamentoDiario(l)), [lotes]);
+
   // Contagens para os badges de cada aba
-  const countEmColeta = useMemo(() => lotes.filter((l) => isEmColeta(l.status)).length, [lotes]);
-  const countNaOficina = useMemo(() => lotes.filter((l) => isNaOficina(l.status)).length, [lotes]);
-  const countEmEntrega = useMemo(() => lotes.filter((l) => isEmEntrega(l.status)).length, [lotes]);
-  const countConcluidos = useMemo(() => lotes.filter((l) => isConcluido(l.status)).length, [lotes]);
+  const countEmColeta = useMemo(() => lotesOficina.filter((l) => isEmColeta(l.status)).length, [lotesOficina]);
+  const countNaOficina = useMemo(() => lotesOficina.filter((l) => isNaOficina(l.status)).length, [lotesOficina]);
+  const countEmEntrega = useMemo(() => lotesOficina.filter((l) => isEmEntrega(l.status)).length, [lotesOficina]);
+  const countConcluidos = useMemo(() => lotesOficina.filter((l) => isConcluido(l.status)).length, [lotesOficina]);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   // Filtragem dos lotes conforme a aba selecionada, busca e datas
   const filteredLotes = useMemo(() => {
-    return lotes.filter((l) => {
+    return lotesOficina.filter((l) => {
       // 1. Filtro pela Aba ativa
       if (activeTab === "em_coleta" && !isEmColeta(l.status)) return false;
       if (activeTab === "na_oficina" && !isNaOficina(l.status)) return false;

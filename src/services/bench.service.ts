@@ -30,47 +30,53 @@ function mapBenchRecord(row: Record<string, any>): BenchRecord {
   };
 }
 
-export async function listBenchRecords(): Promise<BenchRecord[]> {
+/**
+ * Reconcilia extintores marcados como 'em_bancada' que ainda não possuem registro em bench_records.
+ * Executado sob demanda ou de forma explícita, sem causar escritas concorrentes indesejadas em toda leitura.
+ */
+export async function reconcileBenchRecords(): Promise<void> {
   const { supabase, companyId, userId } = await getTenantContext();
-
-  // Reconciliação / Auto-cura: Verifica extintores marcados como 'em_bancada' que ainda não possuem registro na bench_records
   try {
     const { data: pendingExts } = await supabase
       .from("extintores")
       .select("id, client_id, identificacao, tipo_capacidade, localizacao, status, client:clients(razao_social, nome_fantasia)")
       .eq("status", "em_bancada");
 
-    if (pendingExts && pendingExts.length > 0) {
-      const { data: existingBench } = await supabase
-        .from("bench_records")
-        .select("extinguisher_id")
-        .in("extinguisher_id", pendingExts.map((e) => e.id))
-        .is("deleted_at", null);
+    if (!pendingExts || pendingExts.length === 0) return;
 
-      const existingSet = new Set((existingBench || []).map((b) => b.extinguisher_id));
-      const toInsert = pendingExts.filter((e) => !existingSet.has(e.id));
+    const { data: existingBench } = await supabase
+      .from("bench_records")
+      .select("extinguisher_id")
+      .in("extinguisher_id", pendingExts.map((e) => e.id))
+      .is("deleted_at", null);
 
-      if (toInsert.length > 0) {
-        const rows = toInsert.map((e) => ({
-          company_id: companyId,
-          client_id: e.client_id,
-          extinguisher_id: e.id,
-          stage: "entrada",
-          priority: "media",
-          arrived_at: new Date().toISOString(),
-          equip_type: e.tipo_capacidade?.split("-")[0]?.trim() || "Extintor",
-          equip_capacity: e.tipo_capacidade?.split("-")[1]?.trim() || e.tipo_capacidade || "4kg",
-          equip_serial: e.identificacao || "S/N",
-          customer_name: (e.client as any)?.razao_social || (e.client as any)?.nome_fantasia || "Cliente",
-          notes: "Extintor recolhido e aguardando manutenção na bancada.",
-          created_by: userId,
-        }));
-        await supabase.from("bench_records").insert(rows);
-      }
+    const existingSet = new Set((existingBench || []).map((b) => b.extinguisher_id));
+    const toInsert = pendingExts.filter((e) => !existingSet.has(e.id));
+
+    if (toInsert.length > 0) {
+      const rows = toInsert.map((e) => ({
+        company_id: companyId,
+        client_id: e.client_id,
+        extinguisher_id: e.id,
+        stage: "entrada",
+        priority: "media",
+        arrived_at: new Date().toISOString(),
+        equip_type: e.tipo_capacidade?.split("-")[0]?.trim() || "Extintor",
+        equip_capacity: e.tipo_capacidade?.split("-")[1]?.trim() || e.tipo_capacidade || "4kg",
+        equip_serial: e.identificacao || "S/N",
+        customer_name: (e.client as any)?.razao_social || (e.client as any)?.nome_fantasia || "Cliente",
+        notes: "Extintor recolhido e aguardando manutenção na bancada.",
+        created_by: userId,
+      }));
+      await supabase.from("bench_records").insert(rows);
     }
   } catch (reconcileErr) {
     console.warn("Auto-reconciliação de extintores para bancada:", reconcileErr);
   }
+}
+
+export async function listBenchRecords(): Promise<BenchRecord[]> {
+  const { supabase, companyId } = await getTenantContext();
 
   const { data, error } = await supabase
     .from("bench_records")

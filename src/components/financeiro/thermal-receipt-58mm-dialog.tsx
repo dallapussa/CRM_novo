@@ -439,8 +439,21 @@ export function ThermalReceipt58mmDialog({
     }
   };
 
-    // 2. Dispara a impressão direta do cupom de 58mm com iframe invisível sem window.close precipitado
+  // 2. Dispara a impressão do cupom de 58mm: no celular prioriza PDF nativo 58mm para evitar crash do browser
   const handlePrint58mm = () => {
+    const isMobile =
+      typeof navigator !== "undefined" &&
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+    if (isMobile) {
+      toast({
+        title: "Impressão Mobile",
+        description: "Gerando cupom nativo 58mm em PDF compatível com impressoras térmicas móveis.",
+      });
+      handleDownload58mmPdf();
+      return;
+    }
+
     const printContent = printAreaRef.current;
     if (!printContent) return;
 

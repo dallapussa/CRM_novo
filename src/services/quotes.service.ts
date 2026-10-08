@@ -140,28 +140,39 @@ export async function saveQuote(input: QuoteInput, id?: string): Promise<string>
     // Remove existing items and re-insert
     await supabase.from("quote_items").delete().eq("quote_id", id);
   } else {
-    const nextNumber = await getNextQuoteNumber();
-    const { data, error } = await supabase
+    const insertPayload: Record<string, any> = {
+      company_id: companyId,
+      client_id: input.client_id,
+      template_id: input.template_id || null,
+      status: "Rascunho",
+      issued_at: input.issued_at || new Date().toISOString().slice(0, 10),
+      expires_at: input.expires_at || null,
+      subtotal: input.subtotal,
+      discount: input.discount,
+      total: input.total,
+      notes: input.notes || null,
+      created_by: userId,
+    };
+
+    // Tenta primeiro deixar o banco gerar o número atômico via IDENTITY/SEQUENCE
+    let insertResult = await supabase
       .from("quotes")
-      .insert({
-        company_id: companyId,
-        client_id: input.client_id,
-        template_id: input.template_id || null,
-        numero: nextNumber,
-        status: "Rascunho",
-        issued_at: input.issued_at || new Date().toISOString().slice(0, 10),
-        expires_at: input.expires_at || null,
-        subtotal: input.subtotal,
-        discount: input.discount,
-        total: input.total,
-        notes: input.notes || null,
-        created_by: userId,
-      })
-      .select("id")
+      .insert(insertPayload)
+      .select("id, numero")
       .single();
 
-    if (error) throw error;
-    quoteId = data.id;
+    if (insertResult.error && insertResult.error.message?.includes("numero")) {
+      const nextNumber = await getNextQuoteNumber();
+      insertPayload.numero = nextNumber;
+      insertResult = await supabase
+        .from("quotes")
+        .insert(insertPayload)
+        .select("id, numero")
+        .single();
+    }
+
+    if (insertResult.error) throw insertResult.error;
+    quoteId = insertResult.data.id;
   }
 
   // Insert items

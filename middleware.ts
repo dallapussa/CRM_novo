@@ -112,6 +112,9 @@ export async function middleware(request: NextRequest) {
   }
 
   if (!isPublicRoute(pathname) && !user) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
+    }
     const loginUrl = new URL("/login", request.url);
     const redirect = pathname + (searchParams.toString() ? `?${searchParams.toString()}` : "");
     if (pathname !== "/") loginUrl.searchParams.set("redirect", redirect);

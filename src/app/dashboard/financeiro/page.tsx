@@ -4,23 +4,23 @@ import React, { useState } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { LotesFinanceiroView } from "./lotes-financeiro-view";
 import { InvoicesList } from "./invoices-list";
-import { Package, FileText, DollarSign } from "lucide-react";
+import { Calendar, FileText, DollarSign } from "lucide-react";
 
 export default function FinanceiroPage() {
-  const [activeTab, setActiveTab] = useState<"lotes" | "faturas">("lotes");
+  const [activeTab, setActiveTab] = useState<"caixa_diario" | "faturas">("caixa_diario");
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold font-display tracking-tight text-foreground flex items-center gap-2.5">
-            <div className="p-2 bg-red-100 text-red-600 rounded-xl">
+            <div className="p-2 bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400 rounded-xl">
               <DollarSign className="h-6 w-6" />
             </div>
-            Gestão Financeira
+            Gestão Financeira & Caixa Diário
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Controle financeiro por lotes e rotas, conferência de pagamentos por cliente, emissão de recibos em PDF e faturamento.
+            Faturamento do dia separado por data, conferência de pagamentos por cliente, trocas imediatas, emissão de recibos e cupons térmicos 58mm.
           </p>
         </div>
       </div>
@@ -28,11 +28,11 @@ export default function FinanceiroPage() {
       <Tabs value={activeTab} onValueChange={(val: any) => setActiveTab(val)}>
         <TabsList className="grid w-full sm:w-auto grid-cols-2 p-1 bg-muted/60 rounded-xl">
           <TabsTrigger
-            value="lotes"
-            className="flex items-center gap-2 font-bold text-xs sm:text-sm data-[state=active]:bg-white data-[state=active]:text-red-600 data-[state=active]:shadow-xs"
+            value="caixa_diario"
+            className="flex items-center gap-2 font-bold text-xs sm:text-sm data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow-xs dark:data-[state=active]:text-emerald-400"
           >
-            <Package className="h-4 w-4" />
-            Financeiro por Lotes (Principal)
+            <Calendar className="h-4 w-4" />
+            Faturamento do Dia (Caixa Diário)
           </TabsTrigger>
 
           <TabsTrigger
@@ -44,8 +44,8 @@ export default function FinanceiroPage() {
           </TabsTrigger>
         </TabsList>
 
-        {/* ABA PRINCIPAL: FINANCEIRO SEPARADO POR LOTE */}
-        <TabsContent value="lotes" className="mt-4">
+        {/* ABA PRINCIPAL: FATURAMENTO DO DIA (CAIXA DIÁRIO) */}
+        <TabsContent value="caixa_diario" className="mt-4">
           <LotesFinanceiroView />
         </TabsContent>
 

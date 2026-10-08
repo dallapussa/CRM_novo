@@ -25,6 +25,8 @@ import {
   ShieldCheck,
   FileText,
   Loader2,
+  DollarSign,
+  CreditCard,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -43,6 +45,7 @@ import type {
 } from "@/types";
 import {
   createOrdemRecolhimento,
+  processarTrocaExtintores,
   listLotesRecolhimento,
   saveLoteRecolhimento,
   findActiveAutoDescargaLote,
@@ -94,6 +97,14 @@ export function OrderPickupModal({
 
   // Motivo da OS
   const [motivo, setMotivo] = useState<OrdemRecolhimentoMotivo>("Recarga Anual");
+
+  // Dados exclusivos do fluxo de Troca Imediata
+  const [formaPagamentoTroca, setFormaPagamentoTroca] = useState<string>("PIX");
+  const [statusPagamentoTroca, setStatusPagamentoTroca] = useState<"pago" | "pendente">("pago");
+
+  const valorTotalTroca = React.useMemo(() => {
+    return extintoresElegiveis.reduce((sum, e) => sum + (Number(e.valor_servico) || 45.0), 0);
+  }, [extintoresElegiveis]);
 
   // Reserva
   const [deixouReserva, setDeixouReserva] = useState<boolean>(false);
@@ -180,6 +191,39 @@ export function OrderPickupModal({
 
     setIsSubmitting(true);
     try {
+      // FLUXO DE TROCA IMEDIATA: RENOVA NO ATO E LANÇA NO FATURAMENTO DO DIA (SEM BANCADA/OFICINA/ROMANEIO)
+      if (motivo === "Troca") {
+        const valoresIndividuais: Record<string, number> = {};
+        extintoresElegiveis.forEach((e) => {
+          valoresIndividuais[e.id] = Number(e.valor_servico) || 45.0;
+        });
+
+        const res = await processarTrocaExtintores({
+          clientId: customer.id,
+          extintorIds: extintoresElegiveis.map((e) => e.id),
+          dataTroca: dataRecolhimento,
+          formaPagamento: formaPagamentoTroca,
+          statusPagamento: statusPagamentoTroca,
+          tecnicoResponsavel,
+          observacoes,
+          valoresIndividuais,
+        });
+
+        toast({
+          variant: "success",
+          title: `Troca Imediata Realizada (OS nº ${res.numero_ordem})!`,
+          description: `${res.total_renovados} extintor(es) renovados por +1 ano e adicionados ao ${res.lote_nome}.`,
+        });
+
+        queryClient.invalidateQueries({ queryKey: ["extintores"] });
+        queryClient.invalidateQueries({ queryKey: ["expiring-items"] });
+        queryClient.invalidateQueries({ queryKey: ["lotes_recolhimento"] });
+        queryClient.invalidateQueries({ queryKey: ["client_tech_sheet"] });
+        onOpenChange(false);
+        onSuccess?.();
+        return;
+      }
+
       let finalLoteId = selectedLoteId;
 
       // Se for "auto" ou não informado, busca lote automático na Descarga ou gera novo
@@ -263,18 +307,32 @@ export function OrderPickupModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0 gap-0 rounded-2xl border-orange-200">
-        {/* Cabeçalho Laranja Vibrante */}
-        <div className="bg-gradient-to-r from-orange-600 via-amber-600 to-orange-500 text-white p-6 rounded-t-2xl">
+        {/* Cabeçalho Reativo (Laranja para Recolhimento / Verde Esmeralda para Troca Imediata) */}
+        <div
+          className={`p-6 rounded-t-2xl text-white transition-colors ${
+            motivo === "Troca"
+              ? "bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500"
+              : "bg-gradient-to-r from-orange-600 via-amber-600 to-orange-500"
+          }`}
+        >
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-white/20 rounded-xl backdrop-blur-sm">
-              <Truck className="h-6 w-6 text-white" />
+              {motivo === "Troca" ? (
+                <RotateCcw className="h-6 w-6 text-white" />
+              ) : (
+                <Truck className="h-6 w-6 text-white" />
+              )}
             </div>
             <div>
               <DialogTitle className="text-xl font-bold text-white tracking-tight">
-                Recolher {extintoresElegiveis.length} Extintor(es)
+                {motivo === "Troca"
+                  ? `Troca Imediata de ${extintoresElegiveis.length} Extintor(es)`
+                  : `Recolher ${extintoresElegiveis.length} Extintor(es)`}
               </DialogTitle>
-              <p className="text-xs text-orange-100 mt-0.5">
-                Abertura de Ordem de Serviço para manutenção e recarga na oficina
+              <p className="text-xs text-white/90 mt-0.5">
+                {motivo === "Troca"
+                  ? "Substituição direta no cliente com renovação imediata e faturamento do dia"
+                  : "Abertura de Ordem de Serviço para manutenção e recarga na oficina"}
               </p>
             </div>
           </div>
@@ -412,192 +470,319 @@ export function OrderPickupModal({
                   onClick={() => setMotivo(m)}
                   className={`p-3 rounded-xl border text-center transition-all ${
                     motivo === m
-                      ? "border-orange-500 bg-orange-50/60 dark:bg-orange-950/30 text-orange-900 dark:text-orange-200 ring-2 ring-orange-500/20 font-bold"
+                      ? m === "Troca"
+                        ? "border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 ring-2 ring-emerald-500/20 font-bold"
+                        : "border-orange-500 bg-orange-50/60 dark:bg-orange-950/30 text-orange-900 dark:text-orange-200 ring-2 ring-orange-500/20 font-bold"
                       : "border-neutral-200 dark:border-neutral-800 text-neutral-600 hover:border-neutral-300 dark:hover:border-neutral-700"
                   }`}
                 >
                   <p className="text-xs">{m}</p>
+                  {m === "Troca" && (
+                    <p className="text-[10px] text-emerald-700 dark:text-emerald-300 font-medium mt-0.5">
+                      Faturamento Direto
+                    </p>
+                  )}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* SEÇÃO 3: Reserva */}
-          <div className="space-y-2">
-            <Label className="text-sm font-bold text-neutral-800 dark:text-neutral-200 flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-orange-600" />
-              3. Deixou Cilindro Reserva no Local?
-            </Label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setDeixouReserva(false)}
-                className={`p-3 rounded-xl border text-left transition-all ${
-                  !deixouReserva
-                    ? "border-neutral-900 bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 font-semibold"
-                    : "border-neutral-200 dark:border-neutral-800 text-neutral-600 hover:bg-neutral-50 dark:hover:bg-neutral-800"
-                }`}
-              >
-                <p className="text-xs">NÃO deixou reserva</p>
-                <p className="text-[11px] opacity-75 mt-0.5">Cliente ciente de ausência provisória</p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setDeixouReserva(true)}
-                className={`p-3 rounded-xl border text-left transition-all ${
-                  deixouReserva
-                    ? "border-amber-500 bg-amber-500 text-white font-semibold"
-                    : "border-neutral-200 dark:border-neutral-800 text-neutral-600 hover:bg-neutral-50 dark:hover:bg-neutral-800"
-                }`}
-              >
-                <p className="text-xs">SIM, deixou reserva</p>
-                <p className="text-[11px] opacity-75 mt-0.5">Equipamentos provisórios instalados</p>
-              </button>
-            </div>
-
-            {deixouReserva && (
-              <div className="pt-2 animate-in fade-in duration-200">
-                <Textarea
-                  rows={2}
-                  value={detalhesReserva}
-                  onChange={(e) => setDetalhesReserva(e.target.value)}
-                  placeholder="Informe os extintores deixados de reserva (ex: 2 Pó ABC 4kg da oficina)..."
-                  className="text-xs border-amber-300"
-                />
+          {/* FLUXO EXCLUSIVO: SE SELECIONOU "TROCA", NÃO VAI PARA A BANCADA/LOTE DA OFICINA */}
+          {motivo === "Troca" ? (
+            <div className="space-y-4 p-4 bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-2xl animate-in fade-in">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-bold text-emerald-950 dark:text-emerald-200 flex items-center gap-2">
+                  <DollarSign className="h-4 w-4 text-emerald-600" />
+                  3. Condições de Pagamento & Faturamento do Dia
+                </Label>
+                <Badge className="bg-emerald-600 text-white font-bold text-xs">
+                  Caixa Diário
+                </Badge>
               </div>
-            )}
-          </div>
 
-          {/* SEÇÃO 4: Lote Geral / Rota de Devolução */}
-          <div className="space-y-2 p-3.5 bg-neutral-50 dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-bold text-neutral-800 dark:text-neutral-200 flex items-center gap-1.5">
-                <Truck className="h-4 w-4 text-orange-600" />
-                Vincular a um Lote Geral (Chegada / Descarga)
-              </Label>
-              <button
-                type="button"
-                onClick={() => setCreateLoteModalOpen(true)}
-                className="text-[11px] text-orange-600 dark:text-orange-400 font-semibold hover:underline flex items-center gap-1"
-              >
-                + Criar Novo Lote Geral
-              </button>
-            </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div className="space-y-1">
+                  <Label htmlFor="dt_troca" className="text-xs font-semibold">
+                    Data da Troca / Entrega
+                  </Label>
+                  <Input
+                    id="dt_troca"
+                    type="date"
+                    value={dataRecolhimento}
+                    onChange={(e) => setDataRecolhimento(e.target.value)}
+                    className="h-9 text-xs bg-white dark:bg-neutral-900"
+                  />
+                </div>
 
-            {(() => {
-              const currentAutoDescarga = findActiveAutoDescargaLote(lotes);
-              return (
-                <div className="space-y-2">
-                  <Select value={selectedLoteId} onValueChange={handleSelectLote}>
-                    <SelectTrigger className="h-9 text-xs bg-white dark:bg-neutral-800">
-                      <SelectValue placeholder="Selecione um lote ou crie automaticamente" />
+                <div className="space-y-1">
+                  <Label htmlFor="tec_troca" className="text-xs font-semibold">
+                    Técnico / Responsável
+                  </Label>
+                  <Input
+                    id="tec_troca"
+                    value={tecnicoResponsavel}
+                    onChange={(e) => setTecnicoResponsavel(e.target.value)}
+                    placeholder="Nome do técnico"
+                    className="h-9 text-xs bg-white dark:bg-neutral-900"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold flex items-center gap-1.5">
+                    <CreditCard className="h-3.5 w-3.5 text-emerald-600" />
+                    Forma de Pagamento
+                  </Label>
+                  <Select value={formaPagamentoTroca} onValueChange={setFormaPagamentoTroca}>
+                    <SelectTrigger className="h-9 text-xs bg-white dark:bg-neutral-900">
+                      <SelectValue placeholder="Selecione a forma" />
                     </SelectTrigger>
                     <SelectContent>
-                      {currentAutoDescarga && (
-                        <SelectItem key={currentAutoDescarga.id} value={currentAutoDescarga.id}>
-                          📥 [Lote Atual na Descarga] [{currentAutoDescarga.codigo}] {currentAutoDescarga.nome} ({currentAutoDescarga.total_extintores || 0} cil.)
-                        </SelectItem>
-                      )}
-
-                      {lotes
-                        .filter((l) => !currentAutoDescarga || l.id !== currentAutoDescarga.id)
-                        .map((l) => (
-                          <SelectItem key={l.id} value={l.id}>
-                            [{l.codigo}] {l.nome} ({l.total_extintores || 0} cil.) — Retorno:{" "}
-                            {new Date(l.previsao_devolucao + "T12:00:00").toLocaleDateString("pt-BR")}
-                          </SelectItem>
-                        ))}
-
-                      {!currentAutoDescarga && (
-                        <SelectItem value="auto">
-                          ✨ Criar Novo Lote Automático na Chegada / Descarga
-                        </SelectItem>
-                      )}
-
-                      <SelectItem value="novo_separado">
-                        ➕ Criar um Novo Lote Separado ({customer.address?.city || "Geral"} - {new Date(dataRecolhimento + "T12:00:00").toLocaleDateString("pt-BR")})
-                      </SelectItem>
+                      <SelectItem value="PIX">⚡ PIX</SelectItem>
+                      <SelectItem value="Dinheiro">💵 Dinheiro</SelectItem>
+                      <SelectItem value="Cartão de Débito">💳 Cartão de Débito</SelectItem>
+                      <SelectItem value="Cartão de Crédito">💳 Cartão de Crédito</SelectItem>
+                      <SelectItem value="Boleto">📄 Boleto Bancário</SelectItem>
+                      <SelectItem value="A Prazo (30 dias)">📅 A Prazo (30 dias / Faturado)</SelectItem>
                     </SelectContent>
                   </Select>
-
-                  <p className="text-[11px] text-muted-foreground">
-                    {currentAutoDescarga && selectedLoteId === currentAutoDescarga.id ? (
-                      <span className="text-emerald-700 dark:text-emerald-400 font-medium">
-                        ✓ Os extintores serão vinculados diretamente ao Lote que está na Descarga. Um novo lote só será gerado após o avanço deste lote para a Oficina.
-                      </span>
-                    ) : (
-                      <span>
-                        Obrigatório: todos os extintores recolhidos entram na oficina vinculados a um Lote (em <strong>Chegada / Descarga</strong>), podendo ser mesclados no Kanban a qualquer momento.
-                      </span>
-                    )}
-                  </p>
                 </div>
-              );
-            })()}
-          </div>
 
-          {/* SEÇÃO 5: Dados Operacionais */}
-          <div className="space-y-3">
-            <Label className="text-sm font-bold text-neutral-800 dark:text-neutral-200 flex items-center gap-2">
-              <FileText className="h-4 w-4 text-orange-600" />
-              5. Dados Operacionais
-            </Label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="tec" className="text-xs">
-                  Técnico Responsável
-                </Label>
-                <Input
-                  id="tec"
-                  value={tecnicoResponsavel}
-                  onChange={(e) => setTecnicoResponsavel(e.target.value)}
-                  placeholder="Nome do técnico"
-                  className="h-9 text-xs"
-                />
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold">Status do Recebimento</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setStatusPagamentoTroca("pago")}
+                      className={`h-9 rounded-md border text-xs font-semibold flex items-center justify-center transition-colors ${
+                        statusPagamentoTroca === "pago"
+                          ? "bg-emerald-600 border-emerald-600 text-white shadow-xs"
+                          : "bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800 text-neutral-600"
+                      }`}
+                    >
+                      ✓ Recebido no Ato
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStatusPagamentoTroca("pendente")}
+                      className={`h-9 rounded-md border text-xs font-semibold flex items-center justify-center transition-colors ${
+                        statusPagamentoTroca === "pendente"
+                          ? "bg-amber-600 border-amber-600 text-white shadow-xs"
+                          : "bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800 text-neutral-600"
+                      }`}
+                    >
+                      A Receber
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="dt_rec" className="text-xs">
-                  Data Recolhimento
+                <Label htmlFor="obs_troca" className="text-xs font-semibold">
+                  Observações da Troca
                 </Label>
-                <Input
-                  id="dt_rec"
-                  type="date"
-                  value={dataRecolhimento}
-                  onChange={(e) => setDataRecolhimento(e.target.value)}
-                  className="h-9 text-xs"
+                <Textarea
+                  id="obs_troca"
+                  rows={2}
+                  value={observacoes}
+                  onChange={(e) => setObservacoes(e.target.value)}
+                  placeholder="Informações adicionais da troca ou pagamento..."
+                  className="text-xs bg-white dark:bg-neutral-900"
                 />
               </div>
 
-              <div className="space-y-1">
-                <Label htmlFor="dt_dev" className="text-xs">
-                  Previsão Devolução
-                </Label>
-                <Input
-                  id="dt_dev"
-                  type="date"
-                  value={previsaoDevolucao}
-                  onChange={(e) => setPrevisaoDevolucao(e.target.value)}
-                  className="h-9 text-xs"
-                />
+              <div className="p-3 bg-emerald-100/70 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-xl text-xs text-emerald-900 dark:text-emerald-200 space-y-1">
+                <p className="font-bold flex items-center gap-1.5">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  Total a Faturar: {formatCurrency(valorTotalTroca)}
+                </p>
+                <p className="text-[11px] opacity-90 leading-relaxed">
+                  Os {extintoresElegiveis.length} extintor(es) serão <strong>renovados por +1 ano imediatamente</strong> no inventário do cliente e o lançamento será enviado direto para o <strong>Faturamento do Dia</strong>. Não irão para a bancada da oficina nem para romaneio.
+                </p>
               </div>
             </div>
+          ) : (
+            /* FLUXO TRADICIONAL DE OFICINA: RESERVA, LOTE GERAL E DADOS OPERACIONAIS */
+            <>
+              {/* SEÇÃO 3: Reserva */}
+              <div className="space-y-2">
+                <Label className="text-sm font-bold text-neutral-800 dark:text-neutral-200 flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-orange-600" />
+                  3. Deixou Cilindro Reserva no Local?
+                </Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setDeixouReserva(false)}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      !deixouReserva
+                        ? "border-neutral-900 bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 font-semibold"
+                        : "border-neutral-200 dark:border-neutral-800 text-neutral-600 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                    }`}
+                  >
+                    <p className="text-xs">NÃO deixou reserva</p>
+                    <p className="text-[11px] opacity-75 mt-0.5">Cliente ciente de ausência provisória</p>
+                  </button>
 
-            <div className="space-y-1">
-              <Label htmlFor="obs" className="text-xs">
-                Observações para a Bancada
-              </Label>
-              <Textarea
-                id="obs"
-                rows={2}
-                value={observacoes}
-                onChange={(e) => setObservacoes(e.target.value)}
-                placeholder="Instruções de manômetro, pintura, anel de garantia ou ensaio hidrostático..."
-                className="text-xs"
-              />
-            </div>
-          </div>
+                  <button
+                    type="button"
+                    onClick={() => setDeixouReserva(true)}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      deixouReserva
+                        ? "border-amber-500 bg-amber-500 text-white font-semibold"
+                        : "border-neutral-200 dark:border-neutral-800 text-neutral-600 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                    }`}
+                  >
+                    <p className="text-xs">SIM, deixou reserva</p>
+                    <p className="text-[11px] opacity-75 mt-0.5">Equipamentos provisórios instalados</p>
+                  </button>
+                </div>
+
+                {deixouReserva && (
+                  <div className="pt-2 animate-in fade-in duration-200">
+                    <Textarea
+                      rows={2}
+                      value={detalhesReserva}
+                      onChange={(e) => setDetalhesReserva(e.target.value)}
+                      placeholder="Informe os extintores deixados de reserva (ex: 2 Pó ABC 4kg da oficina)..."
+                      className="text-xs border-amber-300"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* SEÇÃO 4: Lote Geral / Rota de Devolução */}
+              <div className="space-y-2 p-3.5 bg-neutral-50 dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-bold text-neutral-800 dark:text-neutral-200 flex items-center gap-1.5">
+                    <Truck className="h-4 w-4 text-orange-600" />
+                    Vincular a um Lote Geral (Chegada / Descarga)
+                  </Label>
+                  <button
+                    type="button"
+                    onClick={() => setCreateLoteModalOpen(true)}
+                    className="text-[11px] text-orange-600 dark:text-orange-400 font-semibold hover:underline flex items-center gap-1"
+                  >
+                    + Criar Novo Lote Geral
+                  </button>
+                </div>
+
+                {(() => {
+                  const currentAutoDescarga = findActiveAutoDescargaLote(lotes);
+                  return (
+                    <div className="space-y-2">
+                      <Select value={selectedLoteId} onValueChange={handleSelectLote}>
+                        <SelectTrigger className="h-9 text-xs bg-white dark:bg-neutral-800">
+                          <SelectValue placeholder="Selecione um lote ou crie automaticamente" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {currentAutoDescarga && (
+                            <SelectItem key={currentAutoDescarga.id} value={currentAutoDescarga.id}>
+                              📥 [Lote Atual na Descarga] [{currentAutoDescarga.codigo}] {currentAutoDescarga.nome} ({currentAutoDescarga.total_extintores || 0} cil.)
+                            </SelectItem>
+                          )}
+
+                          {lotes
+                            .filter((l) => !currentAutoDescarga || l.id !== currentAutoDescarga.id)
+                            .map((l) => (
+                              <SelectItem key={l.id} value={l.id}>
+                                [{l.codigo}] {l.nome} ({l.total_extintores || 0} cil.) — Retorno:{" "}
+                                {new Date(l.previsao_devolucao + "T12:00:00").toLocaleDateString("pt-BR")}
+                              </SelectItem>
+                            ))}
+
+                          {!currentAutoDescarga && (
+                            <SelectItem value="auto">
+                              ✨ Criar Novo Lote Automático na Chegada / Descarga
+                            </SelectItem>
+                          )}
+
+                          <SelectItem value="novo_separado">
+                            ➕ Criar um Novo Lote Separado ({customer.address?.city || "Geral"} - {new Date(dataRecolhimento + "T12:00:00").toLocaleDateString("pt-BR")})
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      <p className="text-[11px] text-muted-foreground">
+                        {currentAutoDescarga && selectedLoteId === currentAutoDescarga.id ? (
+                          <span className="text-emerald-700 dark:text-emerald-400 font-medium">
+                            ✓ Os extintores serão vinculados diretamente ao Lote que está na Descarga. Um novo lote só será gerado após o avanço deste lote para a Oficina.
+                          </span>
+                        ) : (
+                          <span>
+                            Obrigatório: todos os extintores recolhidos entram na oficina vinculados a um Lote (em <strong>Chegada / Descarga</strong>), podendo ser mesclados no Kanban a qualquer momento.
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* SEÇÃO 5: Dados Operacionais */}
+              <div className="space-y-3">
+                <Label className="text-sm font-bold text-neutral-800 dark:text-neutral-200 flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-orange-600" />
+                  5. Dados Operacionais
+                </Label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="tec" className="text-xs">
+                      Técnico Responsável
+                    </Label>
+                    <Input
+                      id="tec"
+                      value={tecnicoResponsavel}
+                      onChange={(e) => setTecnicoResponsavel(e.target.value)}
+                      placeholder="Nome do técnico"
+                      className="h-9 text-xs"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="dt_rec" className="text-xs">
+                      Data Recolhimento
+                    </Label>
+                    <Input
+                      id="dt_rec"
+                      type="date"
+                      value={dataRecolhimento}
+                      onChange={(e) => setDataRecolhimento(e.target.value)}
+                      className="h-9 text-xs"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="dt_dev" className="text-xs">
+                      Previsão Devolução
+                    </Label>
+                    <Input
+                      id="dt_dev"
+                      type="date"
+                      value={previsaoDevolucao}
+                      onChange={(e) => setPrevisaoDevolucao(e.target.value)}
+                      className="h-9 text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="obs" className="text-xs">
+                    Observações para a Bancada
+                  </Label>
+                  <Textarea
+                    id="obs"
+                    rows={2}
+                    value={observacoes}
+                    onChange={(e) => setObservacoes(e.target.value)}
+                    placeholder="Instruções de manômetro, pintura, anel de garantia ou ensaio hidrostático..."
+                    className="text-xs"
+                  />
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Rodapé com Botão de Confirmação */}
@@ -615,17 +800,26 @@ export function OrderPickupModal({
             type="button"
             onClick={handleConfirm}
             disabled={isSubmitting}
-            className="bg-orange-600 hover:bg-orange-700 text-white font-bold gap-2 shadow-sm"
+            className={`${
+              motivo === "Troca"
+                ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                : "bg-orange-600 hover:bg-orange-700 text-white"
+            } font-bold gap-2 shadow-sm`}
           >
             {isSubmitting ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Registrando na Oficina...
+                {motivo === "Troca" ? "Processando Troca..." : "Registrando na Oficina..."}
+              </>
+            ) : motivo === "Troca" ? (
+              <>
+                <CheckCircle2 className="h-4 w-4" />
+                Confirmar Troca e Faturar ({formatCurrency(valorTotalTroca)})
               </>
             ) : (
               <>
                 <CheckCircle2 className="h-4 w-4" />
-                Confirmar Recolhimento ({selectedExtintores.length})
+                Confirmar Recolhimento ({extintoresElegiveis.length})
               </>
             )}
           </Button>
