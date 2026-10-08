@@ -18,7 +18,12 @@ import {
   AlertTriangle,
   CheckCircle2,
   Ban,
+  FileDown,
 } from "lucide-react";
+import { buildServiceOrderPdfDocument } from "@/services/service-order-pdf.service";
+import { listServiceOrderItems } from "@/services/service-orders.service";
+import { PinModal } from "@/components/ui/pin-modal";
+import { isPinRequiredForAction } from "@/services/settings-security.service";
 import {
   Table,
   TableBody,
@@ -86,6 +91,9 @@ export function OSList({ initialOrders }: OSListProps = {}) {
   const customers = clients.map(({ id, name }) => ({ id, name }));
   const technicians = profiles.filter((profile) => ["admin", "tecnico"].includes(profile.role) && profile.is_active);
   const [deleteItem, setDeleteItem] = useState<ServiceOrder | null>(null);
+  const [pinAction, setPinAction] = useState<(() => void) | null>(null);
+  const [pinTitle, setPinTitle] = useState("");
+  const [pinDescription, setPinDescription] = useState("");
   const { toast } = useToast();
   const deleteMutation = useDeleteServiceOrder();
   const isDeleting = deleteMutation.isPending;
@@ -116,22 +124,81 @@ export function OSList({ initialOrders }: OSListProps = {}) {
     });
   }, [orders, search, customerFilter, statusFilter, priorityFilter, technicianFilter, customers, technicians]);
 
-  async function handleDelete() {
-    if (!deleteItem) return;
+  async function handleDownloadPdf(o: ServiceOrder) {
     try {
-      await deleteMutation.mutateAsync(deleteItem.id);
+      const items = await listServiceOrderItems(o.id);
+      const cli = clients.find((c) => c.id === o.customer_id);
+      const formattedEnd = cli?.address
+        ? [cli.address.street, cli.address.number, cli.address.neighborhood, cli.address.city, cli.address.state]
+            .filter(Boolean)
+            .join(", ")
+        : "";
+
+      const tech = technicians.find((t) => t.id === o.technician_id);
+
+      const pdfData = {
+        numero: String(o.number || "001"),
+        status: o.status,
+        data_abertura: formatDate(o.created_at),
+        data_agendamento: o.scheduled_date ? formatDate(o.scheduled_date) : undefined,
+        data_conclusao: o.completed_at ? formatDate(o.completed_at) : undefined,
+        tecnico_nome: tech?.full_name || o.technician?.full_name || undefined,
+        cliente_nome: cli?.name || o.customer?.name || "Cliente",
+        cliente_documento: cli?.document,
+        cliente_telefone: cli?.phone1 || cli?.whatsapp,
+        cliente_endereco: formattedEnd || undefined,
+        itens: items.map((it) => ({
+          descricao: it.description,
+          quantidade: it.quantity,
+          unidade: "un",
+        })),
+        observacoes: o.description || undefined,
+      };
+
+      const { doc, fileName } = await buildServiceOrderPdfDocument(pdfData);
+      doc.save(fileName);
+
       toast({
         variant: "success",
-        title: "OS excluída",
-        description: `Ordem de serviço #${deleteItem.number} removida com sucesso.`,
+        title: "PDF Operacional gerado!",
+        description: `Arquivo ${fileName} baixado sem valores comerciais.`,
       });
-      setDeleteItem(null);
     } catch (err: any) {
       toast({
         variant: "destructive",
-        title: "Erro ao excluir",
-        description: err?.message || "Não foi possível excluir a OS.",
+        title: "Erro ao gerar PDF",
+        description: err?.message,
       });
+    }
+  }
+
+  async function handleDelete() {
+    if (!deleteItem) return;
+
+    const doDelete = async () => {
+      try {
+        await deleteMutation.mutateAsync(deleteItem.id);
+        toast({
+          variant: "success",
+          title: "OS excluída",
+          description: `Ordem de serviço #${deleteItem.number} removida com sucesso.`,
+        });
+        setDeleteItem(null);
+      } catch (err: any) {
+        toast({
+          variant: "destructive",
+          title: "Erro ao excluir",
+          description: err?.message || "Não foi possível excluir a OS.",
+        });
+      }
+    };
+
+    if (isPinRequiredForAction("delete")) {
+      setPinTitle("PIN de Exclusão de OS");
+      setPinDescription(`Digite seu PIN de 4 dígitos para autorizar a exclusão da OS #${deleteItem.number}.`);
+      setPinAction(() => doDelete);
+    } else {
+      await doDelete();
     }
   }
 
@@ -380,6 +447,15 @@ export function OSList({ initialOrders }: OSListProps = {}) {
                         <TableCell className="text-right">
                           <div className="inline-flex gap-1">
                             <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-teal-600 hover:text-teal-700 hover:bg-teal-50"
+                              title="Baixar OS Operacional (Sem valores)"
+                              onClick={() => handleDownloadPdf(o)}
+                            >
+                              <FileDown className="h-4 w-4" />
+                            </Button>
+                            <Button
                               asChild
                               variant="ghost"
                               size="icon"
@@ -442,6 +518,23 @@ export function OSList({ initialOrders }: OSListProps = {}) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Pin Modal para ações protegidas */}
+      {pinAction && (
+        <PinModal
+          open={Boolean(pinAction)}
+          onOpenChange={(op: boolean) => {
+            if (!op) setPinAction(null);
+          }}
+          title={pinTitle}
+          description={pinDescription}
+          onSuccess={() => {
+            const act = pinAction;
+            setPinAction(null);
+            act();
+          }}
+        />
+      )}
     </div>
   );
 }

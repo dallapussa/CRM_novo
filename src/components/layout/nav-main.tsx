@@ -24,9 +24,11 @@ import {
   ShieldCheck,
   Waves,
   Truck,
+  Settings,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { hasPermission, type RolePermission, type UserRole } from "@/types";
+import { getAppSettings } from "@/services/settings-security.service";
 
 // ============================================================
 // 🔀 CONTROLE DE FASES DO PROJETO (workflow do manual)
@@ -75,6 +77,13 @@ const NAV_ITEMS: NavItem[] = [
     title: "Usuários",
     href: "/dashboard/usuarios",
     icon: Users,
+    permission: "users",
+    phase: 1,
+  },
+  {
+    title: "Configurações",
+    href: "/dashboard/configuracoes",
+    icon: Settings,
     permission: "users",
     phase: 1,
   },
@@ -206,17 +215,41 @@ export const NAV_SECTIONS: { title: string; startHref: string }[] = [
 
 /** Retorna os itens de navegação já filtrados por permissão + fase e organizados por seção */
 export function getNavItemsByRole(role: UserRole) {
-  return NAV_ITEMS.filter((item) => {
+  let menuConfigMap = new Map<string, { visible: boolean; order: number }>();
+  try {
+    const settings = getAppSettings();
+    if (settings.menuItems) {
+      settings.menuItems.forEach((m) => {
+        menuConfigMap.set(m.href, {
+          visible: m.visibleRoles.includes(role),
+          order: m.order,
+        });
+      });
+    }
+  } catch {}
+
+  const baseFiltered = NAV_ITEMS.filter((item) => {
     // 1) Filtro por fase do projeto (workflow do manual — CURRENT_PHASE)
     if (item.phase > CURRENT_PHASE) return false;
-    // 2) Filtro por permissão do cargo (ROLE_PERMISSIONS)
+    // 2) Filtro por permissão do cargo (ROLE_PERMISSIONS ou custom)
     if (!hasPermission(role, item.permission)) return false;
-    // 3) "Portal do Cliente" e "Dashboard" usam a mesma rota (/dashboard):
+    // 3) Se o Admin customizou visibilidade deste item para este cargo
+    const custom = menuConfigMap.get(item.href);
+    if (custom && !custom.visible && role !== "admin") return false;
+    // 4) "Portal do Cliente" e "Dashboard" usam a mesma rota (/dashboard):
     //    o portal é a home exclusiva de Cliente/Terceiro; os demais perfis veem "Dashboard".
     if (item.permission === "customer_portal" && hasPermission(role, "dashboard")) return false;
     return true;
   });
+
+  // Ordena conforme configuração personalizada se existir
+  return baseFiltered.sort((a, b) => {
+    const orderA = menuConfigMap.get(a.href)?.order ?? 999;
+    const orderB = menuConfigMap.get(b.href)?.order ?? 999;
+    return orderA - orderB;
+  });
 }
+
 
 interface NavMainProps {
   role: string;
@@ -283,7 +316,9 @@ export function NavMain({ role }: NavMainProps) {
     "/dashboard/financeiro": "Financeiro",
     "/dashboard/relatorios": "Financeiro",
     "/dashboard/custos": "Financeiro",
+    "/dashboard/configuracoes": "Equipe",
   };
+
 
   const sectionOrder = ["Início", "Equipe", "Comercial", "Catálogo", "Operações", "Financeiro"];
   const bySection = new Map<string, NavItem[]>();

@@ -30,6 +30,8 @@ import { hasPermission, PRODUCT_CATEGORIES } from "@/types";
 import { useToast } from "@/hooks/use-toast";
 import { useSaveProduct } from "@/hooks/useProducts";
 import { useAuth } from "@/hooks/useAuth";
+import { PinModal } from "@/components/ui/pin-modal";
+import { isPinRequiredForAction } from "@/services/settings-security.service";
 
 const productSchema = z.object({
   type: z.enum(["produto", "servico"], { message: "Selecione o tipo" }),
@@ -67,6 +69,9 @@ export function ProductForm({ initialData, mode }: ProductFormProps) {
   const canViewCosts = hasPermission(role, "financial_costs");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [pinAction, setPinAction] = useState<(() => void) | null>(null);
+  const [pinTitle, setPinTitle] = useState("");
+  const [pinDescription, setPinDescription] = useState("");
 
   const [values, setValues] = useState<FormValues>({
     type: initialData?.type || "servico",
@@ -138,32 +143,45 @@ export function ProductForm({ initialData, mode }: ProductFormProps) {
       ...(canViewCosts ? { cost_price: parseMoney(values.cost_price) } : {}),
     };
 
-    try {
-      if (mode === "create") {
-        await saveMutation.mutateAsync({ input: payload });
+    const executeSave = async () => {
+      try {
+        if (mode === "create") {
+          await saveMutation.mutateAsync({ input: payload });
+          toast({
+            variant: "success",
+            title: "Item cadastrado!",
+            description: `${values.name} foi adicionado com sucesso.`,
+          });
+        } else if (initialData) {
+          await saveMutation.mutateAsync({ input: payload, id: initialData.id });
+          toast({
+            variant: "success",
+            title: "Item atualizado!",
+            description: "Alterações salvas com sucesso.",
+          });
+        }
+        router.push("/dashboard/produtos");
+        router.refresh();
+      } catch (err: any) {
         toast({
-          variant: "success",
-          title: "Item cadastrado!",
-          description: `${values.name} foi adicionado com sucesso.`,
+          variant: "destructive",
+          title: "Erro ao salvar",
+          description: err?.message || "Não foi possível salvar as informações.",
         });
-      } else if (initialData) {
-        await saveMutation.mutateAsync({ input: payload, id: initialData.id });
-        toast({
-          variant: "success",
-          title: "Item atualizado!",
-          description: "Alterações salvas com sucesso.",
-        });
+      } finally {
+        setIsSubmitting(false);
       }
-      router.push("/dashboard/produtos");
-      router.refresh();
-    } catch (err: any) {
-      toast({
-        variant: "destructive",
-        title: "Erro ao salvar",
-        description: err?.message || "Não foi possível salvar as informações.",
-      });
-    } finally {
+    };
+
+    // Se o preço de venda foi alterado e o PIN for obrigatório para preços
+    const priceChanged = !initialData || initialData.sale_price !== salePrice;
+    if (priceChanged && isPinRequiredForAction("price_change")) {
+      setPinTitle("PIN de Autorização de Preço");
+      setPinDescription("Digite seu PIN de 4 dígitos para autorizar a alteração do valor de venda.");
+      setPinAction(() => executeSave);
       setIsSubmitting(false);
+    } else {
+      await executeSave();
     }
   }
 
@@ -354,6 +372,23 @@ export function ProductForm({ initialData, mode }: ProductFormProps) {
           </Button>
         </div>
       </form>
+
+      {/* Pin Modal para ações protegidas de preço */}
+      {pinAction && (
+        <PinModal
+          open={Boolean(pinAction)}
+          onOpenChange={(op: boolean) => {
+            if (!op) setPinAction(null);
+          }}
+          title={pinTitle}
+          description={pinDescription}
+          onSuccess={() => {
+            const act = pinAction;
+            setPinAction(null);
+            act();
+          }}
+        />
+      )}
     </div>
   );
 }

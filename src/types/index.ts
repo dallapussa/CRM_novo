@@ -67,6 +67,7 @@ export const PATH_PERMISSION: Record<string, RolePermission> = {
   "/dashboard/custos": "financial_costs",
   "/dashboard/vencimentos": "dashboard",
   "/dashboard/lotes": "service_orders",
+  "/dashboard/configuracoes": "users",
 };
 
 /** Retorna a permissão exigida para um dado pathname (ex: /dashboard/usuarios/123) */
@@ -85,8 +86,25 @@ export function getPermissionForPath(pathname: string): RolePermission | null {
 }
 
 export function hasPermission(role: UserRole | null | undefined, permission: RolePermission): boolean {
-  return Boolean(role && ROLE_PERMISSIONS[role].includes(permission));
+  if (!role) return false;
+  if (role === "admin") return true;
+
+  // Verifica se o Administrador customizou as permissões deste perfil no painel de configurações
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem("fire_crm_app_settings");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.rolePermissions && parsed.rolePermissions[role]) {
+          return parsed.rolePermissions[role].includes(permission);
+        }
+      }
+    } catch {}
+  }
+
+  return Boolean(ROLE_PERMISSIONS[role]?.includes(permission));
 }
+
 
 export interface Profile {
   id: string;

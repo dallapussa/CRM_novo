@@ -45,6 +45,8 @@ import { PRODUCT_TYPE_LABELS, PRODUCT_CATEGORIES } from "@/types";
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useDeleteProduct, useProducts } from "@/hooks/useProducts";
+import { PinModal } from "@/components/ui/pin-modal";
+import { isPinRequiredForAction } from "@/services/settings-security.service";
 
 interface ProductsListProps {
   initialProducts?: Product[];
@@ -57,6 +59,9 @@ export function ProductsList({ initialProducts }: ProductsListProps = {}) {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const { data: products = [], isLoading } = useProducts(initialProducts);
   const [deleteProduct, setDeleteProduct] = useState<Product | null>(null);
+  const [pinAction, setPinAction] = useState<(() => void) | null>(null);
+  const [pinTitle, setPinTitle] = useState("");
+  const [pinDescription, setPinDescription] = useState("");
   const { toast } = useToast();
   const deleteMutation = useDeleteProduct();
   const isDeleting = deleteMutation.isPending;
@@ -83,20 +88,31 @@ export function ProductsList({ initialProducts }: ProductsListProps = {}) {
 
   async function handleDelete() {
     if (!deleteProduct) return;
-    try {
-      await deleteMutation.mutateAsync(deleteProduct.id);
-      toast({
-        variant: "success",
-        title: "Item excluído",
-        description: `${deleteProduct.name} foi removido com sucesso.`,
-      });
-      setDeleteProduct(null);
-    } catch (err: any) {
-      toast({
-        variant: "destructive",
-        title: "Erro ao excluir",
-        description: err?.message || "Não foi possível excluir o item.",
-      });
+
+    const doDelete = async () => {
+      try {
+        await deleteMutation.mutateAsync(deleteProduct.id);
+        toast({
+          variant: "success",
+          title: "Item excluído",
+          description: `${deleteProduct.name} foi removido com sucesso.`,
+        });
+        setDeleteProduct(null);
+      } catch (err: any) {
+        toast({
+          variant: "destructive",
+          title: "Erro ao excluir",
+          description: err?.message || "Não foi possível excluir o item.",
+        });
+      }
+    };
+
+    if (isPinRequiredForAction("delete")) {
+      setPinTitle("PIN de Exclusão");
+      setPinDescription(`Digite seu PIN de 4 dígitos para autorizar a exclusão de "${deleteProduct.name}".`);
+      setPinAction(() => doDelete);
+    } else {
+      await doDelete();
     }
   }
 
@@ -303,7 +319,16 @@ export function ProductsList({ initialProducts }: ProductsListProps = {}) {
                         {PRODUCT_TYPE_LABELS[p.type]}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-sm">{p.category}</TableCell>
+                    <TableCell className="text-sm">
+                      <div className="flex items-center gap-1.5">
+                        <span>{p.category}</span>
+                        {p.category === "Extintor" && (
+                          <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 text-[10px] py-0 px-1 font-normal">
+                            Aba Custos
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">
                       {p.sku || "—"}
                     </TableCell>
@@ -380,6 +405,23 @@ export function ProductsList({ initialProducts }: ProductsListProps = {}) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Modal de Validação de PIN */}
+      {pinAction && (
+        <PinModal
+          open={Boolean(pinAction)}
+          onOpenChange={(op: boolean) => {
+            if (!op) setPinAction(null);
+          }}
+          title={pinTitle}
+          description={pinDescription}
+          onSuccess={() => {
+            const act = pinAction;
+            setPinAction(null);
+            act();
+          }}
+        />
+      )}
     </div>
   );
 }

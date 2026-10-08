@@ -25,7 +25,9 @@ import {
   Save,
   Camera,
   Upload,
+  FileDown,
 } from "lucide-react";
+import { buildServiceOrderPdfDocument } from "@/services/service-order-pdf.service";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import {
@@ -205,6 +207,56 @@ export function OSDetail({ order, items, customer, technician }: OSDetailProps) 
     }
   }
 
+  async function handleDownloadPdf() {
+    try {
+      const formattedEnd = customer?.address
+        ? [
+            customer.address.street,
+            customer.address.number,
+            customer.address.neighborhood,
+            customer.address.city,
+            customer.address.state,
+          ]
+            .filter(Boolean)
+            .join(", ")
+        : "";
+
+      const pdfData = {
+        numero: String(order.number || "001"),
+        status: order.status,
+        data_abertura: formatDate(order.created_at),
+        data_agendamento: order.scheduled_date ? formatDate(order.scheduled_date) : undefined,
+        data_conclusao: order.completed_at ? formatDate(order.completed_at) : undefined,
+        tecnico_nome: technician?.full_name || order.technician?.full_name || undefined,
+        cliente_nome: customer?.name || "Cliente",
+        cliente_documento: customer?.document,
+        cliente_telefone: customer?.phone1 || customer?.whatsapp,
+        cliente_endereco: formattedEnd || undefined,
+        itens: items.map((it) => ({
+          descricao: it.description,
+          quantidade: it.quantity,
+          unidade: "un",
+        })),
+        observacoes: order.description || technicalReport || undefined,
+      };
+
+      const { doc, fileName } = await buildServiceOrderPdfDocument(pdfData);
+      doc.save(fileName);
+
+      toast({
+        variant: "success",
+        title: "PDF Operacional gerado!",
+        description: `Arquivo ${fileName} baixado sem valores comerciais.`,
+      });
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao gerar PDF",
+        description: err?.message,
+      });
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
@@ -239,9 +291,9 @@ export function OSDetail({ order, items, customer, technician }: OSDetailProps) 
               Editar OS
             </Link>
           </Button>
-          <Button variant="outline" size="sm">
-            <Printer className="mr-1.5 h-4 w-4" />
-            Imprimir
+          <Button variant="outline" size="sm" onClick={handleDownloadPdf}>
+            <FileDown className="mr-1.5 h-4 w-4" />
+            PDF Operacional (Sem valores)
           </Button>
         </div>
       </div>
