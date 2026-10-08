@@ -686,3 +686,72 @@ export function calculateItemCostAndProfit(
     modeloUtilizado: model ? model.nome : tipoCapacidade || "Extintor Padrão",
   };
 }
+
+/**
+ * Zera extintores duplicados/antigos e resincroniza os 21 modelos limpos a partir da Aba Custos.
+ */
+export async function resetAndSyncExtinguishersFromCosts(): Promise<ExtinguisherModel[]> {
+  setLocalModels(DEFAULT_EXTINGUISHER_MODELS);
+
+  try {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    let companyId: string | null = null;
+    if (user?.id) {
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("company_id")
+        .eq("id", user.id)
+        .maybeSingle();
+      companyId = profile?.company_id || null;
+    }
+    if (!companyId) {
+      const { data: comp } = await supabase.from("companies").select("id").limit(1).maybeSingle();
+      companyId = comp?.id || null;
+    }
+
+    // Marca itens antigos com categoria Extintor como deletados
+    let delQuery = supabase
+      .from("catalog_items")
+      .update({ deleted_at: new Date().toISOString(), ativo: false })
+      .eq("categoria", "Extintor");
+    if (companyId) {
+      delQuery = delQuery.or(`company_id.eq.${companyId},company_id.is.null`);
+    }
+    await delQuery;
+
+    // Insere os 21 modelos limpos diretamente para a empresa
+    const payloads = DEFAULT_EXTINGUISHER_MODELS.map((model) => {
+      const descricao = JSON.stringify({
+        agente: model.agente,
+        capacidade: model.capacidade,
+        custo_normal: model.custo_normal,
+        custo_reaproveitamento: model.custo_reaproveitamento,
+        preco_padrao: model.preco_padrao,
+      });
+
+      return {
+        company_id: companyId,
+        nome: model.nome,
+        tipo: "servico",
+        categoria: "Extintor",
+        unidade: "un",
+        custo_unitario: model.custo_normal,
+        preco_venda: model.preco_padrao,
+        descricao,
+        ativo: true,
+        deleted_at: null,
+      };
+    });
+
+    await supabase.from("catalog_items").insert(payloads);
+  } catch (err) {
+    console.warn("Erro ao zerar e ressincronizar extintores do Supabase:", err);
+  }
+
+  return DEFAULT_EXTINGUISHER_MODELS;
+}
+

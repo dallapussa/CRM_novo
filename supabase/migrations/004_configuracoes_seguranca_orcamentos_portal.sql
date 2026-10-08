@@ -52,6 +52,7 @@ create table if not exists public.quote_templates (
 );
 
 alter table public.quote_templates add column if not exists company_id uuid references public.companies(id) on delete cascade;
+alter table public.quote_templates alter column company_id drop not null;
 alter table public.quote_templates add column if not exists tipo text default 'personalizado';
 alter table public.quote_templates add column if not exists validade_dias integer default 15;
 alter table public.quote_templates add column if not exists condicoes_pagamento text default 'À vista ou 30 dias no boleto.';
@@ -151,16 +152,33 @@ create table if not exists public.catalog_items (
 );
 
 alter table public.catalog_items add column if not exists company_id uuid references public.companies(id) on delete cascade;
-alter table public.catalog_items add column if not exists tipo text default 'servico';
+alter table public.catalog_items alter column company_id drop not null;
 
--- Se a coluna type original for enum product_type, flexibiliza para text
+-- Flexibiliza as colunas tipo e type para text (caso alguma tenha sido criada como enum product_type)
 do $$
 begin
+  -- 1. Se a coluna 'tipo' for enum product_type ou outro tipo não-text
+  if exists (
+    select 1 from information_schema.columns 
+    where table_name = 'catalog_items' and column_name = 'tipo' and udt_name <> 'text'
+  ) then
+    begin
+      alter table public.catalog_items alter column tipo drop default;
+    exception when others then null;
+    end;
+    alter table public.catalog_items alter column tipo type text using tipo::text;
+    alter table public.catalog_items alter column tipo set default 'servico';
+  end if;
+
+  -- 2. Se a coluna 'type' for enum product_type ou outro tipo não-text
   if exists (
     select 1 from information_schema.columns 
     where table_name = 'catalog_items' and column_name = 'type' and udt_name <> 'text'
   ) then
-    alter table public.catalog_items alter column type drop default;
+    begin
+      alter table public.catalog_items alter column type drop default;
+    exception when others then null;
+    end;
     alter table public.catalog_items alter column type type text using type::text;
     alter table public.catalog_items alter column type set default 'servico';
   end if;
@@ -168,6 +186,7 @@ exception
   when others then null;
 end $$;
 
+alter table public.catalog_items add column if not exists tipo text default 'servico';
 alter table public.catalog_items add column if not exists type text default 'servico';
 alter table public.catalog_items add column if not exists preco_venda numeric(12,2) default 0;
 alter table public.catalog_items add column if not exists preco numeric(12,2) default 0;
@@ -178,13 +197,14 @@ alter table public.catalog_items add column if not exists agente text;
 alter table public.catalog_items add column if not exists capacidade text;
 alter table public.catalog_items add column if not exists is_system boolean default false;
 
--- Sincronizar registros existentes com type::text
+-- Sincronizar registros existentes com type::text e tipo::text
 update public.catalog_items
 set 
-  tipo = coalesce(tipo, type::text, 'servico'),
+  tipo = coalesce(tipo::text, type::text, 'servico'),
+  type = coalesce(type::text, tipo::text, 'servico'),
   preco_venda = coalesce(preco_venda, preco, 0),
   custo_unitario = coalesce(custo_unitario, custo, 0)
-where preco_venda is null or custo_unitario is null or tipo is null;
+where preco_venda is null or custo_unitario is null or tipo is null or type is null;
 
 -- Trigger para manter compatibilidade bidirecional (tipo/type, preco/preco_venda, custo/custo_unitario)
 create or replace function public.sync_catalog_items_columns()
@@ -202,9 +222,9 @@ begin
     new.custo_unitario := new.custo;
   end if;
 
-  if new.tipo is not null and new.tipo in ('produto', 'servico') then
-    new.type := new.tipo;
-  elsif new.type is not null then
+  if new.tipo is not null and (new.type is null or new.type::text <> new.tipo::text) then
+    new.type := new.tipo::text;
+  elsif new.type is not null and (new.tipo is null or new.tipo::text <> new.type::text) then
     new.tipo := new.type::text;
   end if;
 
@@ -845,7 +865,7 @@ create policy clients_cliente_select on public.clients
   for select to authenticated
   using (
     id = public.get_my_client_id() or
-    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role <> 'Cliente')
+    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role::text <> 'Cliente')
   );
 
 -- B) Acesso ao inventário de extintores do cliente
@@ -854,7 +874,7 @@ create policy extintores_cliente_select on public.extintores
   for select to authenticated
   using (
     client_id = public.get_my_client_id() or
-    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role <> 'Cliente')
+    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role::text <> 'Cliente')
   );
 
 -- C) Acesso aos documentos do cliente (Anexo D, PPCI, laudos)
@@ -863,7 +883,7 @@ create policy documentos_cliente_cliente_select on public.documentos_cliente
   for select to authenticated
   using (
     client_id = public.get_my_client_id() or
-    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role <> 'Cliente')
+    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role::text <> 'Cliente')
   );
 
 -- D) Acesso e aprovação de orçamentos
@@ -872,7 +892,7 @@ create policy quotes_cliente_select on public.quotes
   for select to authenticated
   using (
     client_id = public.get_my_client_id() or
-    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role <> 'Cliente')
+    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role::text <> 'Cliente')
   );
 
 drop policy if exists quotes_cliente_update on public.quotes;
@@ -880,11 +900,11 @@ create policy quotes_cliente_update on public.quotes
   for update to authenticated
   using (
     client_id = public.get_my_client_id() or
-    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role <> 'Cliente')
+    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role::text <> 'Cliente')
   )
   with check (
     client_id = public.get_my_client_id() or
-    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role <> 'Cliente')
+    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role::text <> 'Cliente')
   );
 
 -- E) Acesso aos itens do orçamento
@@ -893,7 +913,7 @@ create policy quote_items_cliente_select on public.quote_items
   for select to authenticated
   using (
     quote_id in (select id from public.quotes where client_id = public.get_my_client_id()) or
-    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role <> 'Cliente')
+    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role::text <> 'Cliente')
   );
 
 -- F) Acesso às vistorias e ordens de serviço
@@ -902,7 +922,7 @@ create policy service_orders_cliente_select on public.service_orders
   for select to authenticated
   using (
     client_id = public.get_my_client_id() or
-    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role <> 'Cliente')
+    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role::text <> 'Cliente')
   );
 
 drop policy if exists service_order_items_cliente_select on public.service_order_items;
@@ -910,7 +930,7 @@ create policy service_order_items_cliente_select on public.service_order_items
   for select to authenticated
   using (
     service_order_id in (select id from public.service_orders where client_id = public.get_my_client_id()) or
-    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role <> 'Cliente')
+    exists (select 1 from public.user_profiles up where up.id = auth.uid() and up.role::text <> 'Cliente')
   );
 
 -- Habilita RLS nas tabelas centrais
@@ -919,3 +939,41 @@ alter table public.quote_items enable row level security;
 alter table public.service_orders enable row level security;
 alter table public.service_order_items enable row level security;
 alter table public.catalog_items enable row level security;
+
+-- Políticas de RLS para Catálogo de Produtos e Serviços (permitindo itens globais do sistema)
+drop policy if exists catalog_items_authenticated_select on public.catalog_items;
+create policy catalog_items_authenticated_select on public.catalog_items
+  for select to authenticated
+  using (
+    company_id = public.get_my_company_id()
+    or company_id is null
+    or is_system = true
+  );
+
+drop policy if exists catalog_items_authenticated_insert on public.catalog_items;
+create policy catalog_items_authenticated_insert on public.catalog_items
+  for insert to authenticated
+  with check (
+    company_id = public.get_my_company_id()
+    or company_id is null
+  );
+
+drop policy if exists catalog_items_authenticated_update on public.catalog_items;
+create policy catalog_items_authenticated_update on public.catalog_items
+  for update to authenticated
+  using (
+    company_id = public.get_my_company_id()
+    or is_system = true
+  )
+  with check (
+    company_id = public.get_my_company_id()
+    or is_system = true
+  );
+
+drop policy if exists catalog_items_authenticated_delete on public.catalog_items;
+create policy catalog_items_authenticated_delete on public.catalog_items
+  for delete to authenticated
+  using (
+    company_id = public.get_my_company_id()
+  );
+

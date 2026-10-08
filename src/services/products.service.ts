@@ -69,7 +69,17 @@ export async function listProducts(includeCosts = true): Promise<Product[]> {
       console.warn("Aviso ao listar produtos do catálogo:", error);
       return [];
     }
-    return (data || []).map((row) => mapCatalogItem(row));
+    const rawProducts = (data || []).map((row) => mapCatalogItem(row));
+
+    // Deduplicação defensiva por nome normalizado (evita duplicidade entre registros da empresa e padrões globais)
+    const uniqueMap = new Map<string, Product>();
+    for (const p of rawProducts) {
+      const key = (p.name || "").trim().toLowerCase();
+      if (!uniqueMap.has(key)) {
+        uniqueMap.set(key, p);
+      }
+    }
+    return Array.from(uniqueMap.values());
   } catch (err) {
     console.warn("Aviso ao carregar catálogo:", err);
     return [];

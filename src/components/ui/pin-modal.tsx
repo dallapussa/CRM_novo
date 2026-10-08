@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Lock, ShieldAlert, KeyRound, CheckCircle2 } from "lucide-react";
 import {
   Dialog,
@@ -11,7 +11,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { verifyPin, isPinTemporarilyUnlocked } from "@/services/settings-security.service";
 
 export interface PinModalProps {
@@ -45,6 +44,66 @@ export function PinModal({
   const [error, setError] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
 
+  useEffect(() => {
+    if (isModalOpen) {
+      setPin("");
+      setError("");
+    }
+  }, [isModalOpen]);
+
+  async function validateAndSubmit(pinValue = pin) {
+    if (pinValue.length !== 4) {
+      setError("O PIN deve ter exatamente 4 dígitos numéricos.");
+      return;
+    }
+
+    setIsVerifying(true);
+    setError("");
+    try {
+      const isValid = await verifyPin(pinValue);
+      if (isValid) {
+        setPin("");
+        setError("");
+        onSuccess();
+        handleClose();
+      } else {
+        setError("PIN incorreto. Tente novamente ou consulte o Administrador.");
+      }
+    } catch {
+      setError("Erro ao validar o PIN.");
+    } finally {
+      setIsVerifying(false);
+    }
+  }
+
+  // Permite digitação pelo teclado físico do dispositivo sem invocar teclado virtual do sistema
+  useEffect(() => {
+    if (!isModalOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key >= "0" && e.key <= "9") {
+        e.preventDefault();
+        setPin((prev) => (prev.length < 4 ? prev + e.key : prev));
+      } else if (e.key === "Backspace") {
+        e.preventDefault();
+        setPin((prev) => prev.slice(0, -1));
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        handleClose();
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (pin.length === 4 && !isVerifying) {
+          validateAndSubmit(pin);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isModalOpen, pin, isVerifying]);
+
   const defaultTitle =
     actionType === "price"
       ? "Confirmação de Segurança: Alteração de Preço"
@@ -61,29 +120,7 @@ export function PinModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError("");
-
-    if (pin.length !== 4) {
-      setError("O PIN deve ter exatamente 4 dígitos numéricos.");
-      return;
-    }
-
-    setIsVerifying(true);
-    try {
-      const isValid = await verifyPin(pin);
-      if (isValid) {
-        setPin("");
-        setError("");
-        onSuccess();
-        handleClose();
-      } else {
-        setError("PIN incorreto. Tente novamente ou consulte o Administrador.");
-      }
-    } catch {
-      setError("Erro ao validar o PIN.");
-    } finally {
-      setIsVerifying(false);
-    }
+    await validateAndSubmit();
   }
 
   function handleDigitClick(digit: string) {

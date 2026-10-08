@@ -12,6 +12,7 @@ import {
   X,
   Wrench,
   Box,
+  RefreshCw,
 } from "lucide-react";
 import {
   Table,
@@ -45,6 +46,8 @@ import { PRODUCT_TYPE_LABELS, PRODUCT_CATEGORIES } from "@/types";
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useDeleteProduct, useProducts } from "@/hooks/useProducts";
+import { useQueryClient } from "@tanstack/react-query";
+import { resetAndSyncExtinguishersFromCosts } from "@/services/extinguisher-catalog.service";
 import { PinModal } from "@/components/ui/pin-modal";
 import { isPinRequiredForAction } from "@/services/settings-security.service";
 
@@ -57,6 +60,8 @@ export function ProductsList({ initialProducts }: ProductsListProps = {}) {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [isSyncing, setIsSyncing] = useState(false);
+  const queryClient = useQueryClient();
   const { data: products = [], isLoading } = useProducts(initialProducts);
   const [deleteProduct, setDeleteProduct] = useState<Product | null>(null);
   const [pinAction, setPinAction] = useState<(() => void) | null>(null);
@@ -65,6 +70,27 @@ export function ProductsList({ initialProducts }: ProductsListProps = {}) {
   const { toast } = useToast();
   const deleteMutation = useDeleteProduct();
   const isDeleting = deleteMutation.isPending;
+
+  async function handleSyncFromCosts() {
+    setIsSyncing(true);
+    try {
+      await resetAndSyncExtinguishersFromCosts();
+      await queryClient.invalidateQueries({ queryKey: ["products"] });
+      toast({
+        variant: "success",
+        title: "Sincronização concluída",
+        description: "Extintores atualizados a partir da Aba Custos sem duplicidades.",
+      });
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao sincronizar",
+        description: err?.message || "Não foi possível sincronizar os extintores.",
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  }
 
   const filtered = useMemo(() => {
     return products.filter((p) => {
@@ -226,6 +252,16 @@ export function ProductsList({ initialProducts }: ProductsListProps = {}) {
               </SelectContent>
             </Select>
           </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleSyncFromCosts}
+            disabled={isSyncing}
+            className="h-10 text-xs border-orange-200 text-orange-800 bg-orange-50 hover:bg-orange-100 dark:bg-orange-950/30 dark:border-orange-900 dark:text-orange-300 font-medium"
+          >
+            <RefreshCw className={`mr-1.5 h-3.5 w-3.5 text-orange-600 ${isSyncing ? "animate-spin" : ""}`} />
+            {isSyncing ? "Sincronizando..." : "Sincronizar com Aba Custos"}
+          </Button>
           <Button asChild className="h-10">
             <Link href="/dashboard/produtos/novo">
               <Plus className="mr-1.5 h-4 w-4" />

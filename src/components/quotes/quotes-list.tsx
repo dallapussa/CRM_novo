@@ -162,6 +162,12 @@ export function QuotesList() {
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [viewQuote, setViewQuote] = useState<Quote | null>(null);
 
+  // Estados de busca para botões de itens
+  const [extinguisherSearch, setExtinguisherSearch] = useState("");
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const [isExtinguisherMenuOpen, setIsExtinguisherMenuOpen] = useState(false);
+  const [isCatalogMenuOpen, setIsCatalogMenuOpen] = useState(false);
+
   // Confirmação para converter em OS ao Aprovar
   const [pendingApprovalQuote, setPendingApprovalQuote] = useState<Quote | null>(null);
 
@@ -195,6 +201,42 @@ export function QuotesList() {
   const total = useMemo(() => {
     return Math.max(0, subtotal - (Number(discount) || 0));
   }, [subtotal, discount]);
+
+  // Produtos cadastrados no catálogo (exclui recargas e serviços de extintor)
+  const registeredProductsOnly = useMemo(() => {
+    return products.filter((p) => {
+      if (p.category === "Extintor") return false;
+      if (p.type === "servico") return false;
+      const name = (p.name || "").toLowerCase();
+      if (name.includes("recarga") || name.includes("carga")) return false;
+      return true;
+    });
+  }, [products]);
+
+  // Extintores filtrados por busca
+  const filteredExtinguishers = useMemo(() => {
+    if (!extinguisherSearch.trim()) return extinguisherModels;
+    const term = extinguisherSearch.toLowerCase().trim();
+    return extinguisherModels.filter(
+      (m) =>
+        m.nome.toLowerCase().includes(term) ||
+        (m.agente && m.agente.toLowerCase().includes(term)) ||
+        (m.capacidade && m.capacidade.toLowerCase().includes(term))
+    );
+  }, [extinguisherModels, extinguisherSearch]);
+
+  // Produtos cadastrados filtrados por busca
+  const filteredCatalogProducts = useMemo(() => {
+    if (!catalogSearch.trim()) return registeredProductsOnly;
+    const term = catalogSearch.toLowerCase().trim();
+    return registeredProductsOnly.filter(
+      (p) =>
+        p.name.toLowerCase().includes(term) ||
+        (p.sku && p.sku.toLowerCase().includes(term)) ||
+        (p.category && p.category.toLowerCase().includes(term)) ||
+        (p.description && p.description.toLowerCase().includes(term))
+    );
+  }, [registeredProductsOnly, catalogSearch]);
 
   // Estatísticas do topo
   const stats = useMemo(() => {
@@ -447,14 +489,8 @@ export function QuotesList() {
       }
     };
 
-    // Verifica se alterou preço e requer PIN
-    if (isPinRequiredForAction("price_change")) {
-      setPinTitle("PIN de Autorização de Preço");
-      setPinDescription("Digite seu PIN de 4 dígitos para autorizar os valores deste orçamento.");
-      setPinAction(() => saveAction);
-    } else {
-      await saveAction();
-    }
+    // Não solicita PIN para fazer ou salvar orçamento
+    await saveAction();
   }
 
   // Alteração de Status com Gatilho Operacional (OS)
@@ -1003,8 +1039,8 @@ export function QuotesList() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1.5">
-                  {/* Seletor Rápido de Extintor (Aba Custos) */}
-                  <DropdownMenu>
+                  {/* Seletor Rápido de Extintor com Busca */}
+                  <DropdownMenu open={isExtinguisherMenuOpen} onOpenChange={setIsExtinguisherMenuOpen}>
                     <DropdownMenuTrigger asChild>
                       <Button
                         type="button"
@@ -1013,20 +1049,55 @@ export function QuotesList() {
                         className="h-8 text-xs bg-orange-50 border-orange-200 text-orange-800 hover:bg-orange-100 font-medium"
                       >
                         <Flame className="mr-1.5 h-3.5 w-3.5 text-orange-600" />
-                        + Extintor (Aba Custos)
+                        + Extintor
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent className="max-h-60 overflow-y-auto w-64">
-                      {extinguisherModels.map((m) => (
-                        <DropdownMenuItem key={m.id} onClick={() => handleAddExtinguisher(m)}>
-                          <span className="truncate">{m.nome} — {formatCurrency(m.preco_padrao)}</span>
-                        </DropdownMenuItem>
-                      ))}
+                    <DropdownMenuContent
+                      className="w-80 p-2"
+                      align="start"
+                      onCloseAutoFocus={(e) => e.preventDefault()}
+                    >
+                      <div className="relative mb-2 px-1">
+                        <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                        <Input
+                          placeholder="Buscar extintor..."
+                          value={extinguisherSearch}
+                          onChange={(e) => setExtinguisherSearch(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          onClick={(e) => e.stopPropagation()}
+                          className="h-8 pl-8 text-xs"
+                          autoFocus
+                        />
+                      </div>
+                      <div className="max-h-60 overflow-y-auto space-y-0.5">
+                        {filteredExtinguishers.length === 0 ? (
+                          <div className="py-4 text-center text-xs text-muted-foreground">
+                            Nenhum extintor encontrado.
+                          </div>
+                        ) : (
+                          filteredExtinguishers.map((m) => (
+                            <DropdownMenuItem
+                              key={m.id}
+                              onClick={() => {
+                                handleAddExtinguisher(m);
+                                setExtinguisherSearch("");
+                                setIsExtinguisherMenuOpen(false);
+                              }}
+                              className="flex items-center justify-between text-xs cursor-pointer py-1.5 px-2"
+                            >
+                              <span className="truncate font-medium">{m.nome}</span>
+                              <span className="font-semibold text-emerald-600 ml-2 whitespace-nowrap">
+                                {formatCurrency(m.preco_padrao)}
+                              </span>
+                            </DropdownMenuItem>
+                          ))
+                        )}
+                      </div>
                     </DropdownMenuContent>
                   </DropdownMenu>
 
-                  {/* Seletor do Catálogo de Produtos */}
-                  <DropdownMenu>
+                  {/* Seletor do Catálogo de Produtos com Busca (Apenas produtos cadastrados, sem recargas) */}
+                  <DropdownMenu open={isCatalogMenuOpen} onOpenChange={setIsCatalogMenuOpen}>
                     <DropdownMenuTrigger asChild>
                       <Button
                         type="button"
@@ -1038,12 +1109,49 @@ export function QuotesList() {
                         + Item do Catálogo
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent className="max-h-60 overflow-y-auto w-64">
-                      {products.map((p) => (
-                        <DropdownMenuItem key={p.id} onClick={() => handleAddCatalogProduct(p)}>
-                          <span className="truncate">{p.name} — {formatCurrency(p.sale_price)}</span>
-                        </DropdownMenuItem>
-                      ))}
+                    <DropdownMenuContent
+                      className="w-80 p-2"
+                      align="start"
+                      onCloseAutoFocus={(e) => e.preventDefault()}
+                    >
+                      <div className="relative mb-2 px-1">
+                        <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                        <Input
+                          placeholder="Buscar produto cadastrado..."
+                          value={catalogSearch}
+                          onChange={(e) => setCatalogSearch(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          onClick={(e) => e.stopPropagation()}
+                          className="h-8 pl-8 text-xs"
+                          autoFocus
+                        />
+                      </div>
+                      <div className="max-h-60 overflow-y-auto space-y-0.5">
+                        {filteredCatalogProducts.length === 0 ? (
+                          <div className="py-4 text-center text-xs text-muted-foreground">
+                            {registeredProductsOnly.length === 0
+                              ? "Nenhum produto cadastrado no catálogo (cadastre na aba Produtos)."
+                              : "Nenhum produto cadastrado encontrado."}
+                          </div>
+                        ) : (
+                          filteredCatalogProducts.map((p) => (
+                            <DropdownMenuItem
+                              key={p.id}
+                              onClick={() => {
+                                handleAddCatalogProduct(p);
+                                setCatalogSearch("");
+                                setIsCatalogMenuOpen(false);
+                              }}
+                              className="flex items-center justify-between text-xs cursor-pointer py-1.5 px-2"
+                            >
+                              <span className="truncate font-medium">{p.name}</span>
+                              <span className="font-semibold text-emerald-600 ml-2 whitespace-nowrap">
+                                {formatCurrency(p.sale_price)}
+                              </span>
+                            </DropdownMenuItem>
+                          ))
+                        )}
+                      </div>
                     </DropdownMenuContent>
                   </DropdownMenu>
 
