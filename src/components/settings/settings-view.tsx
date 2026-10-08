@@ -35,6 +35,7 @@ import {
 } from "@/services/company-settings.service";
 import {
   getAppSettings,
+  fetchAppSettings,
   saveAppSettings,
   updatePin,
   DEFAULT_QUOTE_TERMS,
@@ -100,7 +101,7 @@ export function SettingsView() {
     try {
       const c = await getCompanySettings();
       setCompany(c);
-      const s = getAppSettings();
+      const s = await fetchAppSettings();
       setAppSettings(s);
     } catch (e) {
       console.warn("Erro ao carregar configurações:", e);

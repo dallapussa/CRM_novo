@@ -148,7 +148,52 @@ export function getAppSettings(): AppSettings {
 }
 
 /**
- * Salva as configurações completas do sistema no localStorage e sincroniza com a empresa
+ * Busca as configurações da tabela app_settings no Supabase e sincroniza o cache local
+ */
+export async function fetchAppSettings(): Promise<AppSettings> {
+  const local = getAppSettings();
+  try {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("*")
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data) {
+      const merged: AppSettings = {
+        quoteTerms: { ...DEFAULT_QUOTE_TERMS, ...(data.quote_terms || {}) },
+        security: {
+          pinHash: data.pin_hash || DEFAULT_PIN_HASH,
+          requirePinForPriceChange: data.require_pin_for_price_change ?? true,
+          requirePinForDelete: data.require_pin_for_delete ?? true,
+          pinCacheMinutes: data.pin_cache_minutes || 5,
+        },
+        rolePermissions: data.role_permissions || {},
+        menuItems:
+          Array.isArray(data.menu_items) && data.menu_items.length > 0
+            ? data.menu_items
+            : DEFAULT_MENU_ITEMS,
+        updatedAt: data.updated_at,
+      };
+
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(merged));
+        } catch {}
+      }
+
+      return merged;
+    }
+  } catch (err) {
+    console.warn("Aviso ao buscar app_settings no Supabase:", err);
+  }
+
+  return local;
+}
+
+/**
+ * Salva as configurações completas do sistema no localStorage e sincroniza com a tabela app_settings
  */
 export async function saveAppSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
   const current = getAppSettings();
@@ -168,20 +213,30 @@ export async function saveAppSettings(patch: Partial<AppSettings>): Promise<AppS
     }
   }
 
-  // Tenta persistir na coluna 'observacoes' ou settings da tabela companies se disponível
+  // Persiste na tabela app_settings do Supabase
   try {
     const supabase = createClient();
     const { data: comp } = await supabase.from("companies").select("id").limit(1).maybeSingle();
-    if (comp?.id) {
-      await supabase
-        .from("companies")
-        .update({
+    const companyId = comp?.id || null;
+
+    if (companyId) {
+      await supabase.from("app_settings").upsert(
+        {
+          company_id: companyId,
+          pin_hash: merged.security.pinHash,
+          require_pin_for_price_change: merged.security.requirePinForPriceChange,
+          require_pin_for_delete: merged.security.requirePinForDelete,
+          pin_cache_minutes: merged.security.pinCacheMinutes,
+          quote_terms: merged.quoteTerms,
+          role_permissions: merged.rolePermissions,
+          menu_items: merged.menuItems,
           updated_at: new Date().toISOString(),
-        })
-        .eq("id", comp.id);
+        },
+        { onConflict: "company_id" }
+      );
     }
   } catch (err) {
-    console.warn("Aviso ao persistir settings no Supabase:", err);
+    console.warn("Aviso ao persistir app_settings no Supabase:", err);
   }
 
   return merged;

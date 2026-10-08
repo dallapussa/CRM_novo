@@ -14,6 +14,7 @@ import {
   Filter,
   X,
   MessageCircle,
+  KeyRound,
 } from "lucide-react";
 import {
   Table,
@@ -47,6 +48,7 @@ import { formatDocument, formatPhone, formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useClients, useDeleteClient } from "@/hooks/useClients";
 import { ClientTechSheetModal } from "./client-tech-sheet-modal";
+import { ClientPortalAccessModal } from "./client-portal-access-modal";
 import { Flame } from "lucide-react";
 
 interface CustomersListProps {
@@ -59,6 +61,7 @@ export function CustomersList({ initialCustomers }: CustomersListProps = {}) {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [deleteCustomer, setDeleteCustomer] = useState<Customer | null>(null);
   const [techSheetCustomer, setTechSheetCustomer] = useState<Customer | null>(null);
+  const [portalAccessCustomer, setPortalAccessCustomer] = useState<Customer | null>(null);
   const { toast } = useToast();
   const { data: customers = [], isLoading } = useClients(initialCustomers);
   const deleteMutation = useDeleteClient();
@@ -370,6 +373,17 @@ export function CustomersList({ initialCustomers }: CustomersListProps = {}) {
                             <Flame className="h-4 w-4" />
                           </Button>
 
+                          {/* Botão Acesso ao Portal */}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                            title="Definir Acesso ao Portal do Cliente"
+                            onClick={() => setPortalAccessCustomer(c)}
+                          >
+                            <KeyRound className="h-4 w-4" />
+                          </Button>
+
                           {(c.whatsapp || c.phone1) && (
                             <Button
                               asChild
@@ -435,6 +449,15 @@ export function CustomersList({ initialCustomers }: CustomersListProps = {}) {
           open={!!techSheetCustomer}
           onOpenChange={(o) => !o && setTechSheetCustomer(null)}
           customer={techSheetCustomer}
+        />
+      )}
+
+      {/* Modal Acesso ao Portal do Cliente */}
+      {portalAccessCustomer && (
+        <ClientPortalAccessModal
+          open={!!portalAccessCustomer}
+          onOpenChange={(o) => !o && setPortalAccessCustomer(null)}
+          customer={portalAccessCustomer}
         />
       )}
 

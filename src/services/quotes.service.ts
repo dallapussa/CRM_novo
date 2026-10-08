@@ -26,7 +26,7 @@ function mapQuote(row: Record<string, any>): Quote {
     subtotal: Number(row.subtotal || 0),
     discount: Number(row.discount || 0),
     total: Number(row.total || 0),
-    notes: row.notes,
+    notes: row.notes || row.observacoes || null,
     created_by: row.created_by,
     created_at: row.created_at,
     updated_at: row.updated_at,

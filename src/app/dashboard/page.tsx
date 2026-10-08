@@ -24,10 +24,17 @@ import { useDashboardStats } from "@/hooks/useDashboardStats";
 import { useQuery } from "@tanstack/react-query";
 import { getExpiringItems } from "@/services/prevention.service";
 import { CalendarDays } from "lucide-react";
+import { CustomerPortalView } from "@/components/portal/customer-portal-view";
 
 export default function DashboardPage() {
   const { user, role: authRole } = useAuth();
   const role: UserRole = authRole ?? "admin";
+
+  // Se o usuário logado for Cliente ou Terceiro, exibe o Portal Exclusivo do Cliente
+  if (role === "cliente" || role === "terceiro") {
+    return <CustomerPortalView />;
+  }
+
   const statsQuery = useDashboardStats(role);
   const stats = statsQuery.data ?? { osCount: 0, customerCount: 0, userCount: 0, recentOs: [], totalRevenue: 0 };
   const expiringQuery = useQuery({ queryKey: ["expiring-items"], queryFn: getExpiringItems });

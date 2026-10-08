@@ -23,6 +23,7 @@ import {
   EyeOff,
   Copy,
   Check,
+  KeyRound,
 } from "lucide-react";
 import {
   Card,
@@ -54,6 +55,7 @@ import {
   formatPhone,
 } from "@/lib/utils";
 import { ClientDocuments } from "@/components/clients/client-documents";
+import { ClientPortalAccessModal } from "@/components/clients/client-portal-access-modal";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
@@ -89,6 +91,7 @@ export function CustomerDetail({
   const [showDelete, setShowDelete] = useState(false);
   const [showGovPassword, setShowGovPassword] = useState(false);
   const [copiedGovPassword, setCopiedGovPassword] = useState(false);
+  const [showPortalAccess, setShowPortalAccess] = useState(false);
   const deleteMutation = useDeleteClient();
   const isDeleting = deleteMutation.isPending;
 
@@ -181,6 +184,15 @@ export function CustomerDetail({
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-purple-200 text-purple-700 hover:bg-purple-50 hover:text-purple-800"
+            onClick={() => setShowPortalAccess(true)}
+          >
+            <KeyRound className="mr-1.5 h-4 w-4 text-purple-600" />
+            Acesso ao Portal
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -656,6 +668,12 @@ export function CustomerDetail({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ClientPortalAccessModal
+        open={showPortalAccess}
+        onOpenChange={setShowPortalAccess}
+        customer={customer}
+      />
     </div>
   );
 }
