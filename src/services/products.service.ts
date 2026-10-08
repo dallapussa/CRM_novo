@@ -52,23 +52,28 @@ function catalogItemRow(input: ProductInput) {
 }
 
 export async function listProducts(includeCosts = true): Promise<Product[]> {
-  const { supabase, companyId } = await getTenantContext();
-  let query = supabase
-    .from("catalog_items")
-    .select("*")
-    .is("deleted_at", null)
-    .order("nome");
+  try {
+    const { supabase, companyId } = await getTenantContext();
+    let query = supabase
+      .from("catalog_items")
+      .select("*")
+      .is("deleted_at", null)
+      .order("nome");
 
-  if (companyId) {
-    query = query.or(`company_id.eq.${companyId},company_id.is.null`);
-  }
+    if (companyId) {
+      query = query.or(`company_id.eq.${companyId},company_id.is.null`);
+    }
 
-  const { data, error } = await query;
-  if (error) {
-    console.error("Erro ao listar produtos do catálogo:", error);
-    throw error;
+    const { data, error } = await query;
+    if (error) {
+      console.warn("Aviso ao listar produtos do catálogo:", error);
+      return [];
+    }
+    return (data || []).map((row) => mapCatalogItem(row));
+  } catch (err) {
+    console.warn("Aviso ao carregar catálogo:", err);
+    return [];
   }
-  return (data || []).map((row) => mapCatalogItem(row));
 }
 
 export async function saveProduct(input: ProductInput, id?: string): Promise<string> {

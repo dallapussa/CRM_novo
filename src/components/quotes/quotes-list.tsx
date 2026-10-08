@@ -59,6 +59,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { Quote, QuoteItem, QuoteStatus, Customer, Product } from "@/types";
 import { QUOTE_STATUS_COLORS, QUOTE_STATUS_LABELS } from "@/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -689,9 +695,9 @@ export function QuotesList() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todos os Clientes</SelectItem>
-            {clients.map((c) => (
+            {clients.filter((c) => Boolean(c && c.id)).map((c) => (
               <SelectItem key={c.id} value={c.id}>
-                {c.name}
+                {c.name || "Cliente sem nome"}
               </SelectItem>
             ))}
           </SelectContent>
@@ -757,14 +763,16 @@ export function QuotesList() {
                       </TableCell>
                       <TableCell>
                         <Select
-                          value={q.status}
+                          value={q.status || "Rascunho"}
                           onValueChange={(val) => handleChangeStatus(q, val as QuoteStatus)}
                           disabled={isConvertido}
                         >
                           <SelectTrigger className="w-[130px] h-7 text-xs font-medium">
-                            <Badge variant="outline" className={`${QUOTE_STATUS_COLORS[q.status]} border-0`}>
-                              {QUOTE_STATUS_LABELS[q.status] || q.status}
-                            </Badge>
+                            <SelectValue>
+                              <Badge variant="outline" className={`${QUOTE_STATUS_COLORS[q.status] || "bg-gray-100 text-gray-700"} border-0`}>
+                                {QUOTE_STATUS_LABELS[q.status] || q.status}
+                              </Badge>
+                            </SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="Rascunho">Rascunho</SelectItem>
@@ -772,6 +780,8 @@ export function QuotesList() {
                             <SelectItem value="Aprovado">Aprovado</SelectItem>
                             <SelectItem value="Recusado">Recusado</SelectItem>
                             <SelectItem value="Cancelado">Cancelado</SelectItem>
+                            <SelectItem value="Convertido">Convertido em OS</SelectItem>
+                            <SelectItem value="Pendente">Pendente</SelectItem>
                           </SelectContent>
                         </Select>
                       </TableCell>
@@ -952,7 +962,7 @@ export function QuotesList() {
                   </button>
                 </div>
                 <Select
-                  value={selectedTemplateId}
+                  value={selectedTemplateId || undefined}
                   onValueChange={(val) => {
                     const t = quoteTemplates.find((x) => x.id === val);
                     if (t) applyTemplate(t);
@@ -962,9 +972,9 @@ export function QuotesList() {
                     <SelectValue placeholder="Selecione um pacote pré-configurado..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {quoteTemplates.map((tpl) => (
+                    {quoteTemplates.filter((tpl) => Boolean(tpl && tpl.id)).map((tpl) => (
                       <SelectItem key={tpl.id} value={tpl.id}>
-                        {tpl.nome} ({tpl.itens_padrao.length} itens)
+                        {tpl.nome} ({(tpl.itens_padrao || []).length} itens)
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -994,46 +1004,48 @@ export function QuotesList() {
 
                 <div className="flex flex-wrap items-center gap-1.5">
                   {/* Seletor Rápido de Extintor (Aba Custos) */}
-                  <Select
-                    value=""
-                    onValueChange={(val) => {
-                      const m = extinguisherModels.find((x) => x.id === val);
-                      if (m) handleAddExtinguisher(m);
-                    }}
-                  >
-                    <SelectTrigger className="h-8 text-xs w-44 bg-orange-50 border-orange-200 text-orange-800 font-medium">
-                      <Flame className="mr-1.5 h-3.5 w-3.5 text-orange-600" />
-                      + Extintor (Aba Custos)
-                    </SelectTrigger>
-                    <SelectContent>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs bg-orange-50 border-orange-200 text-orange-800 hover:bg-orange-100 font-medium"
+                      >
+                        <Flame className="mr-1.5 h-3.5 w-3.5 text-orange-600" />
+                        + Extintor (Aba Custos)
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent className="max-h-60 overflow-y-auto w-64">
                       {extinguisherModels.map((m) => (
-                        <SelectItem key={m.id} value={m.id}>
-                          {m.nome} — {formatCurrency(m.preco_padrao)}
-                        </SelectItem>
+                        <DropdownMenuItem key={m.id} onClick={() => handleAddExtinguisher(m)}>
+                          <span className="truncate">{m.nome} — {formatCurrency(m.preco_padrao)}</span>
+                        </DropdownMenuItem>
                       ))}
-                    </SelectContent>
-                  </Select>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
 
                   {/* Seletor do Catálogo de Produtos */}
-                  <Select
-                    value=""
-                    onValueChange={(val) => {
-                      const p = products.find((x) => x.id === val);
-                      if (p) handleAddCatalogProduct(p);
-                    }}
-                  >
-                    <SelectTrigger className="h-8 text-xs w-40 bg-blue-50 border-blue-200 text-blue-800 font-medium">
-                      <Package className="mr-1.5 h-3.5 w-3.5 text-blue-600" />
-                      + Item do Catálogo
-                    </SelectTrigger>
-                    <SelectContent>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs bg-blue-50 border-blue-200 text-blue-800 hover:bg-blue-100 font-medium"
+                      >
+                        <Package className="mr-1.5 h-3.5 w-3.5 text-blue-600" />
+                        + Item do Catálogo
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent className="max-h-60 overflow-y-auto w-64">
                       {products.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.name} — {formatCurrency(p.sale_price)}
-                        </SelectItem>
+                        <DropdownMenuItem key={p.id} onClick={() => handleAddCatalogProduct(p)}>
+                          <span className="truncate">{p.name} — {formatCurrency(p.sale_price)}</span>
+                        </DropdownMenuItem>
                       ))}
-                    </SelectContent>
-                  </Select>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
 
                   {/* Item Avulso */}
                   <Button

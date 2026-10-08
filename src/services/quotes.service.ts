@@ -14,6 +14,7 @@ export interface QuoteInput {
 }
 
 function mapQuote(row: Record<string, any>): Quote {
+  const clientObj = Array.isArray(row.client) ? row.client[0] : row.client;
   return {
     id: row.id,
     company_id: row.company_id,
@@ -30,21 +31,36 @@ function mapQuote(row: Record<string, any>): Quote {
     created_by: row.created_by,
     created_at: row.created_at,
     updated_at: row.updated_at,
-    customer: row.client ? { id: row.client.id, name: row.client.razao_social } : null,
+    customer: clientObj ? { id: clientObj.id, name: clientObj.razao_social } : null,
   };
 }
 
 export async function listQuotes(): Promise<Quote[]> {
-  const { supabase, companyId } = await getTenantContext();
-  const { data, error } = await supabase
-    .from("quotes")
-    .select("*,client:client_id(id,razao_social)")
-    .eq("company_id", companyId)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false });
+  try {
+    const { supabase, companyId } = await getTenantContext();
+    const { data, error } = await supabase
+      .from("quotes")
+      .select("*,client:client_id(id,razao_social)")
+      .eq("company_id", companyId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false });
 
-  if (error) throw error;
-  return (data || []).map(mapQuote);
+    if (!error && data) return data.map(mapQuote);
+
+    // Fallback simples sem relacionamento se houver problema no schema
+    const { data: rawData, error: rawError } = await supabase
+      .from("quotes")
+      .select("*")
+      .eq("company_id", companyId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false });
+
+    if (rawError) return [];
+    return (rawData || []).map(mapQuote);
+  } catch (err) {
+    console.warn("Aviso ao listar orçamentos:", err);
+    return [];
+  }
 }
 
 export async function getQuote(id: string): Promise<{ quote: Quote; items: QuoteItem[] }> {

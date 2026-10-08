@@ -152,6 +152,22 @@ create table if not exists public.catalog_items (
 
 alter table public.catalog_items add column if not exists company_id uuid references public.companies(id) on delete cascade;
 alter table public.catalog_items add column if not exists tipo text default 'servico';
+
+-- Se a coluna type original for enum product_type, flexibiliza para text
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns 
+    where table_name = 'catalog_items' and column_name = 'type' and udt_name <> 'text'
+  ) then
+    alter table public.catalog_items alter column type drop default;
+    alter table public.catalog_items alter column type type text using type::text;
+    alter table public.catalog_items alter column type set default 'servico';
+  end if;
+exception
+  when others then null;
+end $$;
+
 alter table public.catalog_items add column if not exists type text default 'servico';
 alter table public.catalog_items add column if not exists preco_venda numeric(12,2) default 0;
 alter table public.catalog_items add column if not exists preco numeric(12,2) default 0;
@@ -162,10 +178,10 @@ alter table public.catalog_items add column if not exists agente text;
 alter table public.catalog_items add column if not exists capacidade text;
 alter table public.catalog_items add column if not exists is_system boolean default false;
 
--- Sincronizar registros existentes
+-- Sincronizar registros existentes com type::text
 update public.catalog_items
 set 
-  tipo = coalesce(tipo, type, 'servico'),
+  tipo = coalesce(tipo, type::text, 'servico'),
   preco_venda = coalesce(preco_venda, preco, 0),
   custo_unitario = coalesce(custo_unitario, custo, 0)
 where preco_venda is null or custo_unitario is null or tipo is null;
@@ -189,7 +205,7 @@ begin
   if new.tipo is not null and new.tipo in ('produto', 'servico') then
     new.type := new.tipo;
   elsif new.type is not null then
-    new.tipo := new.type;
+    new.tipo := new.type::text;
   end if;
 
   return new;
@@ -201,6 +217,434 @@ create trigger trg_sync_catalog_items
 before insert or update on public.catalog_items
 for each row
 execute function public.sync_catalog_items_columns();
+
+-- ----------------------------------------------------------------------------
+-- 3.1. INSERÇÃO DOS 21 PRODUTOS E MODELOS DE EXTINTORES DIGITADOS
+-- ----------------------------------------------------------------------------
+delete from public.catalog_items
+where categoria = 'Extintor'
+  and is_system = true
+  and nome in (
+    'Pó ABC - 4kg', 'Pó ABC - 6kg', 'Pó ABC - 8kg', 'Pó ABC - 12kg',
+    'Pó BC - 4kg', 'Pó BC - 6kg', 'Pó BC - 8kg', 'Pó BC - 12kg',
+    'CO2 - 4kg', 'CO2 - 6kg', 'Água Pressurizada - 10L', 'Espuma Mecânica - 10L',
+    'CO2 (Dióxido de Carbono) - 6kg', 'CO2 - 10kg', 'Espuma Mecânica RODAS - 50kg',
+    'Pó ABC - 20kg', 'Pó ABC Rodas - 30kg', 'Pó ABC Rodas - 50kg',
+    'Pó BC Rodas - 20kg', 'Pó BC Rodas - 50kg', 'AP Rodas - 50L'
+  )
+  and id not in (
+    'e0000000-0000-0000-0000-000000000001'::uuid,
+    'e0000000-0000-0000-0000-000000000002'::uuid,
+    'e0000000-0000-0000-0000-000000000003'::uuid,
+    'e0000000-0000-0000-0000-000000000004'::uuid,
+    'e0000000-0000-0000-0000-000000000005'::uuid,
+    'e0000000-0000-0000-0000-000000000006'::uuid,
+    'e0000000-0000-0000-0000-000000000007'::uuid,
+    'e0000000-0000-0000-0000-000000000008'::uuid,
+    'e0000000-0000-0000-0000-000000000009'::uuid,
+    'e0000000-0000-0000-0000-000000000010'::uuid,
+    'e0000000-0000-0000-0000-000000000011'::uuid,
+    'e0000000-0000-0000-0000-000000000012'::uuid,
+    'e0000000-0000-0000-0000-000000000013'::uuid,
+    'e0000000-0000-0000-0000-000000000014'::uuid,
+    'e0000000-0000-0000-0000-000000000015'::uuid,
+    'e0000000-0000-0000-0000-000000000016'::uuid,
+    'e0000000-0000-0000-0000-000000000017'::uuid,
+    'e0000000-0000-0000-0000-000000000018'::uuid,
+    'e0000000-0000-0000-0000-000000000019'::uuid,
+    'e0000000-0000-0000-0000-000000000020'::uuid,
+    'e0000000-0000-0000-0000-000000000021'::uuid
+  );
+
+insert into public.catalog_items (
+  id,
+  nome,
+  tipo,
+  categoria,
+  unidade,
+  preco,
+  preco_venda,
+  custo,
+  custo_unitario,
+  custo_reaproveitamento,
+  agente,
+  capacidade,
+  descricao,
+  ativo,
+  is_system
+) values
+(
+  'e0000000-0000-0000-0000-000000000001'::uuid,
+  'Pó ABC - 4kg',
+  'servico',
+  'Extintor',
+  'un',
+  70.00,
+  70.00,
+  33.90,
+  33.90,
+  23.90,
+  'Pó ABC',
+  '4kg',
+  '{"agente":"Pó ABC","capacidade":"4kg","custo_normal":33.9,"custo_reaproveitamento":23.9,"preco_padrao":70}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000002'::uuid,
+  'Pó ABC - 6kg',
+  'servico',
+  'Extintor',
+  'un',
+  90.00,
+  90.00,
+  42.90,
+  42.90,
+  26.90,
+  'Pó ABC',
+  '6kg',
+  '{"agente":"Pó ABC","capacidade":"6kg","custo_normal":42.9,"custo_reaproveitamento":26.9,"preco_padrao":90}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000003'::uuid,
+  'Pó ABC - 8kg',
+  'servico',
+  'Extintor',
+  'un',
+  110.00,
+  110.00,
+  50.90,
+  50.90,
+  29.80,
+  'Pó ABC',
+  '8kg',
+  '{"agente":"Pó ABC","capacidade":"8kg","custo_normal":50.9,"custo_reaproveitamento":29.8,"preco_padrao":110}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000004'::uuid,
+  'Pó ABC - 12kg',
+  'servico',
+  'Extintor',
+  'un',
+  135.00,
+  135.00,
+  66.20,
+  66.20,
+  34.90,
+  'Pó ABC',
+  '12kg',
+  '{"agente":"Pó ABC","capacidade":"12kg","custo_normal":66.2,"custo_reaproveitamento":34.9,"preco_padrao":135}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000005'::uuid,
+  'Pó BC - 4kg',
+  'servico',
+  'Extintor',
+  'un',
+  70.00,
+  70.00,
+  26.50,
+  26.50,
+  18.90,
+  'Pó BC',
+  '4kg',
+  '{"agente":"Pó BC","capacidade":"4kg","custo_normal":26.5,"custo_reaproveitamento":18.9,"preco_padrao":70}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000006'::uuid,
+  'Pó BC - 6kg',
+  'servico',
+  'Extintor',
+  'un',
+  80.00,
+  80.00,
+  30.80,
+  30.80,
+  20.90,
+  'Pó BC',
+  '6kg',
+  '{"agente":"Pó BC","capacidade":"6kg","custo_normal":30.8,"custo_reaproveitamento":20.9,"preco_padrao":80}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000007'::uuid,
+  'Pó BC - 8kg',
+  'servico',
+  'Extintor',
+  'un',
+  90.00,
+  90.00,
+  34.60,
+  34.60,
+  24.40,
+  'Pó BC',
+  '8kg',
+  '{"agente":"Pó BC","capacidade":"8kg","custo_normal":34.6,"custo_reaproveitamento":24.4,"preco_padrao":90}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000008'::uuid,
+  'Pó BC - 12kg',
+  'servico',
+  'Extintor',
+  'un',
+  100.00,
+  100.00,
+  45.90,
+  45.90,
+  27.60,
+  'Pó BC',
+  '12kg',
+  '{"agente":"Pó BC","capacidade":"12kg","custo_normal":45.9,"custo_reaproveitamento":27.6,"preco_padrao":100}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000009'::uuid,
+  'CO2 - 4kg',
+  'servico',
+  'Extintor',
+  'un',
+  68.00,
+  68.00,
+  30.00,
+  30.00,
+  9.00,
+  'CO2',
+  '4kg',
+  '{"agente":"CO2","capacidade":"4kg","custo_normal":30,"custo_reaproveitamento":9,"preco_padrao":68}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000010'::uuid,
+  'CO2 - 6kg',
+  'servico',
+  'Extintor',
+  'un',
+  250.00,
+  250.00,
+  120.00,
+  120.00,
+  97.00,
+  'CO2',
+  '6kg',
+  '{"agente":"CO2","capacidade":"6kg","custo_normal":120,"custo_reaproveitamento":97,"preco_padrao":250}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000011'::uuid,
+  'Água Pressurizada - 10L',
+  'servico',
+  'Extintor',
+  'un',
+  50.00,
+  50.00,
+  19.90,
+  19.90,
+  18.90,
+  'Água Pressurizada (AP)',
+  '10L',
+  '{"agente":"Água Pressurizada (AP)","capacidade":"10L","custo_normal":19.9,"custo_reaproveitamento":18.9,"preco_padrao":50}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000012'::uuid,
+  'Espuma Mecânica - 10L',
+  'servico',
+  'Extintor',
+  'un',
+  135.00,
+  135.00,
+  65.00,
+  65.00,
+  50.00,
+  'Espuma Mecânica',
+  '10L',
+  '{"agente":"Espuma Mecânica","capacidade":"10L","custo_normal":65,"custo_reaproveitamento":50,"preco_padrao":135}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000013'::uuid,
+  'CO2 (Dióxido de Carbono) - 6kg',
+  'servico',
+  'Extintor',
+  'un',
+  68.00,
+  68.00,
+  30.00,
+  30.00,
+  9.00,
+  'CO2 (Dióxido de Carbono)',
+  '6kg',
+  '{"agente":"CO2 (Dióxido de Carbono)","capacidade":"6kg","custo_normal":30,"custo_reaproveitamento":9,"preco_padrao":68}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000014'::uuid,
+  'CO2 - 10kg',
+  'servico',
+  'Extintor',
+  'un',
+  290.00,
+  290.00,
+  189.00,
+  189.00,
+  135.00,
+  'CO2',
+  '10kg',
+  '{"agente":"CO2","capacidade":"10kg","custo_normal":189,"custo_reaproveitamento":135,"preco_padrao":290}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000015'::uuid,
+  'Espuma Mecânica RODAS - 50kg',
+  'servico',
+  'Extintor',
+  'un',
+  500.00,
+  500.00,
+  230.00,
+  230.00,
+  120.00,
+  'Espuma Mecânica RODAS',
+  '50kg',
+  '{"agente":"Espuma Mecânica RODAS","capacidade":"50kg","custo_normal":230,"custo_reaproveitamento":120,"preco_padrao":500}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000016'::uuid,
+  'Pó ABC - 20kg',
+  'servico',
+  'Extintor',
+  'un',
+  240.00,
+  240.00,
+  117.00,
+  117.00,
+  85.00,
+  'Pó ABC',
+  '20kg',
+  '{"agente":"Pó ABC","capacidade":"20kg","custo_normal":117,"custo_reaproveitamento":85,"preco_padrao":240}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000017'::uuid,
+  'Pó ABC Rodas - 30kg',
+  'servico',
+  'Extintor',
+  'un',
+  330.00,
+  330.00,
+  160.00,
+  160.00,
+  120.00,
+  'Pó ABC Rodas',
+  '30kg',
+  '{"agente":"Pó ABC Rodas","capacidade":"30kg","custo_normal":160,"custo_reaproveitamento":120,"preco_padrao":330}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000018'::uuid,
+  'Pó ABC Rodas - 50kg',
+  'servico',
+  'Extintor',
+  'un',
+  160.00,
+  160.00,
+  78.00,
+  78.00,
+  65.00,
+  'Pó ABC Rodas',
+  '50kg',
+  '{"agente":"Pó ABC Rodas","capacidade":"50kg","custo_normal":78,"custo_reaproveitamento":65,"preco_padrao":160}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000019'::uuid,
+  'Pó BC Rodas - 20kg',
+  'servico',
+  'Extintor',
+  'un',
+  68.00,
+  68.00,
+  135.00,
+  135.00,
+  98.00,
+  'Pó BC Rodas',
+  '20kg',
+  '{"agente":"Pó BC Rodas","capacidade":"20kg","custo_normal":135,"custo_reaproveitamento":98,"preco_padrao":68}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000020'::uuid,
+  'Pó BC Rodas - 50kg',
+  'servico',
+  'Extintor',
+  'un',
+  250.00,
+  250.00,
+  125.00,
+  125.00,
+  98.00,
+  'Pó BC Rodas',
+  '50kg',
+  '{"agente":"Pó BC Rodas","capacidade":"50kg","custo_normal":125,"custo_reaproveitamento":98,"preco_padrao":250}',
+  true,
+  true
+),
+(
+  'e0000000-0000-0000-0000-000000000021'::uuid,
+  'AP Rodas - 50L',
+  'servico',
+  'Extintor',
+  'un',
+  250.00,
+  250.00,
+  125.00,
+  125.00,
+  98.00,
+  'AP Rodas',
+  '50L',
+  '{"agente":"AP Rodas","capacidade":"50L","custo_normal":125,"custo_reaproveitamento":98,"preco_padrao":250}',
+  true,
+  true
+)
+on conflict (id) do update set
+  nome = excluded.nome,
+  tipo = excluded.tipo,
+  categoria = excluded.categoria,
+  unidade = excluded.unidade,
+  preco = excluded.preco,
+  preco_venda = excluded.preco_venda,
+  custo = excluded.custo,
+  custo_unitario = excluded.custo_unitario,
+  custo_reaproveitamento = excluded.custo_reaproveitamento,
+  agente = excluded.agente,
+  capacidade = excluded.capacidade,
+  descricao = excluded.descricao,
+  ativo = excluded.ativo,
+  is_system = excluded.is_system;
 
 -- ----------------------------------------------------------------------------
 -- 4. TABELAS DE ORÇAMENTOS (quotes & quote_items)

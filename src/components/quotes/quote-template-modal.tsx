@@ -90,7 +90,7 @@ export function QuoteTemplateModal({
     setCondicoesPagamento(tpl.condicoes_pagamento || "");
     setTermosGarantia(tpl.termos_garantia || "");
     setClausulaPpci(tpl.clausula_ppci || "");
-    setItems([...tpl.itens_padrao]);
+    setItems(Array.isArray(tpl.itens_padrao) ? [...tpl.itens_padrao] : []);
     setIsEditing(true);
   }
 
@@ -342,17 +342,17 @@ export function QuoteTemplateModal({
 
                   <div className="text-xs text-muted-foreground bg-muted/30 p-2 rounded">
                     <p className="font-medium text-[11px] text-foreground">
-                      {tpl.itens_padrao.length} item(ns) pré-configurado(s):
+                      {(tpl.itens_padrao || []).length} item(ns) pré-configurado(s):
                     </p>
                     <ul className="list-disc pl-4 mt-1 space-y-0.5">
-                      {tpl.itens_padrao.slice(0, 3).map((it, idx) => (
+                      {(tpl.itens_padrao || []).slice(0, 3).map((it, idx) => (
                         <li key={idx} className="line-clamp-1">
                           {it.quantidade}x {it.descricao} ({formatCurrency(it.valor_unitario)})
                         </li>
                       ))}
-                      {tpl.itens_padrao.length > 3 && (
+                      {(tpl.itens_padrao || []).length > 3 && (
                         <li className="text-[10px] text-muted-foreground">
-                          + {tpl.itens_padrao.length - 3} outros itens
+                          + {(tpl.itens_padrao || []).length - 3} outros itens
                         </li>
                       )}
                     </ul>

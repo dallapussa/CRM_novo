@@ -172,10 +172,18 @@ function clientRow(input: Partial<ClientInput>) {
 }
 
 export async function listClients(): Promise<Customer[]> {
-  const { supabase, companyId } = await getTenantContext();
-  const { data, error } = await supabase.from("clients").select("*").eq("company_id", companyId).is("deleted_at", null).order("razao_social", { ascending: true });
-  if (error) throw error;
-  return (data || []).map((row) => mapClient(row));
+  try {
+    const { supabase, companyId } = await getTenantContext();
+    const { data, error } = await supabase.from("clients").select("*").eq("company_id", companyId).is("deleted_at", null).order("razao_social", { ascending: true });
+    if (error) {
+      console.warn("Aviso ao listar clientes:", error);
+      return [];
+    }
+    return (data || []).map((row) => mapClient(row));
+  } catch (err) {
+    console.warn("Aviso ao carregar clientes:", err);
+    return [];
+  }
 }
 
 export async function getClient(id: string): Promise<Customer | null> {
