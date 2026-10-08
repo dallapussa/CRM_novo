@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useRef } from "react";
-import { Printer, ShieldCheck, Download, Calendar, MapPin, Building, Flame } from "lucide-react";
+import React, { useRef, useState } from "react";
+import { Printer, ShieldCheck, Download, Calendar, MapPin, Building, Flame, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
 import type { Customer, ExtintorInventario } from "@/types";
 import type { CompanySettings } from "@/services/company-settings.service";
+import { downloadMemorialPdf } from "@/services/memorial-pdf.service";
 
 interface AnexoDViewProps {
   customer: Customer;
@@ -16,9 +17,37 @@ interface AnexoDViewProps {
 
 export function AnexoDView({ customer, company, extinguishers }: AnexoDViewProps) {
   const printRef = useRef<HTMLDivElement>(null);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   function handlePrint() {
     window.print();
+  }
+
+  async function handleDownloadOfficialPdf() {
+    try {
+      setIsGeneratingPdf(true);
+      const fullAddress = customer.address
+        ? `${customer.address.street || ""}, ${customer.address.number || "S/N"} - ${
+            customer.address.neighborhood || ""
+          }, ${customer.address.city || ""}/${customer.address.state || ""}`
+        : "";
+
+      await downloadMemorialPdf({
+        cliente_id: customer.id,
+        cliente_nome: customer.name,
+        cliente_documento: customer.document,
+        cliente_telefone: customer.phone1 || customer.phone2 || customer.whatsapp || "",
+        cliente_email: customer.email || "",
+        cliente_endereco: fullAddress,
+        ppci_enquadramento: customer.ppci_enquadramento || (customer.ppci_isento ? "Isento de PPCI" : "PSPCI (Plano Simplificado)"),
+        ppci_number: customer.ppci_number,
+        ppci_metragem: customer.metragem,
+        ppci_expires_at: customer.ppci_expires_at,
+        extintores: extinguishers,
+      });
+    } finally {
+      setIsGeneratingPdf(false);
+    }
   }
 
   // Ordena os extintores por localização/identificação
@@ -39,13 +68,24 @@ export function AnexoDView({ customer, company, extinguishers }: AnexoDViewProps
             Documento regulamentar do Corpo de Bombeiros Militar (CBMRS / NBR 12962 e NBR 15808).
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Button
-            onClick={handlePrint}
-            className="bg-red-600 hover:bg-red-700 text-white shadow-sm h-9 text-xs"
+            onClick={handleDownloadOfficialPdf}
+            disabled={isGeneratingPdf || extinguishers.length === 0}
+            className="bg-red-600 hover:bg-red-700 text-white shadow-sm h-9 text-xs font-bold gap-1.5"
+            title="Baixar PDF Oficial formatado com cabeçalho e rodapé padronizado"
           >
-            <Printer className="mr-1.5 h-4 w-4" />
-            Imprimir / Salvar PDF (A4)
+            {isGeneratingPdf ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            Baixar PDF Oficial (A4)
+          </Button>
+
+          <Button
+            variant="outline"
+            onClick={handlePrint}
+            className="shadow-sm h-9 text-xs gap-1.5"
+          >
+            <Printer className="h-3.5 w-3.5" />
+            Imprimir
           </Button>
         </div>
       </div>

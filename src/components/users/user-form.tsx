@@ -11,6 +11,7 @@ import {
   Phone,
   UserPlus,
   Copy,
+  Building2,
 } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -36,13 +37,15 @@ import type { Profile, UserRole } from "@/types";
 import { ROLE_LABELS } from "@/types";
 import { useToast } from "@/hooks/use-toast";
 import { useCreateUser, useUpdateUser } from "@/hooks/useUsers";
-import { applyMask, formatPhone } from "@/lib/utils";
+import { useClients } from "@/hooks/useClients";
+import { applyMask, formatDocument, formatPhone } from "@/lib/utils";
 
 const userSchema = z.object({
   full_name: z.string().min(3, { message: "Nome deve ter pelo menos 3 caracteres" }),
   role: z.enum(["admin", "comercial", "tecnico", "financeiro", "cliente", "terceiro"]),
   phone: z.string().optional(),
   is_active: z.boolean().default(true),
+  client_id: z.string().optional().nullable(),
 });
 
 type FormValues = z.infer<typeof userSchema>;
@@ -57,6 +60,7 @@ export function UserForm({ initialData, mode }: UserFormProps) {
   const { toast } = useToast();
   const createUserMutation = useCreateUser();
   const updateUserMutation = useUpdateUser();
+  const { data: clients = [], isLoading: isLoadingClients } = useClients();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [email, setEmail] = useState("");
@@ -67,6 +71,7 @@ export function UserForm({ initialData, mode }: UserFormProps) {
     role: initialData?.role || "comercial",
     phone: formatPhone(initialData?.phone || ""),
     is_active: initialData?.is_active ?? true,
+    client_id: initialData?.client_id || "",
   });
 
   function setField<K extends keyof FormValues>(key: K, value: FormValues[K]) {
@@ -89,7 +94,8 @@ export function UserForm({ initialData, mode }: UserFormProps) {
     const credentials = mode === "create"
       ? z.object({ email: z.string().email("Informe um e-mail válido") }).safeParse({ email })
       : null;
-    if (!parsed.success || credentials?.success === false) {
+
+    if (!parsed.success || credentials?.success === false || (values.role === "cliente" && !values.client_id)) {
       const errs: Record<string, string> = {};
       parsed.error?.issues.forEach((i) => {
         const k = i.path[0] as string;
@@ -99,12 +105,17 @@ export function UserForm({ initialData, mode }: UserFormProps) {
         const key = issue.path[0] as string;
         errs[key] = issue.message;
       });
+      if (values.role === "cliente" && !values.client_id) {
+        errs.client_id = "Selecione uma empresa/cliente vinculada para o perfil Cliente";
+      }
       setErrors(errs);
       setIsSubmitting(false);
       toast({
         variant: "destructive",
         title: "Verifique o formulário",
-        description: "Alguns campos precisam ser corrigidos.",
+        description: values.role === "cliente" && !values.client_id
+          ? "Usuários com perfil Cliente precisam ter uma empresa/cliente vinculada."
+          : "Alguns campos precisam ser corrigidos.",
       });
       return;
     }
@@ -115,6 +126,7 @@ export function UserForm({ initialData, mode }: UserFormProps) {
         role: values.role,
         phone: values.phone ? values.phone.replace(/\D/g, "") : null,
         is_active: values.is_active,
+        client_id: values.client_id ? values.client_id : null,
       };
 
       if (mode === "create") {
@@ -317,6 +329,69 @@ export function UserForm({ initialData, mode }: UserFormProps) {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* VINCULAÇÃO DE EMPRESA / CLIENTE */}
+        <Card className={values.role === "cliente" ? "border-purple-300 bg-purple-50/20" : ""}>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Building2 className={`h-5 w-5 ${values.role === "cliente" ? "text-purple-600" : "text-slate-600"}`} />
+              <CardTitle className="text-base">Empresa / Cliente Vinculado</CardTitle>
+            </div>
+            <CardDescription>
+              {values.role === "cliente"
+                ? "Obrigatório para perfil Cliente: este usuário terá acesso exclusivo ao Portal do Cliente restrito aos extintores, PPCI e orçamentos desta empresa."
+                : "Vincule uma empresa ou cliente a este usuário (opcional para usuários internos da equipe)."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1">
+                Cliente / Empresa {values.role === "cliente" && <span className="text-red-500 font-bold">*</span>}
+              </Label>
+              <Select
+                value={values.client_id || "none"}
+                onValueChange={(v) => setField("client_id", v === "none" ? "" : v)}
+              >
+                <SelectTrigger className={`w-full ${errors.client_id ? "border-red-500 ring-1 ring-red-500" : ""}`}>
+                  <SelectValue placeholder={isLoadingClients ? "Carregando empresas cadastradas..." : "Selecione a empresa/cliente..."} />
+                </SelectTrigger>
+                <SelectContent className="max-h-72">
+                  <SelectItem value="none">
+                    <span className="text-muted-foreground font-normal">
+                      Nenhum (Usuário Interno da JC Extintores / Sem vínculo com cliente)
+                    </span>
+                  </SelectItem>
+                  {clients.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      <div className="flex flex-col text-left py-0.5">
+                        <span className="font-semibold text-sm">{c.name}</span>
+                        <span className="text-[11px] text-muted-foreground font-mono">
+                          {c.document ? formatDocument(c.document) : "Sem documento"} {c.email ? `• ${c.email}` : ""}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {errors.client_id && (
+                <p className="text-xs text-red-600 font-medium">{errors.client_id}</p>
+              )}
+              {values.role === "cliente" && !values.client_id && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 p-2.5 rounded-lg mt-1">
+                  Atenção: Usuários com perfil <strong>Cliente</strong> precisam ter uma empresa vinculada para acessar o Portal do Cliente com segurança.
+                </p>
+              )}
+              {values.client_id && (
+                <div className="text-xs text-purple-700 bg-purple-50/80 border border-purple-200 p-2.5 rounded-lg flex items-center gap-2">
+                  <Building2 className="h-4 w-4 shrink-0 text-purple-600" />
+                  <span>
+                    Empresa selecionada: <strong>{clients.find((c) => c.id === values.client_id)?.name || "Cliente vinculado"}</strong>
+                  </span>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -57,6 +57,14 @@ export async function POST(request: Request) {
     const telefone = typeof body.telefone === "string" ? body.telefone.replace(/\D/g, "") : null;
 
     const clientId = typeof body.client_id === "string" && body.client_id.trim() ? body.client_id.trim() : null;
+    let companyId = typeof body.company_id === "string" && body.company_id.trim() ? body.company_id.trim() : (currentProfile.company_id || null);
+
+    if (clientId) {
+      const { data: cRow } = await adminClient.from("clients").select("company_id").eq("id", clientId).maybeSingle();
+      if (cRow?.company_id && !companyId) {
+        companyId = cRow.company_id;
+      }
+    }
 
     if (!email.includes("@") || nome.length < 2) {
       return NextResponse.json({ error: "Informe um e-mail válido e o nome do usuário." }, { status: 400 });
@@ -79,6 +87,7 @@ export async function POST(request: Request) {
         role,
         telefone,
         client_id: clientId,
+        company_id: companyId,
       },
     });
 
@@ -87,18 +96,21 @@ export async function POST(request: Request) {
     }
 
     // 4. Vincular a empresa (company_id) e client_id no user_profiles
-    const profileUpdate: Record<string, any> = {
-      company_id: currentProfile.company_id,
+    const profileData: Record<string, any> = {
+      id: createdUser.user.id,
+      nome,
+      email,
+      role,
+      company_id: companyId,
+      client_id: clientId,
       telefone,
+      ativo: true,
+      updated_at: new Date().toISOString(),
     };
-    if (clientId) {
-      profileUpdate.client_id = clientId;
-    }
 
     const { error: companyLinkError } = await adminClient
       .from("user_profiles")
-      .update(profileUpdate)
-      .eq("id", createdUser.user.id);
+      .upsert(profileData);
 
     if (companyLinkError) {
       console.error("Aviso ao vincular empresa/cliente no perfil:", companyLinkError);
@@ -118,6 +130,8 @@ export async function POST(request: Request) {
         nome: profile?.nome || nome,
         role: profile?.role || role,
         telefone: profile?.telefone || telefone,
+        client_id: profile?.client_id || clientId,
+        company_id: profile?.company_id || companyId,
         ativo: true,
       },
       temporaryPassword,

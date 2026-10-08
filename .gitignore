@@ -39,4 +39,6 @@ drizzle
 .idea
 .cursor/
 *.tsbuildinfo
-*.tsbuildinfo
+
+# Scratch scripts
+scratch/

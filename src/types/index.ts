@@ -113,6 +113,9 @@ export interface Profile {
   phone?: string | null;
   document?: string | null;
   company_name?: string | null;
+  company_id?: string | null;
+  client_id?: string | null;
+  client_name?: string | null;
   address?: { cep?: string; street?: string; number?: string; complement?: string; neighborhood?: string; city?: string; state?: string } | null;
   avatar_url?: string | null;
   is_active: boolean;

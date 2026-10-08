@@ -6,6 +6,8 @@ export interface AdminCreateUserInput {
   full_name: string;
   role: UserRole;
   phone?: string | null;
+  client_id?: string | null;
+  company_id?: string | null;
 }
 
 export interface AdminCreateUserResult {
@@ -33,6 +35,15 @@ const databaseRoleByAppRole: Record<UserRole, string> = {
 };
 
 function mapUserProfile(row: Record<string, unknown>): Profile {
+  const clientObj = row.clients as Record<string, unknown> | null | undefined;
+  const clientName = clientObj
+    ? String(clientObj.razao_social || clientObj.nome_fantasia || "")
+    : undefined;
+  const companyObj = row.companies as Record<string, unknown> | null | undefined;
+  const companyName = companyObj
+    ? String(companyObj.nome || "")
+    : undefined;
+
   return {
     id: String(row.id),
     email: typeof row.email === "string" ? row.email : null,
@@ -40,19 +51,37 @@ function mapUserProfile(row: Record<string, unknown>): Profile {
     role: appRoleByDatabaseRole[String(row.role)] ?? "cliente",
     phone: typeof row.telefone === "string" ? row.telefone : null,
     is_active: row.ativo !== false,
+    client_id: typeof row.client_id === "string" ? row.client_id : null,
+    company_id: typeof row.company_id === "string" ? row.company_id : null,
+    client_name: clientName || undefined,
+    company_name: companyName || undefined,
     created_at: typeof row.created_at === "string" ? row.created_at : undefined,
     updated_at: typeof row.updated_at === "string" ? row.updated_at : undefined,
   };
 }
 
 export async function listUsers(): Promise<Profile[]> {
-  const { data, error } = await createClient()
+  try {
+    const { data, error } = await createClient()
+      .from("user_profiles")
+      .select("*, clients:clients!user_profiles_client_id_fkey(id, razao_social, nome_fantasia), companies(id, nome)")
+      .is("deleted_at", null)
+      .order("nome", { ascending: true });
+    if (!error && data) {
+      return data.map((row) => mapUserProfile(row));
+    }
+  } catch (err) {
+    console.warn("Aviso ao buscar usuários com join, usando fallback:", err);
+  }
+
+  // Fallback se o join falhar
+  const { data: fallbackData, error: fbErr } = await createClient()
     .from("user_profiles")
     .select("*")
     .is("deleted_at", null)
     .order("nome", { ascending: true });
-  if (error) throw error;
-  return (data || []).map((row) => mapUserProfile(row));
+  if (fbErr) throw fbErr;
+  return (fallbackData || []).map((row) => mapUserProfile(row));
 }
 
 export async function createUser(input: AdminCreateUserInput): Promise<AdminCreateUserResult> {
@@ -75,6 +104,8 @@ export async function createUser(input: AdminCreateUserInput): Promise<AdminCrea
         nome: input.full_name,
         role: dbRole,
         telefone: input.phone ?? null,
+        client_id: input.client_id ?? null,
+        company_id: input.company_id ?? null,
       }),
     });
 
@@ -103,6 +134,8 @@ export async function createUser(input: AdminCreateUserInput): Promise<AdminCrea
       nome: input.full_name,
       role: dbRole,
       telefone: input.phone ?? null,
+      client_id: input.client_id ?? null,
+      company_id: input.company_id ?? null,
     },
   });
   if (error) throw error;
@@ -113,11 +146,44 @@ export async function createUser(input: AdminCreateUserInput): Promise<AdminCrea
 }
 
 export async function updateUser(id: string, patch: Partial<Profile>): Promise<void> {
+  // 1. Tenta atualizar pela API segura de administração
+  try {
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (session?.access_token) {
+      headers["Authorization"] = `Bearer ${session.access_token}`;
+    }
+
+    const res = await fetch("/api/admin/update-user", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        id,
+        nome: patch.full_name,
+        role: patch.role ? (databaseRoleByAppRole[patch.role] || patch.role) : undefined,
+        telefone: patch.phone,
+        ativo: patch.is_active,
+        client_id: patch.client_id !== undefined ? (patch.client_id || null) : undefined,
+        company_id: patch.company_id !== undefined ? (patch.company_id || null) : undefined,
+      }),
+    });
+
+    if (res.ok) {
+      return;
+    }
+  } catch (err) {
+    // Continua para fallback direto no Supabase
+  }
+
+  // 2. Fallback direto no Supabase
   const databasePatch: Record<string, unknown> = {};
   if (patch.full_name !== undefined) databasePatch.nome = patch.full_name;
   if (patch.role !== undefined) databasePatch.role = databaseRoleByAppRole[patch.role];
   if (patch.phone !== undefined) databasePatch.telefone = patch.phone;
   if (patch.is_active !== undefined) databasePatch.ativo = patch.is_active;
+  if (patch.client_id !== undefined) databasePatch.client_id = patch.client_id || null;
+  if (patch.company_id !== undefined) databasePatch.company_id = patch.company_id || null;
   if (Object.keys(databasePatch).length === 0) return;
   const { error } = await createClient().from("user_profiles").update(databasePatch).eq("id", id);
   if (error) throw error;
@@ -139,14 +205,28 @@ export async function deleteUser(id: string): Promise<void> {
 }
 
 export async function getUserProfile(id: string): Promise<Profile | null> {
-  const { data, error } = await createClient()
+  try {
+    const { data, error } = await createClient()
+      .from("user_profiles")
+      .select("*, clients:clients!user_profiles_client_id_fkey(id, razao_social, nome_fantasia), companies(id, nome)")
+      .eq("id", id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!error && data) {
+      return mapUserProfile(data);
+    }
+  } catch (err) {
+    console.warn("Aviso ao buscar perfil com join, usando fallback:", err);
+  }
+
+  const { data: fallback, error: fbErr } = await createClient()
     .from("user_profiles")
     .select("*")
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
-  if (error) throw error;
-  return data ? mapUserProfile(data) : null;
+  if (fbErr) throw fbErr;
+  return fallback ? mapUserProfile(fallback) : null;
 }
 
 export async function saveOwnProfile(profile: Profile): Promise<void> {

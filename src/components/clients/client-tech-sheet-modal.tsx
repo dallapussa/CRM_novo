@@ -39,6 +39,8 @@ import {
   ExternalLink,
   DollarSign,
   Save,
+  Download,
+  FileText,
 } from "lucide-react";
 import type { Customer, ExtintorInventario } from "@/types";
 import {
@@ -48,6 +50,11 @@ import {
   renewExtintoresBatch,
   deleteExtintor,
 } from "@/services/prevention.service";
+import {
+  downloadMemorialPdf,
+  openMemorialPdfInNewTab,
+  type MemorialPdfData,
+} from "@/services/memorial-pdf.service";
 import {
   listExtinguisherModels,
   type ExtinguisherModel,
@@ -174,6 +181,70 @@ export function ClientTechSheetModal({
   const [isAddExtintorOpen, setIsAddExtintorOpen] = useState(false);
   const [labelTarget, setLabelTarget] = useState<LabelTarget | null>(null);
   const [isMemorialOpen, setIsMemorialOpen] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+  // Geração e Download do PDF do Memorial Descritivo (com Cabeçalho e Rodapé dos Orçamentos)
+  const handleGenerateMemorialPdf = async (mode: "download" | "open" = "download") => {
+    if (!customer) return;
+    try {
+      setIsGeneratingPdf(true);
+      toast({
+        title: "Gerando PDF do Memorial...",
+        description: "Preparando documento oficial com cabeçalho e rodapé padronizados.",
+      });
+
+      const fullAddress = customer.address
+        ? [
+            customer.address.street,
+            customer.address.number,
+            customer.address.neighborhood,
+            customer.address.city,
+            customer.address.state,
+          ]
+            .filter(Boolean)
+            .join(", ")
+        : "";
+
+      const pdfData: MemorialPdfData = {
+        cliente_id: customer.id,
+        cliente_nome: customer.name,
+        cliente_documento: customer.document,
+        cliente_telefone: customer.phone1 || customer.phone2 || customer.whatsapp || "",
+        cliente_email: customer.email || "",
+        cliente_endereco: fullAddress,
+        ppci_enquadramento: ppciEnquadramento,
+        ppci_number: ppciNumber,
+        ppci_metragem: ppciMetragem,
+        ppci_expires_at: ppciExpiresAt,
+        responsavel_nome: ppciContato || customer.name,
+        extintores,
+      };
+
+      if (mode === "open") {
+        await openMemorialPdfInNewTab(pdfData);
+        toast({
+          variant: "success",
+          title: "PDF aberto em nova aba!",
+          description: "Você pode visualizar ou imprimir o memorial diretamente.",
+        });
+      } else {
+        const fileName = await downloadMemorialPdf(pdfData);
+        toast({
+          variant: "success",
+          title: "PDF gerado com sucesso!",
+          description: `Memorial salvo como "${fileName}".`,
+        });
+      }
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao gerar PDF",
+        description: err.message || "Não foi possível gerar o arquivo PDF.",
+      });
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
 
   // Estados de Criação / Edição de Extintor
   const [catalogModels, setCatalogModels] = useState<ExtinguisherModel[]>([]);
@@ -645,10 +716,11 @@ export function ClientTechSheetModal({
                       size="sm"
                       variant="outline"
                       onClick={() => setIsMemorialOpen(true)}
-                      className="gap-1.5 text-xs font-semibold"
+                      className="gap-1.5 text-xs font-semibold border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300 shadow-2xs"
+                      title="Gerar Memorial Descritivo em PDF oficial com cabeçalho e rodapé dos orçamentos"
                     >
                       <FileSpreadsheet className="h-3.5 w-3.5 text-blue-600" />
-                      Gerar Memorial
+                      Gerar Memorial (PDF)
                     </Button>
 
                     <Button
@@ -1636,59 +1708,131 @@ export function ClientTechSheetModal({
         </DialogContent>
       </Dialog>
 
-      {/* DIÁLOGO / VISUALIZADOR DE MEMORIAL DESCRITIVO */}
+      {/* DIÁLOGO / VISUALIZADOR E EMISSÃO DO MEMORIAL DESCRITIVO (ANEXO D) */}
       <Dialog open={isMemorialOpen} onOpenChange={setIsMemorialOpen}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileSpreadsheet className="h-5 w-5 text-blue-600" />
-              Memorial Descritivo de Extintores
-            </DialogTitle>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <DialogTitle className="flex items-center gap-2 text-lg font-bold">
+                <FileSpreadsheet className="h-5 w-5 text-blue-600" />
+                Memorial Descritivo de Extintores (Anexo D)
+              </DialogTitle>
+              <Badge variant="outline" className="text-xs font-bold border-blue-300 text-blue-700 bg-blue-50 dark:border-blue-800 dark:text-blue-300 dark:bg-blue-950/40">
+                NBR 12962 • CBMRS
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Documento regulamentar gerado com o mesmo cabeçalho oficial da empresa, dados cadastrais da edificação, tabela de aparelhos e rodapé padronizado dos orçamentos.
+            </p>
           </DialogHeader>
 
           <div className="space-y-4 pt-2 text-xs">
-            <div className="p-3 bg-neutral-100 dark:bg-neutral-800 rounded-xl">
-              <p className="font-bold text-sm">{customer.name}</p>
-              <p className="text-muted-foreground">Documento: {formatDocument(customer.document)}</p>
-              <p className="text-muted-foreground">
-                Total de Equipamentos: {extintores.length} unidades | Valor Total de Manutenção: {formatCurrency(totalLote)}
-              </p>
+            {/* Bloco de Dados do Estabelecimento */}
+            <div className="p-3.5 bg-neutral-100/80 dark:bg-neutral-800/80 rounded-xl space-y-1.5 border">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h4 className="font-bold text-sm text-foreground">{customer.name}</h4>
+                <Badge variant="secondary" className="font-semibold text-[11px]">
+                  {ppciEnquadramento || "Enquadramento Geral"}
+                </Badge>
+              </div>
+
+              <div className="text-xs text-muted-foreground space-y-0.5">
+                <p>
+                  <strong>Documento:</strong> {formatDocument(customer.document)} •{" "}
+                  <strong>Contato:</strong> {[customer.phone1 || customer.phone2 || customer.whatsapp, customer.email].filter(Boolean).join(" | ") || "Não informado"}
+                </p>
+                <p className="truncate">
+                  <strong>Endereço:</strong>{" "}
+                  {customer.address
+                    ? `${customer.address.street || ""}, ${customer.address.number || "S/N"} - ${customer.address.neighborhood || ""}, ${customer.address.city || ""}/${customer.address.state || ""}`
+                    : "Endereço não cadastrado"}
+                </p>
+                <p className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold pt-0.5">
+                  📦 <strong>Total de Equipamentos:</strong> {extintores.length} aparelhos |{" "}
+                  <strong>Valor Total de Manutenção:</strong> {formatCurrency(totalLote)}
+                </p>
+              </div>
             </div>
 
-            <table className="w-full border-collapse border border-neutral-200 dark:border-neutral-800">
-              <thead>
-                <tr className="bg-neutral-50 dark:bg-neutral-800 text-left">
-                  <th className="p-2 border">#</th>
-                  <th className="p-2 border">Identificação</th>
-                  <th className="p-2 border">Tipo/Carga</th>
-                  <th className="p-2 border">Localização</th>
-                  <th className="p-2 border">Vencimento</th>
-                </tr>
-              </thead>
-              <tbody>
-                {extintores.map((e, idx) => (
-                  <tr key={e.id} className="hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
-                    <td className="p-2 border">{idx + 1}</td>
-                    <td className="p-2 border font-bold">{e.identificacao}</td>
-                    <td className="p-2 border">{e.tipo_capacidade}</td>
-                    <td className="p-2 border">{e.localizacao || "—"}</td>
-                    <td className="p-2 border font-mono">
-                      {formatMonthYear(e.data_vencimento)}
-                    </td>
+            {/* Tabela de Prévia dos Extintores */}
+            <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl overflow-hidden max-h-64 overflow-y-auto">
+              <table className="w-full border-collapse text-left">
+                <thead className="sticky top-0 bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 text-[11px]">
+                  <tr>
+                    <th className="p-2 border-b">#</th>
+                    <th className="p-2 border-b">Identificação</th>
+                    <th className="p-2 border-b">Tipo / Carga</th>
+                    <th className="p-2 border-b">Localização</th>
+                    <th className="p-2 border-b">Últ. Recarga</th>
+                    <th className="p-2 border-b">Vencimento</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800 text-xs">
+                  {extintores.map((e, idx) => (
+                    <tr key={e.id} className="hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
+                      <td className="p-2 font-mono text-muted-foreground">{idx + 1}</td>
+                      <td className="p-2 font-bold text-foreground">{e.identificacao}</td>
+                      <td className="p-2">{e.tipo_capacidade}</td>
+                      <td className="p-2 text-muted-foreground">{e.localizacao || "—"}</td>
+                      <td className="p-2 font-mono">{formatMonthYear(e.data_ultima_recarga)}</td>
+                      <td className="p-2 font-mono font-bold text-foreground">
+                        {formatMonthYear(e.data_vencimento)}
+                      </td>
+                    </tr>
+                  ))}
+                  {extintores.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="p-6 text-center text-muted-foreground italic">
+                        Nenhum extintor cadastrado na ficha técnica deste cliente.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
 
-            <div className="flex justify-end gap-2 pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => window.print()}
-                className="gap-1.5"
-              >
-                <Printer className="h-4 w-4" /> Imprimir Memorial
-              </Button>
+            {/* Ações em Destaque: Geração do PDF Oficial */}
+            <div className="p-3.5 bg-red-50/70 dark:bg-red-950/20 border-2 border-red-200 dark:border-red-900 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+              <div className="space-y-0.5">
+                <p className="font-bold text-xs text-red-950 dark:text-red-200 flex items-center gap-1.5">
+                  <FileText className="h-4 w-4 text-red-600" />
+                  PDF com Cabeçalho e Rodapé dos Orçamentos
+                </p>
+                <p className="text-[11px] text-red-800/80 dark:text-red-300/80 leading-relaxed">
+                  Gera o documento no formato oficial A4, pronto para anexar ao PPCI, enviar por WhatsApp/E-mail ou imprimir com termo de responsabilidade.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleGenerateMemorialPdf("open")}
+                  disabled={isGeneratingPdf || extintores.length === 0}
+                  className="gap-1.5 text-xs font-semibold h-9"
+                  title="Abrir PDF em nova aba para visualização direta no navegador"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Visualizar PDF
+                </Button>
+
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => handleGenerateMemorialPdf("download")}
+                  disabled={isGeneratingPdf || extintores.length === 0}
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold gap-1.5 text-xs h-9 shadow-xs"
+                  title="Baixar arquivo PDF oficial do Memorial Descritivo"
+                >
+                  {isGeneratingPdf ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  Baixar PDF Oficial
+                </Button>
+              </div>
             </div>
           </div>
         </DialogContent>

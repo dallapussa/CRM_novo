@@ -54,16 +54,55 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "A senha de acesso deve ter pelo menos 6 caracteres." }, { status: 400 });
     }
 
-    // 3. Localiza se já existe um usuário com esse e-mail no Auth
-    const { data: usersList } = await adminClient.auth.admin.listUsers();
-    const existingAuthUser = usersList?.users?.find(
-      (u) => u.email?.toLowerCase() === email.toLowerCase() || u.user_metadata?.client_id === clientId
-    );
+    // Identifica dados da empresa vinculada ao cliente
+    const { data: clientRow } = await adminClient
+      .from("clients")
+      .select("id, company_id, razao_social, nome_fantasia")
+      .eq("id", clientId)
+      .maybeSingle();
 
+    const effectiveCompanyId = clientRow?.company_id || currentProfile?.company_id || null;
+
+    // 3. Localiza se já existe um usuário vinculado a este cliente ou com este e-mail
     let targetUserId = "";
+    let existingAuthUser = null;
+
+    // 3.1 Busca em user_profiles por client_id ou email
+    const { data: existingProfileByClient } = await adminClient
+      .from("user_profiles")
+      .select("id, email")
+      .eq("client_id", clientId)
+      .maybeSingle();
+
+    const { data: existingProfileByEmail } = await adminClient
+      .from("user_profiles")
+      .select("id, email")
+      .eq("email", email)
+      .maybeSingle();
+
+    const knownUserId = existingProfileByClient?.id || existingProfileByEmail?.id;
+
+    if (knownUserId) {
+      const { data: authResult } = await adminClient.auth.admin.getUserById(knownUserId);
+      if (authResult?.user) {
+        existingAuthUser = authResult.user;
+        targetUserId = authResult.user.id;
+      }
+    }
+
+    // 3.2 Se ainda não achou, faz busca na lista de usuários Auth
+    if (!existingAuthUser) {
+      const { data: usersList } = await adminClient.auth.admin.listUsers();
+      const matched = usersList?.users?.find(
+        (u) => u.email?.toLowerCase() === email.toLowerCase() || u.user_metadata?.client_id === clientId
+      );
+      if (matched) {
+        existingAuthUser = matched;
+        targetUserId = matched.id;
+      }
+    }
 
     if (existingAuthUser) {
-      targetUserId = existingAuthUser.id;
       // Atualiza senha e metadados
       const { error: updateAuthError } = await adminClient.auth.admin.updateUserById(targetUserId, {
         email,
@@ -71,13 +110,14 @@ export async function POST(request: Request) {
         user_metadata: {
           ...existingAuthUser.user_metadata,
           client_id: clientId,
+          company_id: effectiveCompanyId,
           nome,
           role: "Cliente",
         },
       });
 
       if (updateAuthError) {
-        return NextResponse.json({ error: `Erro ao atualizar senha no Auth: ${updateAuthError.message}` }, { status: 400 });
+        return NextResponse.json({ error: `Erro ao atualizar usuário no Auth: ${updateAuthError.message}` }, { status: 400 });
       }
     } else {
       // Cria novo usuário no Auth
@@ -87,6 +127,7 @@ export async function POST(request: Request) {
         email_confirm: true,
         user_metadata: {
           client_id: clientId,
+          company_id: effectiveCompanyId,
           nome,
           role: "Cliente",
         },
@@ -98,38 +139,17 @@ export async function POST(request: Request) {
       targetUserId = created.user.id;
     }
 
-    // 4. Garante sincronização em user_profiles com role Cliente
-    const { data: existingProfile } = await adminClient
-      .from("user_profiles")
-      .select("id")
-      .eq("id", targetUserId)
-      .maybeSingle();
-
-    if (existingProfile) {
-      await adminClient
-        .from("user_profiles")
-        .update({
-          nome,
-          email,
-          role: "Cliente",
-          client_id: clientId,
-          company_id: currentProfile.company_id,
-          ativo: true,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", targetUserId);
-    } else {
-      await adminClient.from("user_profiles").insert({
-        id: targetUserId,
-        nome,
-        email,
-        role: "Cliente",
-        client_id: clientId,
-        company_id: currentProfile.company_id,
-        ativo: true,
-        created_at: new Date().toISOString(),
-      });
-    }
+    // 4. Garante sincronização em user_profiles com role Cliente, client_id e company_id
+    await adminClient.from("user_profiles").upsert({
+      id: targetUserId,
+      nome,
+      email,
+      role: "Cliente",
+      client_id: clientId,
+      company_id: effectiveCompanyId,
+      ativo: true,
+      updated_at: new Date().toISOString(),
+    });
 
     // 5. Atualiza o e-mail no registro do cliente
     await adminClient
