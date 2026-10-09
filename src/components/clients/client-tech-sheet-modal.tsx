@@ -41,6 +41,7 @@ import {
   Save,
   Download,
   FileText,
+  KeyRound,
 } from "lucide-react";
 import type { Customer, ExtintorInventario } from "@/types";
 import {
@@ -72,6 +73,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { OrderPickupModal } from "./order-pickup-modal";
+import { ClientPortalAccessModal } from "./client-portal-access-modal";
 import { ClientDragDropUploader } from "./client-drag-drop-uploader";
 import { LabelPrinterDialog, LabelTarget } from "@/components/labels/label-printer-dialog";
 import { saveClientPpci } from "@/services/clients.service";
@@ -103,6 +105,7 @@ export function ClientTechSheetModal({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
+  const [isPortalModalOpen, setIsPortalModalOpen] = useState(false);
 
   useEffect(() => {
     if (open && initialTab) {
@@ -583,12 +586,25 @@ export function ClientTechSheetModal({
         <DialogContent className="max-w-5xl max-h-[92vh] overflow-hidden p-0 gap-0 rounded-2xl flex flex-col">
           {/* CABEÇALHO ESCURO (NAVY / SLATE) */}
           <div className="bg-slate-900 text-white p-6 shrink-0 relative">
-            <button
-              onClick={() => onOpenChange(false)}
-              className="absolute right-4 top-4 text-slate-400 hover:text-white p-1 rounded-lg transition-colors"
-            >
-              <X className="h-5 w-5" />
-            </button>
+            <div className="absolute right-4 top-4 flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setIsPortalModalOpen(true)}
+                className="h-8 bg-purple-600 hover:bg-purple-700 text-white text-xs gap-1.5 font-semibold shadow-sm"
+                title="Definir Acesso ao Portal do Cliente"
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Definir Acesso ao Portal</span>
+              </Button>
+              <button
+                onClick={() => onOpenChange(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors"
+                title="Fechar"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
 
             <div className="flex items-center gap-3">
               <div className="p-2.5 bg-slate-800 rounded-xl border border-slate-700">
@@ -1448,6 +1464,28 @@ export function ClientTechSheetModal({
                     </p>
                   </div>
                 </div>
+
+                {/* CARD DE ACESSO AO PORTAL DO CLIENTE */}
+                <div className="p-4 bg-purple-50/70 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-2">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-1.5 text-purple-900 dark:text-purple-200 font-bold text-sm">
+                      <KeyRound className="h-4 w-4 text-purple-600" />
+                      <span>Portal do Cliente (Acesso Exclusivo)</span>
+                    </div>
+                    <p className="text-xs text-purple-700 dark:text-purple-300">
+                      O usuário criado será vinculado automaticamente a <strong>{customer.name}</strong> para visualizar suas recargas, laudos de PPCI e aprovar orçamentos.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => setIsPortalModalOpen(true)}
+                    className="bg-purple-600 hover:bg-purple-700 text-white shrink-0 gap-1.5 text-xs font-semibold"
+                  >
+                    <KeyRound className="h-3.5 w-3.5" />
+                    Definir Acesso ao Portal
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -1470,6 +1508,28 @@ export function ClientTechSheetModal({
                     <p className="font-bold text-base">{customer.name}</p>
                     <p className="text-xs text-muted-foreground">{customer.phone1 ? formatPhone(customer.phone1) : "Sem telefone"}</p>
                   </div>
+                </div>
+
+                {/* CARD DE ACESSO AO PORTAL DO CLIENTE */}
+                <div className="p-4 bg-purple-50/70 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-2">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-1.5 text-purple-900 dark:text-purple-200 font-bold text-sm">
+                      <KeyRound className="h-4 w-4 text-purple-600" />
+                      <span>Definir Acesso ao Portal do Cliente</span>
+                    </div>
+                    <p className="text-xs text-purple-700 dark:text-purple-300">
+                      Gere credenciais de login para o responsável por <strong>{customer.name}</strong> acessar o portal.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => setIsPortalModalOpen(true)}
+                    className="bg-purple-600 hover:bg-purple-700 text-white shrink-0 gap-1.5 text-xs font-semibold"
+                  >
+                    <KeyRound className="h-3.5 w-3.5" />
+                    Gerenciar Acesso
+                  </Button>
                 </div>
               </div>
             )}
@@ -1496,6 +1556,18 @@ export function ClientTechSheetModal({
           onSuccess={() => {
             loadExtintores();
             setSelectedIds(new Set());
+            onCustomerUpdated?.();
+          }}
+        />
+      )}
+
+      {/* MODAL DE ACESSO AO PORTAL DO CLIENTE */}
+      {isPortalModalOpen && customer && (
+        <ClientPortalAccessModal
+          open={isPortalModalOpen}
+          onOpenChange={setIsPortalModalOpen}
+          customer={customer}
+          onSuccess={() => {
             onCustomerUpdated?.();
           }}
         />

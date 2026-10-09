@@ -380,3 +380,61 @@ begin
   );
 end;
 $$;
+
+-- ----------------------------------------------------------------------------
+-- 7. VINCULAÇÃO AUTOMÁTICA DE client_id E company_id NA TRIGGER handle_new_user
+-- ----------------------------------------------------------------------------
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  v_telefone text;
+  v_nome text;
+  v_role public.user_role;
+  v_client_id uuid;
+  v_company_id uuid;
+begin
+  v_nome     := coalesce(new.raw_user_meta_data->>'nome', split_part(new.email, '@', 1));
+  v_telefone := case when length(coalesce(new.raw_user_meta_data->>'telefone', '')) > 0
+                     then regexp_replace(new.raw_user_meta_data->>'telefone', '[^0-9]', '', 'g')
+                     else null end;
+  v_role     := coalesce((new.raw_user_meta_data->>'role')::public.user_role, 'Cliente');
+
+  v_client_id := case when length(coalesce(new.raw_user_meta_data->>'client_id', '')) > 0
+                      then (new.raw_user_meta_data->>'client_id')::uuid
+                      else null end;
+
+  v_company_id := case when length(coalesce(new.raw_user_meta_data->>'company_id', '')) > 0
+                       then (new.raw_user_meta_data->>'company_id')::uuid
+                       else null end;
+
+  insert into public.user_profiles (id, nome, email, role, telefone, ativo, client_id, company_id, created_by)
+  values (
+    new.id,
+    v_nome,
+    lower(new.email),
+    v_role,
+    v_telefone,
+    true,
+    v_client_id,
+    v_company_id,
+    case when current_setting('request.jwt.claim.sub', true) is not null
+         then current_setting('request.jwt.claim.sub', true)::uuid
+         else null
+    end
+  )
+  on conflict (id) do update set
+    nome = coalesce(excluded.nome, public.user_profiles.nome),
+    email = coalesce(excluded.email, public.user_profiles.email),
+    role = coalesce(excluded.role, public.user_profiles.role),
+    client_id = coalesce(excluded.client_id, public.user_profiles.client_id),
+    company_id = coalesce(excluded.company_id, public.user_profiles.company_id),
+    telefone = coalesce(excluded.telefone, public.user_profiles.telefone);
+
+  return new;
+end;
+$$;
+

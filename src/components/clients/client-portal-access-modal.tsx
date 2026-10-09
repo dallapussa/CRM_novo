@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   KeyRound,
   ShieldCheck,
@@ -12,6 +12,7 @@ import {
   Loader2,
   Sparkles,
   ExternalLink,
+  Building2,
 } from "lucide-react";
 import {
   Dialog,
@@ -25,6 +26,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { createClient } from "@/lib/supabase";
+import { formatDocument } from "@/lib/utils";
 import type { Customer } from "@/types";
 
 interface ClientPortalAccessModalProps {
@@ -56,6 +59,38 @@ export function ClientPortalAccessModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [existingUser, setExistingUser] = useState<{ email: string; nome: string } | null>(null);
+
+  useEffect(() => {
+    if (open && customer) {
+      setEmail(customer.email || "");
+      setPassword("");
+      setSavedSuccess(false);
+
+      // Busca se já existe um usuário vinculado a este cliente
+      async function checkExistingUser() {
+        try {
+          const { data } = await createClient()
+            .from("user_profiles")
+            .select("email, nome")
+            .eq("client_id", customer.id)
+            .is("deleted_at", null)
+            .maybeSingle();
+
+          if (data?.email) {
+            setExistingUser({ email: data.email, nome: data.nome || customer.name });
+            setEmail(data.email);
+          } else {
+            setExistingUser(null);
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      checkExistingUser();
+    }
+  }, [open, customer]);
 
   function handleGeneratePassword() {
     setPassword(generateRandomPassword());
@@ -146,6 +181,24 @@ export function ClientPortalAccessModal({
 
         {!savedSuccess ? (
           <form onSubmit={handleSaveAccess} className="space-y-4 py-2">
+            {/* INFORMAÇÃO DE VINCULAÇÃO AUTOMÁTICA */}
+            <div className="p-3 bg-purple-50/80 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 rounded-lg text-xs space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-purple-900 dark:text-purple-200">
+                <Building2 className="h-4 w-4 text-purple-600" />
+                <span>Vinculação Automática de Empresa</span>
+              </div>
+              <p className="text-[11px] text-purple-700 dark:text-purple-300">
+                Este usuário será vinculado automaticamente a <strong>{customer.name}</strong>
+                {customer.document ? ` (${formatDocument(customer.document)})` : ""} com perfil Cliente.
+              </p>
+              {existingUser && (
+                <div className="pt-1 text-[11px] text-emerald-700 dark:text-emerald-400 font-medium flex items-center gap-1">
+                  <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                  <span>Conta existente vinculada: <strong>{existingUser.email}</strong>. Definir nova senha atualizará o acesso.</span>
+                </div>
+              )}
+            </div>
+
             <div className="space-y-1.5">
               <Label className="text-xs">E-mail de Login do Cliente *</Label>
               <Input

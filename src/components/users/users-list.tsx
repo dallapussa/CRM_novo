@@ -15,6 +15,7 @@ import {
   Mail,
   Phone,
   Trash2,
+  Building2,
 } from "lucide-react";
 import {
   Table,
@@ -73,7 +74,7 @@ export function UsersList({ initialUsers }: UsersListProps = {}) {
       }
       if (search.trim()) {
         const s = search.toLowerCase().trim();
-        const haystack = [u.full_name, u.email, u.phone, u.document, u.company_name]
+        const haystack = [u.full_name, u.email, u.phone, u.document, u.company_name, u.client_name]
           .filter(Boolean)
           .join(" ")
           .toLowerCase();
@@ -308,9 +309,14 @@ export function UsersList({ initialUsers }: UsersListProps = {}) {
                             </div>
                             <div>
                               <p className="font-semibold leading-tight">{u.full_name}</p>
-                              {u.company_name && (
+                              {u.client_name ? (
+                                <p className="text-xs text-purple-700 dark:text-purple-400 font-medium mt-0.5 flex items-center gap-1">
+                                  <Building2 className="h-3 w-3 shrink-0" />
+                                  <span className="truncate max-w-[200px]">{u.client_name}</span>
+                                </p>
+                              ) : u.company_name ? (
                                 <p className="text-xs text-muted-foreground mt-0.5">{u.company_name}</p>
-                              )}
+                              ) : null}
                             </div>
                           </div>
                         </TableCell>
