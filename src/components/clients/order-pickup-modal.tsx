@@ -51,7 +51,7 @@ import {
   findActiveAutoDescargaLote,
 } from "@/services/prevention.service";
 import { LoteCreateDialog } from "@/components/lotes/lote-create-dialog";
-import { formatCurrency, formatMonthYear } from "@/lib/utils";
+import { formatCurrency, formatMonthYear, getLocalDateISO, addDaysLocalISO } from "@/lib/utils";
 
 interface OrderPickupModalProps {
   open: boolean;
@@ -111,8 +111,8 @@ export function OrderPickupModal({
   const [detalhesReserva, setDetalhesReserva] = useState<string>("");
 
   // Dados operacionais
-  const today = new Date().toISOString().split("T")[0];
-  const nextWeek = new Date(Date.now() + 5 * 86400000).toISOString().split("T")[0];
+  const today = getLocalDateISO();
+  const nextWeek = addDaysLocalISO(5);
 
   const [tecnicoResponsavel, setTecnicoResponsavel] = useState<string>("Técnico de Campo");
   const [dataRecolhimento, setDataRecolhimento] = useState<string>(today);
@@ -218,6 +218,12 @@ export function OrderPickupModal({
         queryClient.invalidateQueries({ queryKey: ["extintores"] });
         queryClient.invalidateQueries({ queryKey: ["expiring-items"] });
         queryClient.invalidateQueries({ queryKey: ["lotes_recolhimento"] });
+        queryClient.invalidateQueries({ queryKey: ["bench_lotes"] });
+        queryClient.invalidateQueries({ queryKey: ["bench_records"] });
+        queryClient.invalidateQueries({ queryKey: ["ordens_recolhimento"] });
+        queryClient.invalidateQueries({ queryKey: ["ordens_recolhimento_todas"] });
+        queryClient.invalidateQueries({ queryKey: ["receipts"] });
+        queryClient.invalidateQueries({ queryKey: ["invoices"] });
         queryClient.invalidateQueries({ queryKey: ["client_tech_sheet"] });
         onOpenChange(false);
         onSuccess?.();
@@ -237,6 +243,7 @@ export function OrderPickupModal({
           const cidade = customer.address?.city || "Geral";
           const dataFmt = new Date(dataRecolhimento + "T12:00:00").toLocaleDateString("pt-BR");
           const novoLote = await saveLoteRecolhimento({
+            company_id: (customer as any)?.company_id || undefined,
             nome: `Lote ${cidade} - ${dataFmt}`,
             cidade,
             regiao: customer.address?.neighborhood || null,
@@ -252,6 +259,7 @@ export function OrderPickupModal({
         const cidade = customer.address?.city || "Geral";
         const dataFmt = new Date(dataRecolhimento + "T12:00:00").toLocaleDateString("pt-BR");
         const novoLote = await saveLoteRecolhimento({
+          company_id: (customer as any)?.company_id || undefined,
           nome: `Lote ${cidade} - ${dataFmt}`,
           cidade,
           regiao: customer.address?.neighborhood || null,
@@ -288,9 +296,15 @@ export function OrderPickupModal({
       });
 
       queryClient.invalidateQueries({ queryKey: ["bench_records"] });
+      queryClient.invalidateQueries({ queryKey: ["bench_lotes"] });
       queryClient.invalidateQueries({ queryKey: ["lotes_recolhimento"] });
+      queryClient.invalidateQueries({ queryKey: ["ordens_recolhimento"] });
+      queryClient.invalidateQueries({ queryKey: ["ordens_recolhimento_todas"] });
       queryClient.invalidateQueries({ queryKey: ["extintores"] });
       queryClient.invalidateQueries({ queryKey: ["expiring-items"] });
+      queryClient.invalidateQueries({ queryKey: ["receipts"] });
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["client_tech_sheet"] });
       onOpenChange(false);
       onSuccess?.();
     } catch (err: any) {

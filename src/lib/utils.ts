@@ -143,4 +143,17 @@ export function applyMask(value: string, mask: MaskType) {
   }
 }
 
+export function getLocalDateISO(d: Date = new Date()): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function addDaysLocalISO(days: number, baseDate: Date = new Date()): string {
+  const d = new Date(baseDate);
+  d.setDate(d.getDate() + days);
+  return getLocalDateISO(d);
+}
+
 export { fetchAddressByCep, type AddressLookupResult } from "./cep";

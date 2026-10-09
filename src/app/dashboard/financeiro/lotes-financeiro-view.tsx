@@ -56,6 +56,7 @@ import { ThermalReceipt58mmDialog } from "@/components/financeiro/thermal-receip
 import type { EditableReceiptData, ReceiptItem } from "@/services/receipt-pdf.service";
 import { createClient } from "@/lib/supabase/client";
 import { getCompanySettings } from "@/services/company-settings.service";
+import { getLocalDateISO } from "@/lib/utils";
 
 function formatMoeda(val: number): string {
   return Number(val || 0).toLocaleString("pt-BR", {
@@ -84,11 +85,7 @@ function getFormattedFullDate(isoDate: string): string {
 }
 
 function getTodayISO(): string {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return getLocalDateISO();
 }
 
 const MONTHS_LIST = [
@@ -192,7 +189,7 @@ export function LotesFinanceiroView() {
   const caixaDoDia = useMemo(() => {
     // 1. Localiza lotes daquela data
     const lotesDoDia = lotes.filter((l) => {
-      const dataRef = l.data_recolhimento || (l.created_at ? l.created_at.split("T")[0] : "");
+      const dataRef = l.data_recolhimento || (l.created_at ? getLocalDateISO(new Date(l.created_at)) : "");
       return dataRef === selectedDate;
     });
 
@@ -200,7 +197,7 @@ export function LotesFinanceiroView() {
     const loteIdsDoDia = new Set(lotesDoDia.map((l) => l.id));
     const ordensDoDia = allOrdens.filter((o) => {
       if (o.lote_id && loteIdsDoDia.has(o.lote_id)) return true;
-      const dataRef = o.data_recolhimento || (o.created_at ? o.created_at.split("T")[0] : "");
+      const dataRef = o.data_recolhimento || (o.created_at ? getLocalDateISO(new Date(o.created_at)) : "");
       return dataRef === selectedDate;
     });
 
@@ -255,11 +252,11 @@ export function LotesFinanceiroView() {
   const datasComMovimento = useMemo(() => {
     const set = new Set<string>();
     lotes.forEach((l) => {
-      const d = l.data_recolhimento || (l.created_at ? l.created_at.split("T")[0] : "");
+      const d = l.data_recolhimento || (l.created_at ? getLocalDateISO(new Date(l.created_at)) : "");
       if (d) set.add(d);
     });
     allOrdens.forEach((o) => {
-      const d = o.data_recolhimento || (o.created_at ? o.created_at.split("T")[0] : "");
+      const d = o.data_recolhimento || (o.created_at ? getLocalDateISO(new Date(o.created_at)) : "");
       if (d) set.add(d);
     });
     return Array.from(set).sort().reverse();

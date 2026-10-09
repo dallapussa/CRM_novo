@@ -190,16 +190,17 @@ create policy itens_recolhimento_tenant on public.itens_recolhimento
 -- ----------------------------------------------------------------------------
 -- 7. POLÍTICAS SEGURAS PARA lotes_recolhimento
 -- ----------------------------------------------------------------------------
+alter table public.lotes_recolhimento alter column company_id set default public.get_my_company_id();
 alter table public.lotes_recolhimento enable row level security;
 
 drop policy if exists lotes_tenant_policy on public.lotes_recolhimento;
 create policy lotes_tenant_policy on public.lotes_recolhimento
   for all to authenticated
   using (
-    company_id = public.get_my_company_id()
+    company_id = public.get_my_company_id() or company_id is null
   )
   with check (
-    company_id = public.get_my_company_id()
+    coalesce(company_id, public.get_my_company_id()) = public.get_my_company_id()
   );
 
 -- ----------------------------------------------------------------------------

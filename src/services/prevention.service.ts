@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/client";
 import { getTenantContext } from "@/services/tenant.service";
 import { uploadFileToR2, deleteFileFromR2 } from "@/services/storage.service";
 import { buildR2PublicUrl } from "@/lib/r2";
+import { getLocalDateISO } from "@/lib/utils";
 import type {
   DocumentoCliente,
   DocumentoClienteTipo,
@@ -483,20 +484,30 @@ export async function createOrdemRecolhimento(
         // 2. Se não houver lote automático na descarga (ex: avançou para oficina), gera novo lote
         const { data: clientObj } = await supabase
           .from("clients")
-          .select("razao_social, address_city, address_neighborhood")
+          .select("razao_social, address_city, address_neighborhood, company_id")
           .eq("id", input.clientId)
           .maybeSingle();
 
+        let compId = clientObj?.company_id || null;
+        if (!compId && user?.id) {
+          const { data: prof } = await supabase
+            .from("user_profiles")
+            .select("company_id")
+            .eq("id", user.id)
+            .maybeSingle();
+          compId = prof?.company_id || null;
+        }
+
         const cidade = clientObj?.address_city || "Geral";
-        const dataFmt = input.dataRecolhimento
-          ? new Date(input.dataRecolhimento + "T12:00:00").toLocaleDateString("pt-BR")
-          : new Date().toLocaleDateString("pt-BR");
+        const dataRecolhimento = input.dataRecolhimento || getLocalDateISO();
+        const dataFmt = new Date(dataRecolhimento + "T12:00:00").toLocaleDateString("pt-BR");
 
         const autoLote = await saveLoteRecolhimento({
+          company_id: compId || undefined,
           nome: `Lote ${cidade} - ${dataFmt}`,
           cidade,
           regiao: clientObj?.address_neighborhood || null,
-          data_recolhimento: input.dataRecolhimento || new Date().toISOString().split("T")[0],
+          data_recolhimento: dataRecolhimento,
           prazo_dias: 14,
           previsao_devolucao: input.previsaoDevolucao || undefined,
           status: "aguardando_descarga",
@@ -732,10 +743,31 @@ export async function processarTrocaExtintores(input: ProcessarTrocaInput): Prom
     data: { user },
   } = await supabase.auth.getUser();
 
-  const dataTroca = input.dataTroca || new Date().toISOString().split("T")[0];
+  const dataTroca = input.dataTroca || getLocalDateISO();
   const nextYearDate = new Date(dataTroca + "T12:00:00");
   nextYearDate.setFullYear(nextYearDate.getFullYear() + 1);
-  const nextYear = nextYearDate.toISOString().split("T")[0];
+  const nextYear = getLocalDateISO(nextYearDate);
+
+  // Obtém company_id do cliente / tenant
+  const { data: clientObj } = await supabase
+    .from("clients")
+    .select("company_id, razao_social, nome_fantasia")
+    .eq("id", input.clientId)
+    .maybeSingle();
+
+  let companyId = clientObj?.company_id || null;
+  if (!companyId && user?.id) {
+    const { data: profile } = await supabase
+      .from("user_profiles")
+      .select("company_id")
+      .eq("id", user.id)
+      .maybeSingle();
+    companyId = profile?.company_id || null;
+  }
+  if (!companyId) {
+    const { data: firstComp } = await supabase.from("companies").select("id").limit(1).maybeSingle();
+    companyId = firstComp?.id || null;
+  }
 
   // 1. RENOVAÇÃO AUTOMÁTICA DOS EXTINTORES NO INVENTÁRIO DO CLIENTE
   if (input.extintorIds.length > 0) {
@@ -776,6 +808,7 @@ export async function processarTrocaExtintores(input: ProcessarTrocaInput): Prom
 
   if (!loteDia) {
     const novoLote = await saveLoteRecolhimento({
+      company_id: companyId || undefined,
       nome: `Faturamento do Dia - ${dataFmt}`,
       codigo: `FAT-${dataTroca.replace(/-/g, "")}`,
       cidade: "Geral",
@@ -805,6 +838,8 @@ export async function processarTrocaExtintores(input: ProcessarTrocaInput): Prom
     previsao_devolucao: dataTroca,
     observacoes: obsComTags,
     status: isPago ? "concluido" : "recolhido",
+    forma_pagamento: input.formaPagamento || "PIX",
+    status_pagamento: isPago ? "PAGO" : "PENDENTE",
     created_by: user?.id || null,
   };
 
@@ -855,6 +890,41 @@ export async function processarTrocaExtintores(input: ProcessarTrocaInput): Prom
       await supabase.from("itens_recolhimento").insert(itemRows);
     } catch (itErr) {
       console.warn("Aviso ao inserir itens_recolhimento para troca:", itErr);
+    }
+  }
+
+  // 5. LANÇAMENTO NO FINANCEIRO (RECEIPTS / FATURAS)
+  const valorTotal = input.extintorIds.reduce(
+    (sum, extId) => sum + Number(input.valoresIndividuais?.[extId] || 45.0),
+    0
+  );
+
+  if (companyId && valorTotal > 0) {
+    try {
+      const clientName = clientObj?.razao_social || clientObj?.nome_fantasia || "Cliente";
+      const { error: recErr } = await supabase.from("receipts").insert({
+        company_id: companyId,
+        client_id: input.clientId,
+        lote_id: loteDia.id,
+        service_order_id: null,
+        invoice_type: "receber",
+        status: isPago ? "Recebido" : "Pendente",
+        amount: valorTotal,
+        amount_paid: isPago ? valorTotal : 0,
+        due_at: `${dataTroca}T00:00:00+00:00`,
+        issued_at: `${dataTroca}T00:00:00+00:00`,
+        received_at: isPago ? new Date().toISOString() : null,
+        payment_method: input.formaPagamento || "PIX",
+        description: `Troca Direta no local - ${input.extintorIds.length} extintor(es) - OS #${numeroOrdem} - ${clientName}`,
+        notes: obsComTags,
+        created_by: user?.id || null,
+      });
+
+      if (recErr) {
+        console.warn("Aviso ao registrar recebimento financeiro de troca:", recErr);
+      }
+    } catch (finErr) {
+      console.warn("Erro ao registrar receita da troca no financeiro:", finErr);
     }
   }
 
@@ -1173,6 +1243,21 @@ export async function saveLoteRecolhimento(
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Obtém o tenant company_id para conformidade estrita com o RLS
+  let companyId = input.company_id || null;
+  if (!companyId && user?.id) {
+    const { data: profile } = await supabase
+      .from("user_profiles")
+      .select("company_id")
+      .eq("id", user.id)
+      .maybeSingle();
+    companyId = profile?.company_id || null;
+  }
+  if (!companyId) {
+    const { data: firstComp } = await supabase.from("companies").select("id").limit(1).maybeSingle();
+    companyId = firstComp?.id || null;
+  }
+
   const isEditing = Boolean(input.id);
   const loteId = input.id || crypto.randomUUID();
 
@@ -1182,17 +1267,18 @@ export async function saveLoteRecolhimento(
   const codigo = input.codigo || `LOTE-${yearMonth}-${Math.floor(10 + Math.random() * 90)}`;
 
   const prazoDias = input.prazo_dias || 7;
-  const dataRecolhimento = input.data_recolhimento || new Date().toISOString().split("T")[0];
+  const dataRecolhimento = input.data_recolhimento || getLocalDateISO();
 
   const calcPrevisao = () => {
     if (input.previsao_devolucao) return input.previsao_devolucao;
     const base = new Date(dataRecolhimento + "T12:00:00");
     base.setDate(base.getDate() + prazoDias);
-    return base.toISOString().split("T")[0];
+    return getLocalDateISO(base);
   };
 
   const payload: LoteRecolhimento = {
     id: loteId,
+    company_id: companyId || undefined,
     codigo,
     nome:
       input.nome ||
@@ -1219,6 +1305,7 @@ export async function saveLoteRecolhimento(
     const { data, error } = await supabase
       .from("lotes_recolhimento")
       .update({
+        company_id: companyId,
         nome: payload.nome,
         cidade: payload.cidade,
         regiao: payload.regiao,
@@ -1233,7 +1320,7 @@ export async function saveLoteRecolhimento(
       .single();
 
     if (error) {
-      // Salva no localStorage
+      console.error("Erro ao atualizar lote_recolhimento no Supabase:", error);
       const locals = getLocalLotes();
       const updated = locals.map((l) => (l.id === loteId ? { ...l, ...payload } : l));
       saveLocalLotes(updated);
@@ -1245,13 +1332,14 @@ export async function saveLoteRecolhimento(
       .from("lotes_recolhimento")
       .insert({
         ...payload,
+        company_id: companyId,
         status: dbStatus,
       })
       .select("*")
       .single();
 
     if (error) {
-      // Salva no localStorage
+      console.error("Erro ao inserir lote_recolhimento no Supabase:", error);
       const locals = getLocalLotes();
       saveLocalLotes([payload, ...locals]);
       return payload;
